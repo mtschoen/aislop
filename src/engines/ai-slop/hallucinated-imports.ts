@@ -23,13 +23,15 @@ const readJson = (filePath: string): unknown => {
 	}
 };
 
-const collectJsDeps = (rootDir: string, jsDeps: Set<string>): boolean => {
-	const pkgPath = path.join(rootDir, "package.json");
-	if (!fs.existsSync(pkgPath)) return false;
-	const pkg = readJson(pkgPath) as Record<string, unknown> | null;
-	if (!pkg || typeof pkg !== "object") return false;
-	const sections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
-	for (const section of sections) {
+const PKG_DEP_SECTIONS = [
+	"dependencies",
+	"devDependencies",
+	"peerDependencies",
+	"optionalDependencies",
+];
+
+const addDepsFromPkg = (pkg: Record<string, unknown>, jsDeps: Set<string>): void => {
+	for (const section of PKG_DEP_SECTIONS) {
 		const deps = pkg[section];
 		if (deps && typeof deps === "object") {
 			for (const name of Object.keys(deps as Record<string, unknown>)) {
@@ -37,6 +39,103 @@ const collectJsDeps = (rootDir: string, jsDeps: Set<string>): boolean => {
 			}
 		}
 	}
+};
+
+const readWorkspaceGlobs = (rootDir: string, rootPkg: unknown): string[] => {
+	const globs: string[] = [];
+	if (rootPkg && typeof rootPkg === "object") {
+		const ws = (rootPkg as Record<string, unknown>).workspaces;
+		if (Array.isArray(ws)) {
+			for (const g of ws) if (typeof g === "string") globs.push(g);
+		} else if (ws && typeof ws === "object") {
+			const pkgs = (ws as Record<string, unknown>).packages;
+			if (Array.isArray(pkgs)) {
+				for (const g of pkgs) if (typeof g === "string") globs.push(g);
+			}
+		}
+	}
+	const lerna = readJson(path.join(rootDir, "lerna.json")) as Record<string, unknown> | null;
+	if (lerna && Array.isArray(lerna.packages)) {
+		for (const g of lerna.packages) if (typeof g === "string") globs.push(g);
+	}
+	try {
+		const pnpmWs = fs.readFileSync(path.join(rootDir, "pnpm-workspace.yaml"), "utf-8");
+		const pkgsBlock = pnpmWs.match(/^packages\s*:\s*\n([\s\S]*?)(?=^\S|\Z)/m);
+		const block = pkgsBlock ? pkgsBlock[1] : pnpmWs;
+		for (const line of block.split("\n")) {
+			const m = line.match(/^\s*-\s*["']?([^"'\n]+?)["']?\s*$/);
+			if (m) globs.push(m[1].trim());
+		}
+	} catch {
+		// no pnpm-workspace.yaml
+	}
+	return globs;
+};
+
+const expandWorkspaceDirs = (rootDir: string, globs: string[]): string[] => {
+	const dirs: string[] = [];
+	for (const glob of globs) {
+		if (glob.endsWith("/*")) {
+			const parent = path.join(rootDir, glob.slice(0, -2));
+			try {
+				for (const entry of fs.readdirSync(parent, { withFileTypes: true })) {
+					if (entry.isDirectory()) dirs.push(path.join(parent, entry.name));
+				}
+			} catch {
+				continue;
+			}
+		} else if (!glob.includes("*")) {
+			dirs.push(path.join(rootDir, glob));
+		}
+	}
+	return dirs;
+};
+
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "out", "target", "coverage"]);
+const NESTED_PKG_JSON_DEPTH = 4;
+
+const collectNestedManifests = (rootDir: string, jsDeps: Set<string>): void => {
+	const walk = (dir: string, depth: number): void => {
+		if (depth > NESTED_PKG_JSON_DEPTH) return;
+		let entries: import("node:fs").Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (entry.name.startsWith(".") && entry.name !== ".github") continue;
+			if (SKIP_DIRS.has(entry.name)) continue;
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				walk(full, depth + 1);
+			} else if (entry.name === "package.json" && depth > 0) {
+				const wsPkg = readJson(full) as Record<string, unknown> | null;
+				if (!wsPkg) continue;
+				if (typeof wsPkg.name === "string") jsDeps.add(wsPkg.name);
+				addDepsFromPkg(wsPkg, jsDeps);
+			}
+		}
+	};
+	walk(rootDir, 0);
+};
+
+const collectJsDeps = (rootDir: string, jsDeps: Set<string>): boolean => {
+	const pkgPath = path.join(rootDir, "package.json");
+	if (!fs.existsSync(pkgPath)) return false;
+	const pkg = readJson(pkgPath) as Record<string, unknown> | null;
+	if (!pkg || typeof pkg !== "object") return false;
+	addDepsFromPkg(pkg, jsDeps);
+	if (typeof pkg.name === "string") jsDeps.add(pkg.name);
+
+	const workspaceDirs = expandWorkspaceDirs(rootDir, readWorkspaceGlobs(rootDir, pkg));
+	for (const wsDir of workspaceDirs) {
+		const wsPkg = readJson(path.join(wsDir, "package.json")) as Record<string, unknown> | null;
+		if (!wsPkg) continue;
+		if (typeof wsPkg.name === "string") jsDeps.add(wsPkg.name);
+		addDepsFromPkg(wsPkg, jsDeps);
+	}
+	collectNestedManifests(rootDir, jsDeps);
 	return true;
 };
 
@@ -67,6 +166,10 @@ const collectFromPyproject = (rootDir: string, pyDeps: Set<string>): boolean => 
 	if (!fs.existsSync(pyprojPath)) return false;
 	try {
 		const content = fs.readFileSync(pyprojPath, "utf-8");
+		const projectNameMatch = content.match(/\[project\][\s\S]*?^\s*name\s*=\s*["']([^"']+)/m);
+		if (projectNameMatch) addPyDep(pyDeps, projectNameMatch[1]);
+		const poetryNameMatch = content.match(/\[tool\.poetry\][\s\S]*?^\s*name\s*=\s*["']([^"']+)/m);
+		if (poetryNameMatch) addPyDep(pyDeps, poetryNameMatch[1]);
 		// PEP 621 [project] dependencies = [...]
 		const pep621 = content.match(/^\s*dependencies\s*=\s*\[([\s\S]*?)\]/m);
 		if (pep621) {
@@ -133,6 +236,10 @@ const isJsBuiltin = (spec: string): boolean => {
 	const stripped = spec.startsWith("node:") ? spec.slice(5) : spec;
 	return isBuiltin(stripped) || isBuiltin(spec);
 };
+
+const VIRTUAL_MODULE_PREFIXES = ["astro:", "virtual:", "bun:"];
+const isJsVirtualModule = (spec: string): boolean =>
+	VIRTUAL_MODULE_PREFIXES.some((p) => spec.startsWith(p));
 
 // Filter out import-shaped substrings inside template literals or error messages — these chars never appear in real package names.
 const TEMPLATE_PLACEHOLDER_RE = /\$\{/;
@@ -212,6 +319,7 @@ const extractPyImports = (content: string): { spec: string; line: number }[] => 
 const checkJsImport = (spec: string, manifest: PackageManifest): string | null => {
 	if (isJsRelativeOrAbsolute(spec)) return null;
 	if (isJsBuiltin(spec)) return null;
+	if (isJsVirtualModule(spec)) return null;
 	const pkg = packageNameFromImport(spec);
 	if (manifest.jsDeps.has(pkg)) return null;
 	// Allow @types/X if X itself is in deps (the runtime impl) — common pattern.

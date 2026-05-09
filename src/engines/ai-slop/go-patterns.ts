@@ -8,6 +8,8 @@ const GO_EXTENSIONS = new Set([".go"]);
 const PACKAGE_DECL_RE = /^\s*package\s+(\w+)/;
 const PANIC_CALL_RE = /\bpanic\s*\(/;
 const COMMENT_LINE_RE = /^\s*\/\//;
+const NIL_GUARD_RE = /^\s*if\s+[\w.]+(?:\(\))?\s*==\s*nil\s*\{?\s*$/;
+const SHORT_STRING_PANIC_RE = /\bpanic\s*\(\s*"[^"]{1,40}"\s*\)/;
 
 const detectPackageName = (lines: string[]): string | null => {
 	for (const line of lines) {
@@ -17,12 +19,23 @@ const detectPackageName = (lines: string[]): string | null => {
 	return null;
 };
 
-// A comment within ~3 lines above the panic = deliberate intent (validated against cobra).
+// A comment within N lines above the panic signals deliberate intent.
 const PANIC_INTENT_LOOKBACK = 3;
 
 const hasIntentComment = (lines: string[], panicLineIdx: number): boolean => {
 	for (let j = panicLineIdx - 1; j >= Math.max(0, panicLineIdx - PANIC_INTENT_LOOKBACK); j--) {
 		if (COMMENT_LINE_RE.test(lines[j])) return true;
+	}
+	return false;
+};
+
+// `if x == nil { panic("nil X") }` is a precondition guard, not unwound flow.
+const isNilGuardPanic = (lines: string[], panicLineIdx: number, line: string): boolean => {
+	if (!SHORT_STRING_PANIC_RE.test(line)) return false;
+	for (let j = panicLineIdx - 1; j >= Math.max(0, panicLineIdx - 2); j--) {
+		const prev = lines[j];
+		if (prev.trim() === "") continue;
+		return NIL_GUARD_RE.test(prev);
 	}
 	return false;
 };
@@ -41,6 +54,7 @@ const flagLibraryPanic = (
 		PANIC_CALL_RE.lastIndex = 0;
 		if (!PANIC_CALL_RE.test(line)) continue;
 		if (hasIntentComment(lines, i)) continue;
+		if (isNilGuardPanic(lines, i, line)) continue;
 		out.push({
 			filePath: relPath,
 			engine: "ai-slop",

@@ -29,11 +29,10 @@ const slop = (
 	fixable,
 });
 
-// Files that are intentionally logging infrastructure (not leftover debugging)
 const LOGGER_FILE_PATTERN = /(?:^|\/)(?:logger|logging|log)\.[^/]+$/i;
 
-// Directories where console output is expected (CLI scripts, build scripts, etc.)
-const SCRIPT_DIR_PATTERN = /(?:^|\/)(scripts|bin)\//;
+const NON_PRODUCTION_DIR_PATTERN =
+	/(?:^|\/)(?:scripts|bin|examples?|demos?|bench|benches|benchmarks?|fixtures?|__fixtures__|__mocks__|__tests__|cli|cli-[\w-]+|[\w-]+-cli)\//;
 
 const detectConsoleLeftovers = (
 	content: string,
@@ -42,10 +41,8 @@ const detectConsoleLeftovers = (
 ): Diagnostic[] => {
 	if (!JS_EXTENSIONS.has(ext)) return [];
 
-	// Skip files whose purpose is to be a logger
 	if (LOGGER_FILE_PATTERN.test(relativePath)) return [];
-	// Skip build/CLI scripts where console output is intentional
-	if (SCRIPT_DIR_PATTERN.test(relativePath)) return [];
+	if (NON_PRODUCTION_DIR_PATTERN.test(relativePath)) return [];
 
 	const diagnostics: Diagnostic[] = [];
 	const lines = content.split("\n");
@@ -211,6 +208,7 @@ const detectUnsafeTypePatterns = (
 	ext: string,
 ): Diagnostic[] => {
 	if (ext !== ".ts" && ext !== ".tsx") return [];
+	if (NON_PRODUCTION_DIR_PATTERN.test(relativePath)) return [];
 
 	const diagnostics: Diagnostic[] = [];
 	const lines = content.split("\n");

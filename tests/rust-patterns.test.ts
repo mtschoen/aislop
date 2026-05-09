@@ -101,7 +101,6 @@ describe("rust: non-test-unwrap", () => {
 	});
 
 	it("does NOT flag `.unwrap()` in build.rs (Cargo build script — runs at build time)", async () => {
-		// Validated against xh: build.rs has 9 unwraps for env::var lookups during build.
 		writeFile(
 			"build.rs",
 			[
@@ -117,8 +116,6 @@ describe("rust: non-test-unwrap", () => {
 	});
 
 	it("does NOT flag `.unwrap()` in testutil.rs / test_util.rs / test_utils.rs", async () => {
-		// Validated against ripgrep: crates/searcher/src/testutil.rs has 8 unwraps
-		// for test infrastructure. Naming convention says "this is test support code."
 		writeFile(
 			"crates/searcher/src/testutil.rs",
 			["pub fn helper() -> i32 {", "    Some(1).unwrap()", "}", ""].join("\n"),
@@ -130,8 +127,6 @@ describe("rust: non-test-unwrap", () => {
 	});
 
 	it("does NOT flag `writeln!(out, ...).unwrap()` / `write!(out, ...).unwrap()` (infallible String/Vec writers)", async () => {
-		// Validated against ripgrep: crates/core/flags/doc/version.rs has 8 unwraps
-		// like `writeln!(out, ...).unwrap()` writing to a String — infallible by design.
 		writeFile(
 			"src/render.rs",
 			[
@@ -151,8 +146,6 @@ describe("rust: non-test-unwrap", () => {
 	});
 
 	it("does NOT flag `.unwrap()` or `todo!()` in files under benches/ (Rust benchmarks)", async () => {
-		// Validated against ripgrep: crates/globset/benches/bench.rs has 4 unwraps
-		// for benchmark setup. Bench code is not user-facing.
 		writeFile(
 			"benches/bench.rs",
 			[
@@ -169,7 +162,6 @@ describe("rust: non-test-unwrap", () => {
 	});
 
 	it("does NOT flag `.unwrap()` or `todo!()` in files under examples/", async () => {
-		// Validated against clap: examples/ files use unwrap and todo as teaching shorthand.
 		writeFile(
 			"examples/find.rs",
 			[
@@ -182,6 +174,25 @@ describe("rust: non-test-unwrap", () => {
 		);
 		const diagnostics = await detectRustPatterns(buildContext());
 		expect(diagnostics).toEqual([]);
+	});
+
+	it("does NOT flag `.unwrap()` in test-helper crate dirs", async () => {
+		// Cargo workspace crates named `*-test`, `*-tests`, `tests-*` are test infrastructure.
+		writeFile(
+			"tokio-test/src/io.rs",
+			["pub fn helper() {", "    self.tx.send(x).unwrap();", "}", ""].join("\n"),
+		);
+		writeFile(
+			"tests-integration/src/bin/test-cat.rs",
+			["fn main() {", "    let v = Some(1).unwrap();", "}", ""].join("\n"),
+		);
+		writeFile(
+			"crates/foo-test-utils/src/lib.rs",
+			["pub fn helper() {", "    Some(1).unwrap();", "}", ""].join("\n"),
+		);
+		const diagnostics = await detectRustPatterns(buildContext());
+		const matches = diagnostics.filter((d) => d.rule === "ai-slop/rust-non-test-unwrap");
+		expect(matches).toEqual([]);
 	});
 
 	it("does NOT flag `.unwrap()` mentioned only inside a comment", async () => {

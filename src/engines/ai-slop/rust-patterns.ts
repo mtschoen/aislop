@@ -9,7 +9,7 @@ const UNWRAP_CALL_RE = /\.unwrap\s*\(\s*\)/;
 const TODO_MACRO_RE = /\b(todo|unimplemented)\s*!\s*\(/;
 const COMMENT_LINE_RE = /^\s*\/\//;
 const TEST_ATTR_RE = /^\s*#\s*\[\s*(?:cfg\s*\(\s*test\s*\)|test|tokio::test)/;
-// `writeln!/write!(...).unwrap()` is infallible on String/Vec/Formatter — canonical Rust idiom (validated: ripgrep).
+// `writeln!/write!(...).unwrap()` is infallible on String/Vec/Formatter writers.
 const WRITELN_UNWRAP_RE = /\b(?:writeln|write)\s*!\s*\([^)]*\)\s*\.unwrap\s*\(\s*\)/;
 
 const TEST_BASENAMES = new Set([
@@ -20,22 +20,19 @@ const TEST_BASENAMES = new Set([
 	"build.rs",
 ]);
 
+const TEST_CRATE_SEGMENT_RE = /(?:^|[-_])tests?(?:$|[-_])/;
+
 const isTestFile = (relPath: string): boolean => {
 	const segments = relPath.split(path.sep);
-	if (segments.includes("tests")) return true;
+	if (segments.some((s) => TEST_CRATE_SEGMENT_RE.test(s))) return true;
 	const basename = segments[segments.length - 1] ?? "";
 	if (TEST_BASENAMES.has(basename)) return true;
 	return basename.endsWith("_tests.rs") || basename.endsWith("_testutil.rs");
 };
 
-// `examples/` and `benches/` are demo / benchmark code — `unwrap()` and `todo!()`
-// are pedagogically intentional or harmless at bench time. Validated against clap
-// (examples/) and ripgrep (benches/).
 const isExampleFile = (relPath: string): boolean =>
 	relPath.split(path.sep).some((seg) => seg === "examples" || seg === "benches");
 
-// An unwrap preceded by a `// safe:`, `// unwrap:`, `// SAFETY:`, or any short
-// explanatory comment within ~2 lines above signals deliberate intent.
 const UNWRAP_INTENT_LOOKBACK = 2;
 const hasIntentComment = (lines: string[], lineIdx: number): boolean => {
 	for (let j = lineIdx - 1; j >= Math.max(0, lineIdx - UNWRAP_INTENT_LOOKBACK); j--) {
