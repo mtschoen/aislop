@@ -2,10 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	detectNarrativeComments,
-	fixNarrativeComments,
-} from "../../src/engines/ai-slop/narrative-comments.js";
+import { fixNarrativeComments } from "../../src/engines/ai-slop/narrative-comments-fix.js";
+import { detectNarrativeComments } from "../../src/engines/ai-slop/narrative-comments.js";
 import type { EngineContext } from "../../src/engines/types.js";
 
 let tmpDir: string;
@@ -442,5 +440,74 @@ router.get('/api/auth/me', handler);
 		);
 		const diags = await detectNarrativeComments(ctx(tmpDir));
 		expect(diags).toHaveLength(0);
+	});
+
+	it("exempts Rust /// item-level doc comments", async () => {
+		writeFile(
+			"src/fs.rs",
+			`/// Returns the canonical, absolute form of a path with all intermediate
+/// components normalized and symbolic links resolved.
+///
+/// This is an async version of [\`std::fs::canonicalize\`].
+///
+/// # Platform-specific behavior
+pub async fn canonicalize() {}
+`,
+		);
+		const diags = await detectNarrativeComments(ctx(tmpDir));
+		expect(diags).toHaveLength(0);
+	});
+
+	it("exempts Rust //! module-level doc comments", async () => {
+		writeFile(
+			"src/lib.rs",
+			`//! Types which are documented locally in the Tokio crate, but does not actually
+//! live here.
+//!
+//! **Note** this module is only visible on docs.rs, you cannot use it directly
+//! in your own code.
+
+pub mod foo {}
+`,
+		);
+		const diags = await detectNarrativeComments(ctx(tmpDir));
+		expect(diags).toHaveLength(0);
+	});
+
+	it("does not flag narrative comments inside vendored / third_party / examples dirs", async () => {
+		writeFile(
+			"vendor/legacy/foo.ts",
+			`// This function does N things.
+// First it parses input. Then it validates. Finally it writes.
+export const run = () => 0;
+`,
+		);
+		writeFile(
+			"third_party/lib/bar.ts",
+			`// Phase 1: setup
+export const x = 1;
+`,
+		);
+		writeFile(
+			"src/blib2to3/grammar.py",
+			`# Phase 1: tokenize
+def tokenize(): pass
+`,
+		);
+		const diags = await detectNarrativeComments(ctx(tmpDir));
+		expect(diags).toHaveLength(0);
+	});
+
+	it("still flags plain // narrative blocks in .rs files (does not blanket-exempt Rust)", async () => {
+		writeFile(
+			"src/lib.rs",
+			`// This function takes a request and returns a response.
+// It does this by walking the routing table and matching the
+// path. The match is then dispatched to the handler.
+pub fn handle() {}
+`,
+		);
+		const diags = await detectNarrativeComments(ctx(tmpDir));
+		expect(diags.length).toBeGreaterThan(0);
 	});
 });

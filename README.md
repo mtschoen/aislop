@@ -1,6 +1,6 @@
 # aislop
 
-**The quality gate for agentic coding.**
+**The engineering standards layer and quality gate for AI-written code.**
 
 [![npm version](https://img.shields.io/npm/v/aislop.svg)](https://www.npmjs.com/package/aislop)
 [![npm downloads](https://img.shields.io/npm/dm/aislop.svg)](https://www.npmjs.com/package/aislop)
@@ -9,7 +9,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
-`aislop` scans the code your agent wrote and gives you one score, 0–100. It rolls formatters, linters, complexity limits, dependency audits, and an AI-slop detector into a single command. It auto-fixes what's safely fixable and hands the rest to your coding agent with full context.
+Define your standard once in `.aislop/config.yml` + `.aislop/rules.yml`. Every change your agent makes is held to it automatically. `aislop` catches the slop they leave behind (narrative comments, `as any`, swallowed errors, hallucinated imports, todo stubs), enforces the rules your team sets, and scores every change 0–100. 8+ languages. Deterministic — no LLM at runtime.
+
+### The killer feature: the per-edit hook
+
+Install once into your coding agent:
+
+```bash
+npx aislop hook install --claude    # also: --cursor, --codex, --gemini, --windsurf, --cline, --kilo, --antigravity, --copilot
+```
+
+After every `Edit` / `Write` your agent makes, `aislop` runs and feeds the diagnostics back into the agent's next turn as structured `additionalContext` (envelope: `aislop.hook.v1` — score, counts, findings, regression flag, suggested next steps). **The agent sees the score regression on the same turn it wrote the code, before you prompt again.** No more PR-time surprises; the slop never leaves the keystroke that produced it.
+
+CI is the second gate: `aislop ci` exits non-zero when score drops below your threshold, so the same standard is enforced on every PR.
 
 Every check is deterministic. Regex patterns, AST analysis, and standard tooling (Biome, oxlint, knip, ruff). Same code in, same score out. No API calls, no LLMs, no network dependency (except optional dependency audits). The name refers to what it *catches*.
 
@@ -47,7 +59,7 @@ Sample output:
  [!]  Code Quality: done (2 warnings, 812ms)
  [!]  AI Slop: done (4 warnings, 455ms)
  [ok] Security: done (0 issues, 1.3s)
- aislop 0.7.0  ·  the quality gate for agentic coding
+ aislop 0.8.0  ·  the quality gate for agentic coding
 
  scan  ·  my-app  ·  typescript  ·  142 files
 
@@ -224,6 +236,30 @@ aislop hook uninstall                   # remove every aislop entry, sentinel-ve
 ```
 
 Every install is sentinel-guarded (SHA-256 hash fence) for idempotent re-runs and exact uninstall. Full guide: [`/docs/hooks`](https://scanaislop.com/docs/hooks).
+
+### Use as an MCP server
+
+aislop ships an MCP (Model Context Protocol) server so any agent that speaks MCP — Claude Desktop, Claude Code, Cursor, Codex — can call it as a tool.
+
+```jsonc
+// ~/.cursor/mcp.json  /  Claude Desktop config  /  ~/.codex/config.toml equivalent
+{
+  "mcpServers": {
+    "aislop": {
+      "command": "npx",
+      "args": ["-y", "aislop-mcp"]
+    }
+  }
+}
+```
+
+Tools exposed:
+- `aislop_scan({ path? })` — score + counts + top findings
+- `aislop_fix({ path?, force? })` — apply mechanical fixes; returns before/after delta
+- `aislop_why({ rule_id })` — engine + docs link for a rule
+- `aislop_baseline({ path? })` — read the per-edit-hook baseline (score, lastScanAt, fileCount)
+
+Same engines as the CLI; calling these from inside an agent session lets the model self-check before claiming work is done.
 
 ### Use in CI pipelines
 
