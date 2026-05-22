@@ -25,10 +25,18 @@ const buildContext = (): EngineContext => ({
 	},
 });
 
-const writePkgJson = (deps: Record<string, string> = {}, devDeps: Record<string, string> = {}): void => {
+const writePkgJson = (
+	deps: Record<string, string> = {},
+	devDeps: Record<string, string> = {},
+): void => {
 	writeFile(
 		"package.json",
-		JSON.stringify({ name: "test", version: "1.0.0", dependencies: deps, devDependencies: devDeps }),
+		JSON.stringify({
+			name: "test",
+			version: "1.0.0",
+			dependencies: deps,
+			devDependencies: devDeps,
+		}),
 	);
 };
 
@@ -97,7 +105,7 @@ export type Node = ReactNode
 		expect(diagnostics).toEqual([]);
 	});
 
-	it("does not false-positive on `import ... from \"x\"` written inside a string literal in source (e.g. help text)", async () => {
+	it('does not false-positive on `import ... from "x"` written inside a string literal in source (e.g. help text)', async () => {
 		writePkgJson({ lodash: "^4.0.0" });
 		// Mirrors the FP found when scanning aislop on itself — the duplicate-import rule's
 		// help string contained the literal text `import { A, type B } from "x"` as an
@@ -141,6 +149,32 @@ export { msg, example, tpl }
 			`import { getCollection } from "astro:content";
 import sw from "virtual:pwa-register";
 import { serve } from "bun:test";
+`,
+		);
+		const diags = await detectHallucinatedImports(buildContext());
+		expect(diags).toHaveLength(0);
+	});
+
+	it("does not flag Bun runtime and file URL modules", async () => {
+		writePkgJson({});
+		writeFile(
+			"src/runtime.ts",
+			`import { spawn } from "bun";
+import config from "file:///tmp/generated-config.mjs";
+export { spawn, config };
+`,
+		);
+		const diags = await detectHallucinatedImports(buildContext());
+		expect(diags).toHaveLength(0);
+	});
+
+	it("does not flag unplugin virtual icon and font modules when their plugins are installed", async () => {
+		writePkgJson({}, { "unplugin-icons": "^0.19.0", "unplugin-fonts": "^1.1.0" });
+		writeFile(
+			"src/app.tsx",
+			`import IconCheck from "~icons/lucide/check";
+import "unfonts.css";
+export const App = () => <IconCheck />;
 `,
 		);
 		const diags = await detectHallucinatedImports(buildContext());
@@ -224,10 +258,7 @@ const m2 = await import("ghost-package-esm")
 		const ruleIds = diagnostics.map((d) => d.rule);
 		const messages = diagnostics.map((d) => d.message);
 
-		expect(ruleIds).toEqual([
-			"ai-slop/hallucinated-import",
-			"ai-slop/hallucinated-import",
-		]);
+		expect(ruleIds).toEqual(["ai-slop/hallucinated-import", "ai-slop/hallucinated-import"]);
 		expect(messages.some((m) => m.includes("ghost-package-cjs"))).toBe(true);
 		expect(messages.some((m) => m.includes("ghost-package-esm"))).toBe(true);
 	});
@@ -280,10 +311,7 @@ import { Page } from "@/pages/Home";
 				compilerOptions: { baseUrl: ".", paths: { "@/*": ["./src/*"] } },
 			}),
 		);
-		writeFile(
-			"packages/web/src/main.ts",
-			`import { Layout } from "@/components/Layout";\n`,
-		);
+		writeFile("packages/web/src/main.ts", `import { Layout } from "@/components/Layout";\n`);
 		const diags = await detectHallucinatedImports(buildContext());
 		expect(diags).toEqual([]);
 	});
@@ -301,13 +329,28 @@ import { Page } from "@/pages/Home";
 		expect(diags).toEqual([]);
 	});
 
+	it("resolves bare imports through tsconfig baseUrl directories", async () => {
+		writePkgJson({});
+		writeFile("pnpm-workspace.yaml", `packages:\n  - "apps/*"\n`);
+		writeFile("apps/web/package.json", JSON.stringify({ name: "@scope/web" }));
+		writeFile(
+			"apps/web/tsconfig.json",
+			JSON.stringify({
+				compilerOptions: { baseUrl: "." },
+			}),
+		);
+		writeFile("apps/web/hooks/useThing.ts", "export const useThing = () => true;\n");
+		writeFile("apps/web/components/Header.ts", `import { useThing } from "hooks/useThing";\n`);
+
+		const diags = await detectHallucinatedImports(buildContext());
+
+		expect(diags).toEqual([]);
+	});
+
 	it("falls back gracefully when tsconfig.json is malformed (no crash, no alias support)", async () => {
 		writePkgJson({});
 		// Trailing comma — invalid strict JSON. readJson returns null; we proceed without aliases.
-		writeFile(
-			"tsconfig.json",
-			`{ "compilerOptions": { "paths": { "@/*": ["./src/*"], }, }, }`,
-		);
+		writeFile("tsconfig.json", `{ "compilerOptions": { "paths": { "@/*": ["./src/*"], }, }, }`);
 		writeFile("src/index.ts", `import { x } from "@/lib/x";\n`);
 		const diags = await detectHallucinatedImports(buildContext());
 		// Without alias support, this DOES flag — that's the documented degraded behavior, not a regression.
@@ -399,6 +442,93 @@ import made_up_orm
 
 		expect(diagnostics).toHaveLength(1);
 		expect(diagnostics[0].message).toContain("made_up_orm");
+	});
+
+	it("does not flag imports of the project's own internal package laid out under src/<pkg>/", async () => {
+		writeFile(
+			"pyproject.toml",
+			`[project]
+name = "pytest"
+dependencies = ["pluggy>=1.5"]
+`,
+		);
+		writeFile("src/_pytest/__init__.py", "");
+		writeFile("src/_pytest/runner.py", "");
+		writeFile(
+			"src/_pytest/main.py",
+			`from _pytest.runner import run
+from _pytest import runner
+`,
+		);
+
+		const diagnostics = await detectHallucinatedImports(buildContext());
+		expect(diagnostics).toHaveLength(0);
+	});
+
+	it("does not flag imports of a top-level package directory at the repo root", async () => {
+		writeFile("pyproject.toml", `[project]\nname = "demo"\n`);
+		writeFile("mypkg/__init__.py", "");
+		writeFile("mypkg/sub.py", "");
+		writeFile("app/main.py", `from mypkg.sub import something\n`);
+		writeFile("app/__init__.py", "");
+		const diagnostics = await detectHallucinatedImports(buildContext());
+		expect(diagnostics).toHaveLength(0);
+	});
+});
+
+describe("ai-slop/unused-import — Python re-export convention", () => {
+	let tmpDir: string;
+	let writeFile: (relPath: string, content: string) => string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-reexport-"));
+		writeFile = (relPath, content) => {
+			const full = path.join(tmpDir, relPath);
+			fs.mkdirSync(path.dirname(full), { recursive: true });
+			fs.writeFileSync(full, content);
+			return full;
+		};
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("does not flag PEP 484 `from X import Y as Y` re-export pattern in __init__.py", async () => {
+		const initPath = writeFile(
+			"src/myapp/__init__.py",
+			[
+				"from .app import App as App",
+				"from .config import Config as Config",
+				"from .ctx import after_this_request as after_this_request",
+				"",
+			].join("\n"),
+		);
+
+		const { analyzeFile, getUnusedSymbols } = await import(
+			"../src/engines/ai-slop/unused-imports.js"
+		);
+		const analyzed = analyzeFile(initPath);
+		expect(analyzed).not.toBeNull();
+		if (!analyzed) return;
+		const unused = getUnusedSymbols(analyzed.lines, analyzed.symbols, analyzed.importLines);
+		expect(unused).toHaveLength(0);
+	});
+
+	it("still flags `from X import Y` when Y is genuinely unused", async () => {
+		const filePath = writeFile(
+			"src/main.py",
+			["from collections import OrderedDict", "print('hello')", ""].join("\n"),
+		);
+
+		const { analyzeFile, getUnusedSymbols } = await import(
+			"../src/engines/ai-slop/unused-imports.js"
+		);
+		const analyzed = analyzeFile(filePath);
+		expect(analyzed).not.toBeNull();
+		if (!analyzed) return;
+		const unused = getUnusedSymbols(analyzed.lines, analyzed.symbols, analyzed.importLines);
+		expect(unused.some((s) => s.name === "OrderedDict")).toBe(true);
 	});
 });
 
