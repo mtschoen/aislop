@@ -87,7 +87,7 @@ describe("scanSecrets", () => {
 				"  } catch (error) {",
 				'    console.error("Error verifying video password:", error);',
 				'    console.log("API key rotation failed:", error);',
-				'    log.warn(`token refresh: ${err.message}`);',
+				"    log.warn(`token refresh: ${err.message}`);",
 				"  }",
 				"}",
 			].join("\n"),
@@ -107,6 +107,32 @@ describe("scanSecrets", () => {
 		const diagnostics = await scanSecrets(makeContext([filePath]));
 		expect(diagnostics).toHaveLength(1);
 		expect(diagnostics[0].line).toBe(1);
+	});
+
+	it("does not treat UI password labels as hardcoded secrets", async () => {
+		const filePath = writeFile(
+			"password-label.tsx",
+			[
+				"export const PasswordField = ({ hasPassword }: { hasPassword: boolean }) => (",
+				"  <input",
+				'    type="password"',
+				'    placeholder={hasPassword ? "Enter new password" : "Set a password"}',
+				"  />",
+				");",
+			].join("\n"),
+		);
+		const diagnostics = await scanSecrets(makeContext([filePath]));
+		expect(diagnostics).toHaveLength(0);
+	});
+
+	it("detects uppercase token constants with provider prefixes", async () => {
+		const filePath = writeFile(
+			"tokens.ts",
+			'const AXIOM_API_TOKEN = "xaat-c0704be6-e942-4935-b068-3b491d7cc00f";',
+		);
+		const diagnostics = await scanSecrets(makeContext([filePath]));
+		expect(diagnostics.length).toBeGreaterThanOrEqual(1);
+		expect(diagnostics[0].message).toContain("Authentication token");
 	});
 
 	it("detects a private key header", async () => {
@@ -262,6 +288,28 @@ describe("detectRiskyConstructs", () => {
 		const diagnostics = await detectRiskyConstructs(makeContext([filePath]));
 		const evalDiags = diagnostics.filter((d) => d.rule === "security/eval");
 		expect(evalDiags).toHaveLength(0);
+	});
+
+	it("does not flag method-call eval forms ('->eval', '::eval', '.eval')", async () => {
+		const phpPath = writeFile(
+			"redis-queue.php",
+			"<?php $this->getConnection()->eval(LuaScripts::push(), 2, $queue);",
+		);
+		const rubyPath = writeFile("repl.rb", "binding.eval(line)");
+		const jsPath = writeFile("obj.js", "self.eval(input);");
+		const phpStaticPath = writeFile("class.php", "<?php Container::eval($code);");
+		const diagnostics = await detectRiskyConstructs(
+			makeContext([phpPath, rubyPath, jsPath, phpStaticPath]),
+		);
+		const evalDiags = diagnostics.filter((d) => d.rule === "security/eval");
+		expect(evalDiags).toHaveLength(0);
+	});
+
+	it("still flags top-level eval() in PHP", async () => {
+		const filePath = writeFile("dynamic.php", "<?php eval($userCode);");
+		const diagnostics = await detectRiskyConstructs(makeContext([filePath]));
+		const evalDiags = diagnostics.filter((d) => d.rule === "security/eval");
+		expect(evalDiags.length).toBeGreaterThanOrEqual(1);
 	});
 
 	it("detects new Function() in TypeScript", async () => {
