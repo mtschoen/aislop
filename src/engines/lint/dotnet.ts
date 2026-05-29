@@ -1,0 +1,110 @@
+import fs from "node:fs";
+import path from "node:path";
+import { runSubprocess } from "../../utils/subprocess.js";
+import { resolveToolBinary } from "../../utils/tooling.js";
+import { findDotnetTarget } from "../dotnet-targets.js";
+import type { Diagnostic, EngineContext } from "../types.js";
+
+// Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
+const RELEVANT_IDS = new Set([
+	"AsyncFixer01",
+	"AsyncFixer02",
+	"AsyncFixer03", // async misuse / sync-over-async
+	"MA0040",
+	"MA0042",
+	"MA0045", // Meziantou async/Task best practices
+	"CS0219",
+	"CS0162", // unused/unreachable
+]);
+
+interface ParsedDiagnostic {
+	id: string;
+	message: string;
+	filePath: string;
+	line: number;
+	column: number;
+}
+
+const decodeEntities = (value: string): string =>
+	value
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&amp;/g, "&");
+
+// Defensive regex parse (no XML dependency). Matches each <Diagnostic Id="..."> ... </Diagnostic>.
+// Summary-section entries have no <FilePath> and are skipped.
+const extractDiagnostics = (xml: string): ParsedDiagnostic[] => {
+	const result: ParsedDiagnostic[] = [];
+	const blockRe = /<Diagnostic\b[^>]*\bId="([^"]+)"[\s\S]*?<\/Diagnostic>/g;
+	let block: RegExpExecArray | null;
+	while ((block = blockRe.exec(xml)) !== null) {
+		const id = block[1];
+		const body = block[0];
+		const message = /<Message>([\s\S]*?)<\/Message>/.exec(body)?.[1] ?? "";
+		const filePath = /<FilePath>([\s\S]*?)<\/FilePath>/.exec(body)?.[1] ?? "";
+		const location = /<Location\b[^>]*\bLine="(\d+)"[^>]*\bCharacter="(\d+)"/.exec(body);
+		if (!filePath) continue;
+		result.push({
+			id,
+			message: decodeEntities(message.trim()),
+			filePath: decodeEntities(filePath.trim()),
+			line: location ? Number(location[1]) : 1,
+			column: location ? Number(location[2]) : 1,
+		});
+	}
+	return result;
+};
+
+export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnostic[] => {
+	let parsed: ParsedDiagnostic[];
+	try {
+		parsed = extractDiagnostics(xml);
+	} catch {
+		return [];
+	}
+	return parsed
+		.filter((d) => RELEVANT_IDS.has(d.id))
+		.map((d) => ({
+			filePath: path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+			engine: "lint" as const,
+			rule: `dotnet/${d.id}`,
+			severity: "warning" as const,
+			message: d.message,
+			help: "",
+			line: d.line,
+			column: d.column,
+			category: "C# Lint",
+			fixable: false,
+		}));
+};
+
+export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[]> => {
+	const target = findDotnetTarget(context);
+	if (!target) return [];
+	const roslynator = resolveToolBinary("roslynator");
+	const outputPath = path.join(context.rootDirectory, ".aislop-roslynator.xml");
+	try {
+		// Best-effort restore; ignore failure (analyze surfaces nothing if it can't load).
+		await runSubprocess("dotnet", ["restore", target], {
+			cwd: context.rootDirectory,
+			timeout: 120000,
+		});
+		const result = await runSubprocess(roslynator, ["analyze", target, "--output", outputPath], {
+			cwd: context.rootDirectory,
+			timeout: 180000,
+		});
+		if (result.exitCode !== 0 && result.exitCode !== 1) return [];
+		let xml: string;
+		try {
+			xml = fs.readFileSync(outputPath, "utf-8");
+			fs.rmSync(outputPath, { force: true });
+		} catch {
+			return [];
+		}
+		return parseRoslynatorXml(xml, context.rootDirectory);
+	} catch {
+		return [];
+	}
+};
