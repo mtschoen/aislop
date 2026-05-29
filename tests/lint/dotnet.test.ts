@@ -1,7 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { lintEngine } from "../../src/engines/lint/index.js";
 import { parseRoslynatorXml } from "../../src/engines/lint/dotnet.js";
+import type { EngineContext } from "../../src/engines/types.js";
+
+const csharpContext = (
+	rootDirectory: string,
+	installedTools: Record<string, boolean>,
+): EngineContext => ({
+	rootDirectory,
+	languages: ["csharp"],
+	frameworks: [],
+	installedTools,
+	config: {
+		quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
+		security: { audit: false, auditTimeout: 0 },
+		lint: { typecheck: false },
+	},
+});
 
 describe("parseRoslynatorXml", () => {
 	it("maps diagnostics to aislop Diagnostic[]", () => {
@@ -39,5 +56,17 @@ describe("parseRoslynatorXml", () => {
 
 	it("returns [] on malformed XML", () => {
 		expect(parseRoslynatorXml("<not-xml", "/repo")).toEqual([]);
+	});
+});
+
+describe("lintEngine dotnet gating", () => {
+	it("skips dotnet lint when roslynator is not installed", async () => {
+		const result = await lintEngine.run(csharpContext("/nonexistent", { roslynator: false }));
+		expect(result.diagnostics).toEqual([]);
+	});
+
+	it("returns [] when roslynator is installed but no .csproj/.sln target exists", async () => {
+		const result = await lintEngine.run(csharpContext("/nonexistent", { roslynator: true }));
+		expect(result.diagnostics).toEqual([]);
 	});
 });

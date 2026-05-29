@@ -1,4 +1,5 @@
 import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
+import { runDotnetLint } from "./dotnet.js";
 import { runGenericLinter } from "./generic.js";
 import { runGolangciLint } from "./golangci.js";
 import { runOxlint } from "./oxlint.js";
@@ -39,6 +40,10 @@ export const lintEngine: Engine = {
 
 		if (languages.includes("ruby") && installedTools["rubocop"]) {
 			promises.push(runGenericLinter(context, "ruby"));
+		}
+
+		if (languages.includes("csharp") && installedTools["roslynator"]) {
+			promises.push(runDotnetLint(context));
 		}
 
 		const results = await Promise.allSettled(promises);
