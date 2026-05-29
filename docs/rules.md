@@ -27,6 +27,7 @@ Catches bugs and bad practices.
 | Go | golangci-lint |
 | Rust | clippy |
 | Ruby | rubocop |
+| C# | Roslynator + AsyncFixer/Meziantou (optional, requires .NET SDK) |
 
 ## Code Quality
 
@@ -54,7 +55,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 |---|---|---|
 | `ai-slop/trivial-comment` | warning | Comments restating the code (`// Import React`, `// Return the value`) |
 | `ai-slop/narrative-comment` | warning | Decorative separators, phase/section headers, JSDoc preambles without meaningful tags (caught on top-level *and* interface/type members), cross-reference commentary, and longer prose blocks that carry an AI-narration signal (a restatement opener or step-by-step narration). Length alone is not flagged. |
-| `ai-slop/swallowed-exception` | error | Empty catch blocks, catch blocks that only log (JS/TS/Python/Go/Ruby/Java) |
+| `ai-slop/swallowed-exception` | error | Empty catch blocks, catch blocks that only log (JS/TS/Python/Go/Ruby/Java/C#) |
 | `ai-slop/redundant-try-catch` | warning | JS/TS catch blocks that only rethrow the same error without adding context, cleanup, or recovery |
 | `ai-slop/redundant-type-coercion` | warning | TypeScript primitive parameters re-coerced with `String(...)`, `Number(...)`, or `Boolean(...)` |
 | `ai-slop/duplicate-type-declaration` | warning | Exported TypeScript type/interface declarations repeated with the same name and shape across files |
@@ -75,6 +76,12 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/python-chained-dict-get` | warning | Python `.get(..., {}).get(...)` fallback chains that hide missing-data cases |
 | `ai-slop/python-repetitive-dispatch` | warning | Repeated Python equality branch ladders that should usually become a table/set/handler map |
 | `ai-slop/python-isinstance-ladder` | warning | Repeated Python `isinstance(...)` ladders that should usually become a handler map or normalized representation |
+| `ai-slop/csharp-not-implemented` | warning | C# `throw new NotImplementedException()` stubs the agent forgot to fill in |
+| `ai-slop/csharp-redundant-doc-comment` | warning | C# XML-doc `<summary>` that just restates the member (`Gets or sets the X`) without adding information |
+| `ai-slop/csharp-async-void` | warning | C# `async void` methods that aren't event handlers (can't be awaited; exceptions crash the process) |
+| `ai-slop/csharp-sync-over-async` | warning | C# blocking on a Task via `.Result` / `.Wait()` / `.GetAwaiter().GetResult()` (deadlock risk) |
+
+Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`).
 
 ## Security
 
@@ -113,3 +120,4 @@ See [examples/architecture-rules.yml](../examples/architecture-rules.yml) for a 
 | Rust | cargo fmt | clippy | complexity | Comments | Secrets, audit |
 | Ruby | rubocop | rubocop | complexity | Exceptions, comments | Secrets |
 | PHP | php-cs-fixer | -- | complexity | Comments | Secrets |
+| C# | -- | Roslynator (optional) | complexity | NotImplementedException, redundant XML-doc, async, exceptions, comments | Secrets |

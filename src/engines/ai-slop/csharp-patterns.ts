@@ -24,31 +24,60 @@ const EXPLANATORY_KEYWORDS_RE =
 	/\b(?:because|since|so that|note|todo|fixme|hack|warn|caveat|important|assumes?|e\.g\.|i\.e\.|when|unless|must|avoid)\b/i;
 const SUMMARY_INLINE_RE = /<summary>\s*(.*?)\s*<\/summary>/i;
 
+// Shared shape for every C# finding — keeps each rule to its detection logic.
+const pushFinding = (
+	out: Diagnostic[],
+	relPath: string,
+	rule: string,
+	lineIndex: number,
+	message: string,
+	help: string,
+): void => {
+	out.push({
+		filePath: relPath,
+		engine: "ai-slop",
+		rule,
+		severity: "warning",
+		message,
+		help,
+		line: lineIndex + 1,
+		column: 1,
+		category: "AI Slop",
+		fixable: false,
+	});
+};
+
 // True when the regex match sits inside a `//` line comment on that line.
 const isInLineComment = (line: string, matchIndex: number): boolean => {
 	const commentIndex = line.indexOf("//");
 	return commentIndex !== -1 && commentIndex < matchIndex;
 };
 
-const flagNotImplemented = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+const hasIntentComment = (lines: string[], lineIndex: number): boolean => {
+	for (let j = lineIndex - 1; j >= Math.max(0, lineIndex - SYNC_INTENT_LOOKBACK); j--) {
+		if (LINE_COMMENT_RE.test(lines[j])) return true;
+	}
+	return false;
+};
+
+// Scan each non-comment line against `regex`; emit a finding when it matches and
+// the optional `accept` guard (extra context-sensitive checks) returns true.
+const scanLineMatches = (
+	lines: string[],
+	relPath: string,
+	out: Diagnostic[],
+	regex: RegExp,
+	rule: string,
+	message: string,
+	help: string,
+	accept?: (match: RegExpExecArray, lineIndex: number) => boolean,
+): void => {
 	for (let i = 0; i < lines.length; i++) {
 		if (LINE_COMMENT_RE.test(lines[i])) continue;
-		const match = NOT_IMPLEMENTED_RE.exec(lines[i]);
+		const match = regex.exec(lines[i]);
 		if (!match) continue;
-		if (isInLineComment(lines[i], match.index)) continue;
-		out.push({
-			filePath: relPath,
-			engine: "ai-slop",
-			rule: "ai-slop/csharp-not-implemented",
-			severity: "warning",
-			message:
-				"`throw new NotImplementedException()` is almost certainly a stub the agent forgot to fill in.",
-			help: "Implement the method, or if the work is genuinely deferred, file a ticket and reference it in a comment so it doesn't ship invisibly.",
-			line: i + 1,
-			column: 1,
-			category: "AI Slop",
-			fixable: false,
-		});
+		if (accept && !accept(match, i)) continue;
+		pushFinding(out, relPath, rule, i, message, help);
 	}
 };
 
@@ -60,76 +89,22 @@ const inlineSummaryText = (line: string): string | null => {
 	return match ? match[1].trim() : null;
 };
 
+// Redundant XML-doc lives on `///` lines, which scanLineMatches would skip as
+// comments — so it gets its own pass.
 const flagRedundantDoc = (lines: string[], relPath: string, out: Diagnostic[]): void => {
 	for (let i = 0; i < lines.length; i++) {
 		const summary = inlineSummaryText(lines[i]);
 		if (summary === null || summary.length === 0) continue;
 		if (EXPLANATORY_KEYWORDS_RE.test(summary)) continue;
 		if (!TRIVIAL_SUMMARY_RE.test(summary)) continue;
-		out.push({
-			filePath: relPath,
-			engine: "ai-slop",
-			rule: "ai-slop/csharp-redundant-doc-comment",
-			severity: "warning",
-			message: "XML-doc summary restates the member name without adding information.",
-			help: 'Delete the doc comment, or replace boilerplate ("Gets or sets the X") with the *why* — constraints, units, invariants a reader can\'t infer from the signature.',
-			line: i + 1,
-			column: 1,
-			category: "AI Slop",
-			fixable: false,
-		});
-	}
-};
-
-const hasIntentComment = (lines: string[], lineIndex: number): boolean => {
-	for (let j = lineIndex - 1; j >= Math.max(0, lineIndex - SYNC_INTENT_LOOKBACK); j--) {
-		if (LINE_COMMENT_RE.test(lines[j])) return true;
-	}
-	return false;
-};
-
-const flagAsyncVoid = (lines: string[], relPath: string, out: Diagnostic[]): void => {
-	for (let i = 0; i < lines.length; i++) {
-		if (LINE_COMMENT_RE.test(lines[i])) continue;
-		const match = ASYNC_VOID_RE.exec(lines[i]);
-		if (!match) continue;
-		const name = match[1];
-		if (EVENT_HANDLER_NAME_RE.test(name)) continue;
-		if (EVENT_ARGS_RE.test(lines[i])) continue;
-		out.push({
-			filePath: relPath,
-			engine: "ai-slop",
-			rule: "ai-slop/csharp-async-void",
-			severity: "warning",
-			message:
-				"`async void` can't be awaited and its exceptions crash the process. Use `async Task` unless this is an event handler.",
-			help: "Return `Task` so callers can await and observe exceptions. If it must be `void` (event handler), name it accordingly and guarantee it can't throw.",
-			line: i + 1,
-			column: 1,
-			category: "AI Slop",
-			fixable: false,
-		});
-	}
-};
-
-const flagSyncOverAsync = (lines: string[], relPath: string, out: Diagnostic[]): void => {
-	for (let i = 0; i < lines.length; i++) {
-		if (LINE_COMMENT_RE.test(lines[i])) continue;
-		if (!SYNC_OVER_ASYNC_RE.test(lines[i])) continue;
-		if (hasIntentComment(lines, i)) continue;
-		out.push({
-			filePath: relPath,
-			engine: "ai-slop",
-			rule: "ai-slop/csharp-sync-over-async",
-			severity: "warning",
-			message:
-				"Blocking on a Task with `.Result`/`.Wait()`/`.GetAwaiter().GetResult()` risks deadlock and burns a thread.",
-			help: "`await` the task instead. If you genuinely have a completed task and must block, add a short comment naming the invariant so this isn't read as accidental sync-over-async.",
-			line: i + 1,
-			column: 1,
-			category: "AI Slop",
-			fixable: false,
-		});
+		pushFinding(
+			out,
+			relPath,
+			"ai-slop/csharp-redundant-doc-comment",
+			i,
+			"XML-doc summary restates the member name without adding information.",
+			'Delete the doc comment, or replace boilerplate ("Gets or sets the X") with the *why* — constraints, units, invariants a reader can\'t infer from the signature.',
+		);
 	}
 };
 
@@ -150,10 +125,41 @@ export const detectCSharpPatterns = async (context: EngineContext): Promise<Diag
 
 		const relPath = path.relative(context.rootDirectory, filePath);
 		const lines = content.split("\n");
-		flagNotImplemented(lines, relPath, diagnostics);
+
+		scanLineMatches(
+			lines,
+			relPath,
+			diagnostics,
+			NOT_IMPLEMENTED_RE,
+			"ai-slop/csharp-not-implemented",
+			"`throw new NotImplementedException()` is almost certainly a stub the agent forgot to fill in.",
+			"Implement the method, or if the work is genuinely deferred, file a ticket and reference it in a comment so it doesn't ship invisibly.",
+			(match, i) => !isInLineComment(lines[i], match.index),
+		);
+
+		scanLineMatches(
+			lines,
+			relPath,
+			diagnostics,
+			ASYNC_VOID_RE,
+			"ai-slop/csharp-async-void",
+			"`async void` can't be awaited and its exceptions crash the process. Use `async Task` unless this is an event handler.",
+			"Return `Task` so callers can await and observe exceptions. If it must be `void` (event handler), name it accordingly and guarantee it can't throw.",
+			(match, i) => !EVENT_HANDLER_NAME_RE.test(match[1]) && !EVENT_ARGS_RE.test(lines[i]),
+		);
+
+		scanLineMatches(
+			lines,
+			relPath,
+			diagnostics,
+			SYNC_OVER_ASYNC_RE,
+			"ai-slop/csharp-sync-over-async",
+			"Blocking on a Task with `.Result`/`.Wait()`/`.GetAwaiter().GetResult()` risks deadlock and burns a thread.",
+			"`await` the task instead. If you genuinely have a completed task and must block, add a short comment naming the invariant so this isn't read as accidental sync-over-async.",
+			(_match, i) => !hasIntentComment(lines, i),
+		);
+
 		flagRedundantDoc(lines, relPath, diagnostics);
-		flagAsyncVoid(lines, relPath, diagnostics);
-		flagSyncOverAsync(lines, relPath, diagnostics);
 	}
 
 	return diagnostics;

@@ -130,7 +130,7 @@ export const JAVA_DECL_START =
 	/^\s*(?:public|private|protected|static|final|abstract|sealed|non-sealed|\s)+(?:class|interface|enum|record|@interface|\w[^(){};=]*\s+\w+\s*\()/;
 export const JAVA_DECL_START_FALLBACK = /^\s*(class|interface|enum|record|@interface)\s+/;
 export const CSHARP_DECL_START =
-	/^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|async|sealed|abstract|virtual|override|partial|readonly|extern|unsafe|file|new)\s+)+(?:class|interface|struct|record|enum|[\w<>\[\],.?]+\s+\w+)/;
+	/^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|async|sealed|abstract|virtual|override|partial|readonly|extern|unsafe|file|new)\s+)+(?:class|interface|struct|record|enum|[\w<>[\],.?]+\s+\w+)/;
 export const CSHARP_DECL_START_FALLBACK =
 	/^\s*(class|interface|struct|record|enum|namespace)\s+/;
 export const PHP_DECL_START =
