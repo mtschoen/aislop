@@ -77,6 +77,7 @@ npx aislop scan ./src     # specific directory
 npx aislop scan --changes # changed files from HEAD
 npx aislop scan --staged  # staged files only
 npx aislop scan --json    # JSON output
+npx aislop scan --sarif   # SARIF 2.1.0 output (GitHub code scanning)
 ```
 
 **Exclude files**: `node_modules`, `.git`, `dist`, `build`, `coverage` excluded by default. Add more in `.aislop/config.yml`:
@@ -89,6 +90,18 @@ exclude:
 
 Or via CLI: `npx aislop scan --exclude "**/*.test.ts,dist"`
 
+**Per-rule severity**: Override the severity of any rule by id, or turn it off:
+
+```yaml
+# .aislop/config.yml
+rules:
+  ai-slop/narrative-comment: warning   # error | warning | off
+  ai-slop/trivial-comment: "off"       # drop this rule entirely
+  security/hardcoded-secret: error
+```
+
+`off` drops matching diagnostics; `error`/`warning` rewrites severity before scoring and reporting. Absent map keeps default behavior.
+
 **Extend config**: Project config can extend a parent:
 
 ```yaml
@@ -97,6 +110,8 @@ extends: ../../.aislop/base.yml
 ci:
   failBelow: 80             # override specific keys
 ```
+
+**Editor validation**: Point your editor at the JSON Schema in [`schema/aislop.config.schema.json`](schema/aislop.config.schema.json) for autocomplete and validation of `.aislop/config.yml`. Regenerate it from the source config schema with `pnpm gen:schema`.
 
 ### Fix
 
@@ -116,7 +131,7 @@ npx aislop fix --claude        # Claude Code
 npx aislop fix --cursor        # Cursor (copies to clipboard)
 npx aislop fix --gemini        # Gemini CLI
 npx aislop fix --codex         # Codex CLI
-# Also: --windsurf, --amp, --aider, --goose, --opencode, --warp, --kimi, --antigravity, --deep-agents, --vscode
+# Also: --windsurf, --amp, --aider, --goose, --pi, --crush, --opencode, --warp, --kimi, --antigravity, --deep-agents, --vscode
 npx aislop fix --prompt        # print prompt (agent-agnostic)
 ```
 
@@ -128,11 +143,12 @@ Runs after every agent edit. Feedback flows back immediately.
 npx aislop hook install --claude           # Claude Code
 npx aislop hook install --cursor           # Cursor
 npx aislop hook install --gemini           # Gemini CLI
+npx aislop hook install --pi               # pi
 npx aislop hook install                    # all supported agents
 npx aislop hook install claude cursor      # specific agents
 ```
 
-**Runtime adapters** (scan + feedback): `claude`, `cursor`, `gemini`.  
+**Runtime adapters** (scan + feedback): `claude`, `cursor`, `gemini`, `pi`.  
 **Rules-only** (agent reads rules): `codex`, `windsurf`, `cline`, `kilocode`, `antigravity`, `copilot`.
 
 **Quality-gate mode**: Blocks if score regresses below baseline.
@@ -177,8 +193,11 @@ npx aislop init                # create .aislop/config.yml
 npx aislop init --strict       # enterprise-grade gate: all engines, typecheck, failBelow 85
 npx aislop rules               # list rules
 npx aislop badge               # print badge URL
+npx aislop trend               # show score history over time
 npx aislop                     # interactive menu
 ```
+
+**Score history**: a normal (full-project, interactive) `scan` appends a compact record to `.aislop/history.jsonl` (timestamp, score, error/warning counts, file count, CLI version). `aislop trend` reads it and prints a table plus an ASCII sparkline of recent scores. History is a local side effect only: it is never written for `--json`/`--sarif` output, in CI, or when `AISLOP_NO_HISTORY=1` is set, so machine output stays clean.
 
 Docs: [commands](docs/commands.md)
 
@@ -188,8 +207,21 @@ Docs: [commands](docs/commands.md)
 
 ### Pre-commit
 
+Run directly on staged files:
+
 ```bash
 npx aislop scan --staged
+```
+
+Or wire it into the [pre-commit](https://pre-commit.com) framework via the bundled hook:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/scanaislop/aislop
+    rev: v0.9.4
+    hooks:
+      - id: aislop
 ```
 
 ### GitHub Actions
@@ -209,6 +241,15 @@ Run `npx aislop init` and accept the workflow prompt, or add manually:
 ```yaml
 - uses: actions/checkout@v4
 - uses: scanaislop/aislop@v0.8
+```
+
+**GitHub code scanning (SARIF)**: emit a SARIF 2.1.0 report and upload it so findings appear in the Security tab:
+
+```yaml
+- run: npx aislop@latest scan . --sarif > aislop.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: aislop.sarif
 ```
 
 ### Quality gate
@@ -263,9 +304,15 @@ See the full [rules reference](docs/rules.md).
 
 ---
 
+## Research
+
+aislop rules are shaped by public scans and benchmark-derived failure modes, not only local fixtures. The [research program](docs/research-program.md) defines how to run repeatable open-source scans: pin the cohort, store raw JSON, classify findings, fix noisy rules with regression tests, and publish the limits.
+
+---
+
 ## Docs
 
-[Installation](docs/installation.md) · [Commands](docs/commands.md) · [Rules](docs/rules.md) · [Config](docs/configuration.md) · [Scoring](docs/scoring.md) · [CI/CD](docs/ci.md) · [Telemetry](docs/telemetry.md)
+[Installation](docs/installation.md) · [Commands](docs/commands.md) · [Rules](docs/rules.md) · [Config](docs/configuration.md) · [Scoring](docs/scoring.md) · [CI/CD](docs/ci.md) · [Telemetry](docs/telemetry.md) · [Research program](docs/research-program.md)
 
 ## Community
 

@@ -1,7 +1,7 @@
 {
   "name": "aislop",
-  "version": "0.9.4",
-  "description": "The engineering standards layer and quality gate for AI-written code. Define your standard once. Every agent — Claude Code, Cursor, Codex — is held to it automatically, on every edit and every PR. Catches the slop they leave behind, enforces the rules your team sets. 8+ languages. Deterministic.",
+  "version": "0.9.5",
+  "description": "Catch the slop AI coding agents leave in your code: narrative comments, swallowed exceptions, as-any casts, dead code, oversized functions. 40+ rules across 7 languages (TS/JS, Python, Go, Rust, Ruby, PHP, Java). Sub-second, deterministic, no LLM at runtime. MIT-licensed.",
   "type": "module",
   "bin": {
     "aislop": "./dist/cli.js",
@@ -22,6 +22,7 @@
     "build": "rm -rf dist && NODE_ENV=production tsdown",
     "postinstall": "node scripts/postinstall-tools.mjs",
     "typecheck": "tsc --noEmit",
+    "gen:schema": "node --experimental-strip-types scripts/gen-config-schema.mjs",
     "test": "pnpm build && vitest run",
     "scan": "pnpm build && node dist/cli.js scan .",
     "scan:exclude": "pnpm build && node dist/cli.js scan . --exclude .idea --exclude .gitnore --exclude node_modules",
