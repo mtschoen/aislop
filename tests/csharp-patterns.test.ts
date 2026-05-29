@@ -68,3 +68,47 @@ describe("csharp-patterns: redundant XML-doc", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-redundant-doc-comment")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: async-void", () => {
+	it("flags a plain async void method", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { async void DoWork() { await Task.Delay(1); } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-async-void")).toBe(true);
+	});
+
+	it("does NOT flag an event-handler-shaped async void", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { async void OnClick(object sender, EventArgs e) { await Task.Delay(1); } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-async-void")).toBe(false);
+	});
+});
+
+describe("csharp-patterns: sync-over-async", () => {
+	it("flags .Result", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { void M() { var x = GetAsync().Result; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-sync-over-async")).toBe(true);
+	});
+
+	it("does NOT flag when an intent comment precedes it", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A { void M() {",
+				"// safe: task already completed",
+				"var x = GetAsync().Result; } }",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-sync-over-async")).toBe(false);
+	});
+});

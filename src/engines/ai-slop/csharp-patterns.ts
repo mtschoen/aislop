@@ -8,6 +8,16 @@ const CSHARP_EXTENSIONS = new Set([".cs"]);
 const LINE_COMMENT_RE = /^\s*\/\//;
 const NOT_IMPLEMENTED_RE = /\bthrow\s+new\s+NotImplementedException\s*\(/;
 
+const ASYNC_VOID_RE = /\basync\s+void\s+(\w+)\s*\(/;
+// Event-handler shapes that legitimately use async void.
+const EVENT_HANDLER_NAME_RE = /^(?:On[A-Z]|.*Handler$|.*_\w+$)/;
+const EVENT_ARGS_RE = /\bEventArgs\b/;
+
+const SYNC_OVER_ASYNC_RE =
+	/\.(?:Result\b|Wait\s*\(\s*\)|GetAwaiter\s*\(\s*\)\s*\.\s*GetResult\s*\(\s*\))/;
+
+const SYNC_INTENT_LOOKBACK = 2;
+
 // XML-doc summaries that merely restate the member: "Gets/Sets the X", "The X.", etc.
 const TRIVIAL_SUMMARY_RE = /^(?:gets?(?:\s+or\s+sets?)?|sets?|the|a|an)\b[\w\s]*\.?$/i;
 const EXPLANATORY_KEYWORDS_RE =
@@ -71,6 +81,58 @@ const flagRedundantDoc = (lines: string[], relPath: string, out: Diagnostic[]): 
 	}
 };
 
+const hasIntentComment = (lines: string[], lineIndex: number): boolean => {
+	for (let j = lineIndex - 1; j >= Math.max(0, lineIndex - SYNC_INTENT_LOOKBACK); j--) {
+		if (LINE_COMMENT_RE.test(lines[j])) return true;
+	}
+	return false;
+};
+
+const flagAsyncVoid = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+	for (let i = 0; i < lines.length; i++) {
+		if (LINE_COMMENT_RE.test(lines[i])) continue;
+		const match = ASYNC_VOID_RE.exec(lines[i]);
+		if (!match) continue;
+		const name = match[1];
+		if (EVENT_HANDLER_NAME_RE.test(name)) continue;
+		if (EVENT_ARGS_RE.test(lines[i])) continue;
+		out.push({
+			filePath: relPath,
+			engine: "ai-slop",
+			rule: "ai-slop/csharp-async-void",
+			severity: "warning",
+			message:
+				"`async void` can't be awaited and its exceptions crash the process. Use `async Task` unless this is an event handler.",
+			help: "Return `Task` so callers can await and observe exceptions. If it must be `void` (event handler), name it accordingly and guarantee it can't throw.",
+			line: i + 1,
+			column: 1,
+			category: "AI Slop",
+			fixable: false,
+		});
+	}
+};
+
+const flagSyncOverAsync = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+	for (let i = 0; i < lines.length; i++) {
+		if (LINE_COMMENT_RE.test(lines[i])) continue;
+		if (!SYNC_OVER_ASYNC_RE.test(lines[i])) continue;
+		if (hasIntentComment(lines, i)) continue;
+		out.push({
+			filePath: relPath,
+			engine: "ai-slop",
+			rule: "ai-slop/csharp-sync-over-async",
+			severity: "warning",
+			message:
+				"Blocking on a Task with `.Result`/`.Wait()`/`.GetAwaiter().GetResult()` risks deadlock and burns a thread.",
+			help: "`await` the task instead. If you genuinely have a completed task and must block, add a short comment naming the invariant so this isn't read as accidental sync-over-async.",
+			line: i + 1,
+			column: 1,
+			category: "AI Slop",
+			fixable: false,
+		});
+	}
+};
+
 export const detectCSharpPatterns = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const diagnostics: Diagnostic[] = [];
 	const files = getSourceFiles(context);
@@ -90,6 +152,8 @@ export const detectCSharpPatterns = async (context: EngineContext): Promise<Diag
 		const lines = content.split("\n");
 		flagNotImplemented(lines, relPath, diagnostics);
 		flagRedundantDoc(lines, relPath, diagnostics);
+		flagAsyncVoid(lines, relPath, diagnostics);
+		flagSyncOverAsync(lines, relPath, diagnostics);
 	}
 
 	return diagnostics;
