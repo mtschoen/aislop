@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
-import { resolveToolBinary } from "../../utils/tooling.js";
+import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
 import { findDotnetTarget } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
@@ -91,7 +91,14 @@ export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[
 			cwd: context.rootDirectory,
 			timeout: 120000,
 		});
-		const result = await runSubprocess(roslynator, ["analyze", target, "--output", outputPath], {
+		// Bundled analyzers extend coverage to projects that don't reference them;
+		// when none are bundled, roslynator still runs the project's own analyzers.
+		const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
+		const analyzeArgs = ["analyze", target, "--output", outputPath];
+		if (analyzerAssemblies.length > 0) {
+			analyzeArgs.push("--analyzer-assemblies", ...analyzerAssemblies);
+		}
+		const result = await runSubprocess(roslynator, analyzeArgs, {
 			cwd: context.rootDirectory,
 			timeout: 180000,
 		});

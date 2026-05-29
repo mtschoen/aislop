@@ -12,7 +12,19 @@ import * as tar from "tar";
 const THIS_FILE = fileURLToPath(import.meta.url);
 const PACKAGE_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
 const TOOLS_BIN_DIR = path.join(PACKAGE_ROOT, "tools", "bin");
+const TOOLS_ANALYZERS_DIR = path.join(PACKAGE_ROOT, "tools", "analyzers");
 const USER_AGENT = "aislop-installer";
+
+// Roslyn analyzer NuGet packages whose async/Task rules feed the C# lint engine
+// (AsyncFixer01-03, MA0040/42/45 — see RELEVANT_IDS in lint/dotnet.ts). Bundling
+// their assemblies lets `roslynator analyze --analyzer-assemblies` cover projects
+// that don't reference these analyzers themselves. Entirely best-effort: a failure
+// here (offline, missing version) only reduces optional C# lint coverage.
+//
+// Roslynator.Analyzers is intentionally NOT bundled: its RCS rules aren't in
+// RELEVANT_IDS, and its nupkg flattens dependency assemblies under analyzers/dotnet/cs
+// with prefixed names that break naive extraction.
+const ANALYZER_PACKAGE_IDS = ["AsyncFixer", "Meziantou.Analyzer"];
 
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 
@@ -197,6 +209,79 @@ const installTool = async (tool) => {
 	}
 };
 
+// Newest non-prerelease version from NuGet's flat-container index (falls back to
+// the newest version of any kind if every published version is a prerelease).
+const latestStableNugetVersion = async (packageId) => {
+	const idLower = packageId.toLowerCase();
+	const response = await fetch(
+		`https://api.nuget.org/v3-flatcontainer/${idLower}/index.json`,
+		{ headers: { "User-Agent": USER_AGENT } },
+	);
+	if (!response.ok) throw new Error(`version index for ${packageId} (${response.status})`);
+	const { versions } = await response.json();
+	if (!Array.isArray(versions) || versions.length === 0) {
+		throw new Error(`no published versions for ${packageId}`);
+	}
+	const stable = versions.filter((v) => !v.includes("-"));
+	return (stable.length > 0 ? stable : versions).at(-1);
+};
+
+// One analyzer DLL per basename, preferring the newest Roslyn-versioned subfolder
+// (e.g. analyzers/dotnet/roslyn4.7/cs over roslyn3.8) so we don't load duplicates.
+const pickAnalyzerEntries = (zip) => {
+	const dllRe = /(?:^|\/)analyzers\/.*\/cs\/[^/]+\.dll$/i;
+	const byBasename = new Map();
+	for (const entry of zip.getEntries()) {
+		if (entry.isDirectory || !dllRe.test(entry.entryName)) continue;
+		const basename = path.posix.basename(entry.entryName);
+		const existing = byBasename.get(basename);
+		if (!existing || entry.entryName > existing.entryName) byBasename.set(basename, entry);
+	}
+	return [...byBasename.values()];
+};
+
+const installAnalyzerPackage = async (packageId) => {
+	const idLower = packageId.toLowerCase();
+	const version = await latestStableNugetVersion(packageId);
+	const url = `https://api.nuget.org/v3-flatcontainer/${idLower}/${version}/${idLower}.${version}.nupkg`;
+
+	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `aislop-${idLower}-`));
+	const nupkgPath = path.join(tempDir, `${idLower}.${version}.nupkg`);
+	try {
+		await downloadFile(url, nupkgPath);
+		const entries = pickAnalyzerEntries(new AdmZip(nupkgPath));
+		if (entries.length === 0) throw new Error(`no analyzer assemblies inside ${packageId}`);
+		fs.mkdirSync(TOOLS_ANALYZERS_DIR, { recursive: true });
+		for (const entry of entries) {
+			fs.writeFileSync(
+				path.join(TOOLS_ANALYZERS_DIR, path.posix.basename(entry.entryName)),
+				entry.getData(),
+			);
+		}
+		info(`Bundled ${entries.length} analyzer assembly(ies) from ${packageId} ${version}`);
+		return true;
+	} finally {
+		fs.rmSync(tempDir, { recursive: true, force: true });
+	}
+};
+
+const installAnalyzers = async () => {
+	// Skip the network round-trip if assemblies are already vendored.
+	if (fs.existsSync(TOOLS_ANALYZERS_DIR) && fs.readdirSync(TOOLS_ANALYZERS_DIR).length > 0) {
+		info("C# analyzer assemblies already present.");
+		return;
+	}
+	for (const packageId of ANALYZER_PACKAGE_IDS) {
+		try {
+			await installAnalyzerPackage(packageId);
+		} catch (error) {
+			warn(
+				`Skipped bundling ${packageId} analyzers: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+};
+
 const main = async () => {
 	if (process.env.AISLOP_SKIP_TOOL_DOWNLOAD === "1") {
 		info("Skipping bundled tool download (AISLOP_SKIP_TOOL_DOWNLOAD=1).");
@@ -226,6 +311,9 @@ const main = async () => {
 			"aislop will still run, but coverage for those tools may be reduced until installation succeeds.",
 		);
 	}
+
+	// Best-effort C# analyzer bundling — never fails the install if it can't complete.
+	await installAnalyzers();
 };
 
 main().catch((error) => {
