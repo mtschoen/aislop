@@ -33,6 +33,7 @@ export const getCommentSyntax = (ext: string): { linePrefixes: string[] } | null
 		case ".go":
 		case ".rs":
 		case ".java":
+		case ".cs":
 			return { linePrefixes: ["//"] };
 		case ".py":
 		case ".rb":
