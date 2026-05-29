@@ -121,6 +121,24 @@ describe("discoverProject", () => {
 		expect(info.languages).toContain("java");
 	});
 
+	it("detects csharp from a .csproj file", async () => {
+		createFile(tmpDir, "App.csproj", "<Project></Project>");
+		const info = await discoverProject(tmpDir);
+		expect(info.languages).toContain("csharp");
+	});
+
+	it("detects csharp from a .sln file", async () => {
+		createFile(tmpDir, "App.sln", "Microsoft Visual Studio Solution File");
+		const info = await discoverProject(tmpDir);
+		expect(info.languages).toContain("csharp");
+	});
+
+	it("detects csharp from a global.json file", async () => {
+		createFile(tmpDir, "global.json", '{ "sdk": { "version": "8.0.0" } }');
+		const info = await discoverProject(tmpDir);
+		expect(info.languages).toContain("csharp");
+	});
+
 	it("detects multiple languages in the same project", async () => {
 		createFile(tmpDir, "tsconfig.json", "{}");
 		createFile(tmpDir, "go.mod", "module example.com/app\n\ngo 1.21");
