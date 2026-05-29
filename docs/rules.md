@@ -29,6 +29,20 @@ Catches bugs and bad practices.
 | Ruby | rubocop |
 | C# | Roslynator + AsyncFixer/Meziantou (optional, requires .NET SDK) |
 
+### C# linting (`dotnet/*`)
+
+The C# lint pass shells out to the [`roslynator`](https://github.com/dotnet/roslynator) CLI and reports a curated subset of analyzer diagnostics, each prefixed `dotnet/`:
+
+| Rule | What it catches |
+|---|---|
+| `dotnet/AsyncFixer01` | Unnecessary `async`/`await` (the await is the last statement) |
+| `dotnet/AsyncFixer02` | Long-running or blocking operations inside an `async` method |
+| `dotnet/AsyncFixer03` | Fire-and-forget `async void` — unhandled exceptions crash the process |
+| `dotnet/MA0040` / `MA0042` / `MA0045` | Meziantou async/`Task` best practices (cancellation tokens, blocking calls) |
+| `dotnet/CS0219` / `CS0162` | Unused variable / unreachable code (compiler diagnostics) |
+
+This pass is **opt-in by environment**: it runs only when the .NET SDK and the `roslynator` global tool (`dotnet tool install -g roslynator.dotnet.cli`) are available and a `.csproj`/`.sln` is present. Otherwise it skips silently and returns nothing — exactly like the Python/Go lint wrappers. aislop bundles the AsyncFixer and Meziantou.Analyzer assemblies so these rules fire even on projects that don't reference them. Where Roslynator reports an accurate async finding, the approximate Phase-1 regex rule (`ai-slop/csharp-async-void` / `ai-slop/csharp-sync-over-async`) at the same line is suppressed so you never see both.
+
 ## Code Quality
 
 Measures structural complexity, finds dead code, and detects unused dependencies.
