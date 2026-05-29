@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { aiSlopEngine } from "./ai-slop/index.js";
 import { architectureEngine } from "./architecture/index.js";
 import { codeQualityEngine } from "./code-quality/index.js";
+import { dedupeCSharpAsync } from "./csharp-dedupe.js";
 import { formatEngine } from "./format/index.js";
 import { lintEngine } from "./lint/index.js";
 import { securityEngine } from "./security/index.js";
@@ -48,7 +49,7 @@ export const runEngines = async (
 		}),
 	);
 
-	return results.map((r, i) =>
+	const finalResults = results.map((r, i) =>
 		r.status === "fulfilled"
 			? r.value
 			: {
@@ -59,4 +60,6 @@ export const runEngines = async (
 					skipReason: r.reason instanceof Error ? r.reason.message : String(r.reason),
 				},
 	);
+
+	return dedupeCSharpAsync(finalResults);
 };
