@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.1 (2026-05-30)
+
+An accuracy release across Python and TypeScript, plus a small quality-of-life feature. The Python function detector was only seeing single-line synchronous `def`s, so async functions and wrapped multi-line signatures (about 58% of a large library like python-telegram-bot) were invisible to the complexity rules. In TypeScript, text-pattern rules were matching code inside JSDoc `@example` blocks as if it were live source. Both are fixed, and the complexity metrics were sharpened to measure real complexity rather than documentation or optional API surface.
+
+### Added
+
+- **Update notice.** The CLI prints a one-line "update available" notice when a newer version exists. It is cache-backed so it never blocks a run, and silent in CI, in non-interactive output, and when opted out via `AISLOP_NO_UPDATE_NOTIFIER`, `NO_UPDATE_NOTIFIER`, or `DO_NOT_TRACK`.
+
+### Fixed
+
+- **Python function detection** now recognises `async def` and multi-line wrapped signatures (where `):` sits on its own line). Previously these functions were skipped entirely by the code-quality engine.
+- **JSDoc/TSDoc comment bleed.** Text-pattern rules no longer scan code inside `/** @example */` blocks, the largest false-positive source on documented TS/JS libraries. This covers `duplicate-import`, `console-leftover`, `empty-function`, `generic-naming`, `thin-wrapper`, `hardcoded-url` / `hardcoded-id`, and `security/hardcoded-secret`. On type-fest, `duplicate-import` dropped from 143 to 0; an error-severity `hardcoded-secret` on a password inside a Hono doc example is gone; genuine findings such as zod's real `as any` are preserved.
+- **`ai-slop/duplicate-import`** no longer flags a namespace import (`import * as x`) alongside a named import from the same module. The two cannot be merged into one statement, so they were never a real duplicate.
+
+### Changed
+
+- **`complexity/function-too-long`** measures a Python function by its logical body (code statements only), excluding the signature, docstrings, comments, and blank lines. A heavily documented function is not a long one, so a function is judged by what it does, not how well it is described.
+- **`complexity/too-many-params`** counts required parameters only, ignoring `self`/`cls`, `*args`/`**kwargs`, the `*` / `/` separators, and any parameter with a default. An API wrapper with many optional keyword arguments is idiomatic, not a smell.
+
+### Tests
+
+Full suite at 975 passing. New coverage for async detection, wrapped signatures, required-only parameter counting, docstring-aware length, comment masking, the `@example` import and secret cases, and the update notifier, plus a regression net: a realistic Python corpus with golden per-rule assertions and a detection-invariant check (functions detected vs `def`/`async def` count) that fails on the pre-0.10.1 detector.
+
 ## 0.10.0 (2026-05-30)
 
 A precision release. A sweep through the ai-slop rules to cut false positives on real human-written code, validated against open-source libraries surfaced at the HN launch. One dropped from 426 findings to 92, every removed finding a false positive, with clean code still scoring 100. Plus a scoring change so genuine slop drives the number over house style.
