@@ -156,3 +156,33 @@ describe("csharp-patterns: suppressed-warning", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: empty-catch-rethrow", () => {
+	it("flags a single-line catch that only rethrows", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { void M() { try { Do(); } catch (Exception) { throw; } } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(true);
+	});
+
+	it("flags a multi-line catch that only rethrows", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", ["try {", "  Do();", "} catch (Exception ex) {", "  throw;", "}"].join("\n"));
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(true);
+	});
+
+	it("does NOT flag a catch that logs before rethrow", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", ["try { Do(); } catch (Exception ex) {", "  Log(ex);", "  throw;", "}"].join("\n"));
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(false);
+	});
+
+	it("does NOT flag a catch that wraps and rethrows", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { void M() { try { Do(); } catch (Exception ex) { throw new InvalidOperationException(\"x\", ex); } } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(false);
+	});
+});

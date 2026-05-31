@@ -165,6 +165,32 @@ const flagSuppressedWarnings = (lines: string[], relPath: string, out: Diagnosti
 	}
 };
 
+// A catch whose entire body is `throw;` - matched after collapsing whitespace so
+// both the single-line and multi-line forms hit. The `\{\s*throw\s*;\s*\}` tail
+// requires `throw;` to be the ONLY statement (any preceding stmt or `throw new`
+// breaks the match), so log-then-rethrow and wrap-and-rethrow are not flagged.
+const CATCH_ONLY_THROW_RE = /\bcatch\b\s*(?:\([^)]*\))?\s*\{\s*throw\s*;\s*\}/;
+
+// `catch (...) { throw; }` catches and immediately rethrows - pure noise.
+const flagEmptyCatchRethrow = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i].trim().startsWith("//")) continue;
+		if (!/\bcatch\b/.test(lines[i])) continue;
+		// Join a short window so the multi-line `catch {\n throw;\n}` form collapses
+		// onto one string the regex can match.
+		const window = lines.slice(i, i + 5).join(" ").replace(/\s+/g, " ");
+		if (!CATCH_ONLY_THROW_RE.test(window)) continue;
+		pushFinding(
+			out,
+			relPath,
+			"ai-slop/csharp-empty-catch-rethrow",
+			i,
+			"`catch (...) { throw; }` catches and immediately rethrows - it does nothing but add noise.",
+			"Remove the try/catch if you're not handling the exception; use `finally` for cleanup, or `throw new ...(..., ex)` to add context.",
+		);
+	}
+};
+
 export const detectCSharpPatterns = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const diagnostics: Diagnostic[] = [];
 	const files = getSourceFiles(context);
@@ -218,6 +244,7 @@ export const detectCSharpPatterns = async (context: EngineContext): Promise<Diag
 
 		flagRedundantDoc(lines, relPath, diagnostics);
 		flagSuppressedWarnings(lines, relPath, diagnostics);
+		flagEmptyCatchRethrow(lines, relPath, diagnostics);
 	}
 
 	return diagnostics;
