@@ -34,6 +34,7 @@ const resolvePackageRoot = (startFile: string): string => {
 
 const PACKAGE_ROOT = resolvePackageRoot(THIS_FILE);
 const TOOLS_BIN_DIR = path.join(PACKAGE_ROOT, "tools", "bin");
+const TOOLS_ANALYZERS_DIR = path.join(PACKAGE_ROOT, "tools", "analyzers");
 
 const BUNDLED_TOOL_NAMES = new Set(["ruff", "golangci-lint"]);
 
@@ -54,4 +55,18 @@ const isBundledTool = (toolName: string): boolean => getBundledToolPath(toolName
 export const isToolAvailable = async (toolName: string): Promise<boolean> => {
 	if (isBundledTool(toolName)) return true;
 	return isToolInstalled(toolName);
+};
+
+// Absolute paths to the bundled C# analyzer assemblies (provisioned by scripts/postinstall-tools.mjs).
+// Empty when the analyzers were never bundled, so the lint engine then invokes
+// roslynator without the --analyzer-assemblies flag.
+export const resolveBundledAnalyzerAssemblies = (): string[] => {
+	try {
+		return fs
+			.readdirSync(TOOLS_ANALYZERS_DIR)
+			.filter((name) => name.toLowerCase().endsWith(".dll"))
+			.map((name) => path.join(TOOLS_ANALYZERS_DIR, name));
+	} catch {
+		return [];
+	}
 };

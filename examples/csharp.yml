@@ -1,0 +1,47 @@
+# .aislop/config.yml — C# / .NET project
+#
+# C# support has two layers:
+#   1. Build-free AI-slop rules (ai-slop/csharp-*) and the language-agnostic
+#      comment + swallowed-exception checks — these always run, no SDK needed.
+#   2. An optional Roslynator lint pass (dotnet/* rules) that runs only when the
+#      .NET SDK and the `roslynator` global tool are installed. It skips silently
+#      otherwise, so this config is safe on machines without the toolchain.
+#
+# To enable the optional lint pass:
+#   dotnet tool install -g roslynator.dotnet.cli
+
+version: 1
+
+engines:
+  format: true
+  lint: true
+  code-quality: true
+  ai-slop: true
+  architecture: false
+  security: true
+
+quality:
+  maxFunctionLoc: 80
+  maxFileLoc: 500
+  maxNesting: 5
+  maxParams: 6
+
+security:
+  audit: false
+  auditTimeout: 30000
+
+scoring:
+  weights:
+    format: 0.5
+    lint: 1.0
+    code-quality: 1.5
+    ai-slop: 1.0
+    architecture: 1.0
+    security: 2.5
+  thresholds:
+    good: 75
+    ok: 50
+
+ci:
+  failBelow: 60
+  format: json

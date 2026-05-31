@@ -19,6 +19,7 @@ const SOURCE_EXTENSIONS = new Set([
 	".rb",
 	".java",
 	".php",
+	".cs",
 ]);
 
 const EXCLUDED_DIRS = [
@@ -104,6 +105,10 @@ const TEST_FILE_PATTERNS = [
 	/(?:^|\/).*\.spec\.[^/]+$/i,
 	/(?:^|\/)test_[^/]+\.(?:py|rb|php|js|jsx|ts|tsx|java)$/i,
 	/(?:^|\/)[^/]+_test\.(?:py|go|rb|php|js|jsx|ts|tsx|java)$/i,
+	// C#: *Tests.cs / *Test.cs / *.Tests.cs, or anything under a Tests/ dir
+	/(?:^|\/)[^/]+Tests?\.cs$/i,
+	/(?:^|\/)[^/]+\.Tests?\.cs$/i,
+	/(?:^|\/)[^/]*Tests?\/.*\.cs$/i,
 ];
 
 const AUTO_GENERATED_PATTERNS = [
