@@ -112,3 +112,47 @@ describe("csharp-patterns: sync-over-async", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-sync-over-async")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: suppressed-warning", () => {
+	it("flags an unjustified #pragma warning disable", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "#pragma warning disable CS1591\nclass A { }\n");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
+	it("does NOT flag a pragma justified by a trailing comment", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "#pragma warning disable CS1591 // generated file\nclass A { }\n");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag a pragma justified by a preceding comment", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "// docs not required for generated code\n#pragma warning disable CS1591\nclass A { }\n");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag #pragma warning restore", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "#pragma warning restore CS1591\nclass A { }\n");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("flags [SuppressMessage] with a <Pending> placeholder justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", '[SuppressMessage("Usage", "CA2200", Justification = "<Pending>")]\nclass A { }\n');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
+	it("does NOT flag [SuppressMessage] with a real justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", '[SuppressMessage("Usage", "CA2200", Justification = "rethrow preserves the original frame")]\nclass A { }\n');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+});

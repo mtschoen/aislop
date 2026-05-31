@@ -108,6 +108,63 @@ const flagRedundantDoc = (lines: string[], relPath: string, out: Diagnostic[]): 
 	}
 };
 
+const PRAGMA_DISABLE_RE = /#pragma\s+warning\s+disable\b/;
+const PRAGMA_RESTORE_RE = /#pragma\s+warning\s+restore\b/;
+const SUPPRESS_MESSAGE_RE = /\bSuppressMessage\s*\(/;
+const JUSTIFICATION_RE = /Justification\s*=\s*"([^"]*)"/i;
+// Justifications the IDE/agents auto-insert that carry no real reason.
+const PLACEHOLDER_JUSTIFICATION_RE = /^(?:<pending>|pending|todo|)$/i;
+
+// True when a `//` comment exists anywhere on the line (trailing justification).
+const hasTrailingComment = (line: string): boolean => line.includes("//");
+
+// True when the nearest non-blank line above is a `//` comment (preceding justification).
+const precededByComment = (lines: string[], lineIndex: number): boolean => {
+	for (let j = lineIndex - 1; j >= 0; j--) {
+		const trimmed = lines[j].trim();
+		if (trimmed === "") continue;
+		return trimmed.startsWith("//");
+	}
+	return false;
+};
+
+// Suppressing a warning without saying why is the canonical move to make a
+// finding vanish - no analyzer can flag its own suppression.
+const flagSuppressedWarnings = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		const trimmed = line.trim();
+		if (trimmed.startsWith("//")) continue;
+
+		if (PRAGMA_DISABLE_RE.test(line) && !PRAGMA_RESTORE_RE.test(line)) {
+			if (hasTrailingComment(line) || precededByComment(lines, i)) continue;
+			pushFinding(
+				out,
+				relPath,
+				"ai-slop/csharp-suppressed-warning",
+				i,
+				"`#pragma warning disable` suppresses the warning without saying why.",
+				"Fix the underlying warning. If suppression is genuinely justified, add a `//` comment naming the reason (and prefer a scoped disable/restore over a file-wide one).",
+			);
+			continue;
+		}
+
+		if (SUPPRESS_MESSAGE_RE.test(line)) {
+			const match = JUSTIFICATION_RE.exec(line);
+			const justified = match !== null && !PLACEHOLDER_JUSTIFICATION_RE.test(match[1].trim());
+			if (justified) continue;
+			pushFinding(
+				out,
+				relPath,
+				"ai-slop/csharp-suppressed-warning",
+				i,
+				"`[SuppressMessage]` has no real Justification - it hides the analyzer finding.",
+				"Fix the underlying issue, or fill Justification with the actual reason the suppression is safe (not the `<Pending>` placeholder).",
+			);
+		}
+	}
+};
+
 export const detectCSharpPatterns = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const diagnostics: Diagnostic[] = [];
 	const files = getSourceFiles(context);
@@ -160,6 +217,7 @@ export const detectCSharpPatterns = async (context: EngineContext): Promise<Diag
 		);
 
 		flagRedundantDoc(lines, relPath, diagnostics);
+		flagSuppressedWarnings(lines, relPath, diagnostics);
 	}
 
 	return diagnostics;
