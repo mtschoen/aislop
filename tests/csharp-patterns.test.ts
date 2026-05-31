@@ -186,3 +186,40 @@ describe("csharp-patterns: empty-catch-rethrow", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: null-forgiving", () => {
+	it("flags a `= null!` initializer", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { public string Name { get; set; } = null!; }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-null-forgiving")).toBe(true);
+	});
+
+	it("flags a use-site `foo!.Bar`", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { void M(B b) { var x = b!.Value; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-null-forgiving")).toBe(true);
+	});
+
+	it("does NOT flag `!=` inequality", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { bool M(int a, int b) { return a != b; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-null-forgiving")).toBe(false);
+	});
+
+	it("does NOT flag a prefix logical-not `!flag`", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { bool M(bool flag) { return !flag; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-null-forgiving")).toBe(false);
+	});
+
+	it("does NOT flag `!` inside a string literal", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", 'class A { string M() { return "done!"; } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-null-forgiving")).toBe(false);
+	});
+});

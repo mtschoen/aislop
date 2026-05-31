@@ -191,6 +191,30 @@ const flagEmptyCatchRethrow = (lines: string[], relPath: string, out: Diagnostic
 	}
 };
 
+// The null-forgiving operator: a postfix `!` on an expression (identifier, `)`,
+// or `]`) followed by `.`/`;`/`,`/`)`/`]`/`}`/whitespace/EOL. The required
+// following char set excludes `=`, so `!=` never matches; requiring an
+// identifier/`)`/`]` immediately before excludes prefix `!x` and `!!`. `!` inside
+// a string usually precedes `"` (not in the follow set), so `"done!"` is excluded.
+// Deferred / known limitation: Entity-Framework `= null!` and use-site `!` right
+// after a manual null check are legitimate but still flag here (high-recall by
+// decision); proper carve-outs await a contributor who uses those patterns.
+const NULL_FORGIVING_RE = /[\w)\]]!(?=[\s.;,)\]}]|$)/;
+
+// Null-forgiving `!` silences the nullable warning without proving non-null.
+const flagNullForgiving = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+	scanLineMatches(
+		lines,
+		relPath,
+		out,
+		NULL_FORGIVING_RE,
+		"ai-slop/csharp-null-forgiving",
+		"The null-forgiving `!` silences the nullable warning without proving the value is non-null.",
+		"Handle the null case (guard, `??`, or throw with context) instead of asserting non-null. Use `!` only when non-null is provable, and say why.",
+		(match, i) => !isInLineComment(lines[i], match.index),
+	);
+};
+
 export const detectCSharpPatterns = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const diagnostics: Diagnostic[] = [];
 	const files = getSourceFiles(context);
@@ -245,6 +269,7 @@ export const detectCSharpPatterns = async (context: EngineContext): Promise<Diag
 		flagRedundantDoc(lines, relPath, diagnostics);
 		flagSuppressedWarnings(lines, relPath, diagnostics);
 		flagEmptyCatchRethrow(lines, relPath, diagnostics);
+		flagNullForgiving(lines, relPath, diagnostics);
 	}
 
 	return diagnostics;
