@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { toPosix } from "../utils/paths.js";
 import { z } from "zod";
 import { findConfigDir, loadConfig, RULES_FILE } from "../config/index.js";
 import { runEngines } from "../engines/orchestrator.js";
@@ -48,7 +49,7 @@ const enabledEnginesFromConfig = (
 });
 
 const summariseDiagnostic = (d: Diagnostic, rootDirectory: string) => ({
-	file: path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+	file: toPosix(path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath),
 	line: d.line,
 	column: d.column,
 	rule: d.rule,

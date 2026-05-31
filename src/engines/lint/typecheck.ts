@@ -32,7 +32,7 @@ const findTsconfigs = (root: string): string[] => {
 const findTscBinary = (fromDir: string): string | null => {
 	let dir = fromDir;
 	while (dir !== path.dirname(dir)) {
-		const candidate = path.join(dir, "node_modules", ".bin", "tsc");
+		const candidate = path.join(dir, "node_modules", "typescript", "bin", "tsc");
 		if (fs.existsSync(candidate)) return candidate;
 		dir = path.dirname(dir);
 	}
@@ -72,8 +72,8 @@ export const runTypecheck = async (context: EngineContext): Promise<Diagnostic[]
 		let output = "";
 		try {
 			const result = await runSubprocess(
-				tscBinary,
-				["--noEmit", "--pretty", "false", "-p", tsconfig],
+				process.execPath,
+				[tscBinary, "--noEmit", "--pretty", "false", "-p", tsconfig],
 				{ cwd: projectDir, timeout: TSC_TIMEOUT_MS },
 			);
 			output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
