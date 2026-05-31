@@ -223,3 +223,27 @@ describe("csharp-patterns: null-forgiving", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-null-forgiving")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: console-leftover (debug/trace)", () => {
+	it("flags Debug.WriteLine", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", 'class A { void M() { Debug.WriteLine("here"); } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(true);
+	});
+
+	it("flags Trace.WriteLine", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", 'class A { void M() { Trace.WriteLine("here"); } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(true);
+	});
+
+	it("does NOT flag debug output under a test path", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.mkdirSync(path.join(root, "tests"));
+		write(root, path.join("tests", "A.cs"), 'class A { void M() { Debug.WriteLine("here"); } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
+	});
+});
