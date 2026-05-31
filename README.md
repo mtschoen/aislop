@@ -330,7 +330,6 @@ Built on: [Biome](https://biomejs.dev/), [oxlint](https://oxc.rs/), [knip](https
 
 <!-- CONTRIBUTORS-START -->
 - [@heavykenny](https://github.com/heavykenny)
-- [@myke-awoniran](https://github.com/myke-awoniran)
 - [@yashrajoria](https://github.com/yashrajoria)
 <!-- CONTRIBUTORS-END -->
 
