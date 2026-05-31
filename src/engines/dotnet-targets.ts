@@ -6,7 +6,7 @@ import type { EngineContext } from "./types.js";
 const IGNORED_DIRECTORIES = new Set(["bin", "obj", "node_modules", ".git", ".vs"]);
 
 // Recursively collect every .csproj under `root`, skipping the directories above.
-const findCsprojFiles = (root: string): string[] => {
+export const findCsprojFiles = (root: string): string[] => {
 	const results: string[] = [];
 	const walk = (directory: string): void => {
 		let entries: fs.Dirent[];
