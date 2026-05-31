@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { toPosix } from "../../utils/paths.js";
 import { loadConfig } from "../../config/index.js";
 import { runEngines } from "../../engines/orchestrator.js";
 import type { Diagnostic, EngineContext, EngineName } from "../../engines/types.js";
@@ -18,7 +19,9 @@ interface Baseline {
 }
 
 const fingerprintDiagnostic = (d: Diagnostic, rootDirectory: string): string => {
-	const rel = path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath;
+	const rel = toPosix(
+		path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+	);
 	return `${rel}:${d.line}:${d.rule}`;
 };
 
