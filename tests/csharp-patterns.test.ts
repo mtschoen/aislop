@@ -247,3 +247,32 @@ describe("csharp-patterns: console-leftover (debug/trace)", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: console-leftover (Console.*)", () => {
+	it("flags Console.WriteLine in a library project", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(path.join(root, "Lib.csproj"), "<Project></Project>");
+		write(root, "A.cs", 'class A { void M() { Console.WriteLine("hi"); } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(true);
+	});
+
+	it("does NOT flag Console.WriteLine in an Exe project", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(
+			path.join(root, "App.csproj"),
+			"<Project><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>",
+		);
+		write(root, "A.cs", 'class A { void M() { Console.WriteLine("hi"); } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
+	});
+
+	it("does NOT flag Console.Error.WriteLine even in a library", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(path.join(root, "Lib.csproj"), "<Project></Project>");
+		write(root, "A.cs", 'class A { void M() { Console.Error.WriteLine("oops"); } }');
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
+	});
+});
