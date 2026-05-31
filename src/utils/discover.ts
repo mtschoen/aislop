@@ -132,14 +132,17 @@ const detectLanguages = (directory: string): Language[] => {
 		}
 	}
 
-	// C# project files have arbitrary basenames (*.csproj / *.sln) plus a fixed
-	// global.json, so scan the directory rather than keying off a fixed filename.
+	// C# project files have arbitrary basenames (*.csproj / *.sln / *.slnx) plus a
+	// fixed global.json, so scan the directory rather than keying off a fixed name.
 	const hasDotnetProject = (() => {
 		if (fs.existsSync(path.join(directory, "global.json"))) return true;
 		try {
 			return fs
 				.readdirSync(directory)
-				.some((name) => name.endsWith(".csproj") || name.endsWith(".sln"));
+				.some(
+					(name) =>
+						name.endsWith(".csproj") || name.endsWith(".sln") || name.endsWith(".slnx"),
+				);
 		} catch {
 			return false;
 		}

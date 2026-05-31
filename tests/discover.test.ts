@@ -133,6 +133,12 @@ describe("discoverProject", () => {
 		expect(info.languages).toContain("csharp");
 	});
 
+	it("detects csharp from a .slnx file", async () => {
+		createFile(tmpDir, "App.slnx", "<Solution></Solution>");
+		const info = await discoverProject(tmpDir);
+		expect(info.languages).toContain("csharp");
+	});
+
 	it("detects csharp from a global.json file", async () => {
 		createFile(tmpDir, "global.json", '{ "sdk": { "version": "8.0.0" } }');
 		const info = await discoverProject(tmpDir);

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
-import { findDotnetTarget } from "../dotnet-targets.js";
+import { findDotnetTargets } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
 // Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
@@ -80,10 +80,15 @@ export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnost
 		}));
 };
 
-export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[]> => {
-	const target = findDotnetTarget(context);
-	if (!target) return [];
-	const roslynator = resolveToolBinary("roslynator");
+// Restore + roslynator-analyze a single .sln/.csproj target, returning the
+// relevant diagnostics. Failures are swallowed to [] so one unloadable project
+// can't sink the whole lint pass.
+const analyzeTarget = async (
+	context: EngineContext,
+	roslynator: string,
+	analyzerAssemblies: string[],
+	target: string,
+): Promise<Diagnostic[]> => {
 	const outputPath = path.join(context.rootDirectory, ".aislop-roslynator.xml");
 	try {
 		// Best-effort restore; ignore failure (analyze surfaces nothing if it can't load).
@@ -91,18 +96,16 @@ export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[
 			cwd: context.rootDirectory,
 			timeout: 120000,
 		});
-		// Bundled analyzers extend coverage to projects that don't reference them;
-		// when none are bundled, roslynator still runs the project's own analyzers.
-		const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
 		const analyzeArgs = ["analyze", target, "--output", outputPath];
 		if (analyzerAssemblies.length > 0) {
 			analyzeArgs.push("--analyzer-assemblies", ...analyzerAssemblies);
 		}
-		const result = await runSubprocess(roslynator, analyzeArgs, {
+		// Parse whatever output is produced: roslynator's exit code varies with the
+		// highest diagnostic severity, so the written XML — not the code — is the signal.
+		await runSubprocess(roslynator, analyzeArgs, {
 			cwd: context.rootDirectory,
 			timeout: 180000,
 		});
-		if (result.exitCode !== 0 && result.exitCode !== 1) return [];
 		let xml: string;
 		try {
 			xml = fs.readFileSync(outputPath, "utf-8");
@@ -114,4 +117,18 @@ export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[
 	} catch {
 		return [];
 	}
+};
+
+export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[]> => {
+	const targets = findDotnetTargets(context);
+	if (targets.length === 0) return [];
+	const roslynator = resolveToolBinary("roslynator");
+	// Bundled analyzers extend coverage to projects that don't reference them;
+	// when none are bundled, roslynator still runs the project's own analyzers.
+	const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
+	const diagnostics: Diagnostic[] = [];
+	for (const target of targets) {
+		diagnostics.push(...(await analyzeTarget(context, roslynator, analyzerAssemblies, target)));
+	}
+	return diagnostics;
 };
