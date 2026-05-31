@@ -110,3 +110,53 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 - The `files` field in `package.json` controls what ships to npm. Only `dist` and `scripts`
 - PostHog telemetry key is a public client-side key (safe to hardcode)
 - Telemetry is opt-out and off in CI by default
+
+## Cross-platform notes
+
+Contributors and CI run on Linux, macOS, and Windows. Keep `package.json`
+scripts portable:
+
+- **No Unix-only shell in scripts.** Do not prefix commands with `rm -rf`,
+  `cp`, `mv`, etc. They fail under cmd.exe on Windows. tsdown already cleans
+  its output directory before each build (the `clean` option defaults to
+  `true`), so an explicit `rm -rf dist` is both redundant and non-portable.
+  The `build` script is just `tsdown`.
+- **No `VAR=value cmd` prefixes.** cmd.exe cannot parse a leading env-var
+  assignment, so `NODE_ENV=production tsdown` errors with
+  `'NODE_ENV' is not recognized`. Nothing in this codebase reads `NODE_ENV`
+  (the bundle is byte-identical with or without it), so it was dropped. If a
+  script ever genuinely needs an env var set cross-platform, add the
+  `cross-env` dev dependency and use `cross-env VAR=value cmd`.
+- **Known Windows test gaps.** A set of path/permission tests (telemetry
+  `install_id` home resolution, `0600` permission bits, repo-relative path
+  conversion, and related cases) fail on Windows but pass in Linux CI. They
+  are environment-specific, not regressions; a green Linux CI run is not a
+  Windows guarantee.
+
+## Local deploy (running your build as the global `aislop`)
+
+To make the `aislop` command on your machine run a local checkout instead of
+the published npm release:
+
+```bash
+pnpm build              # produce dist/
+pnpm link --global      # repoint the global aislop at this checkout
+aislop --version        # verify it resolves to your build
+```
+
+This fork is developed with git worktrees under `.worktrees/` (one per
+branch). `pnpm link --global` from a worktree points the global command at
+that worktree's `dist/`, so rebuild after switching branches. Remotes:
+`origin` is upstream (scanaislop/aislop); `fork` is the personal fork
+(mtschoen/aislop) with an integration branch `schoen/main`.
+
+## Writing conventions
+
+- **No em-dashes** (U+2014) in generated content: prose, comments, commit
+  messages, PR bodies, string literals. Use ASCII (` - `, `:`, or
+  parentheses). On Windows a stray em-dash can force cp1252 encoding issues.
+- **No hard-coded machine-specific paths** in shipped code (e.g.
+  `C:\Users\...`, `/home/...`). Derive from `os.homedir()`, env vars, or
+  arguments so it works across machines and CI.
+- **Full-word identifiers** over abbreviations (`maximum` not `max`,
+  `configuration` not `config`) where it does not clash with existing API.
