@@ -77,15 +77,17 @@ const UNSUPPORTED_CODE_EXTENSIONS: Record<string, string> = {
 	".groovy": "Groovy",
 };
 
-const analyzeCoverage = (rootDirectory: string, supportedFiles: number): Coverage => {
+const analyzeCoverage = (rootDirectory: string, excludePatterns: string[] = []): Coverage => {
+	// Count both sides through the scan's own post-exclude file selection, so the gate reflects exactly what was analyzed.
+	const allFiles = listProjectFiles(rootDirectory);
+	const supportedFiles = filterProjectFiles(rootDirectory, allFiles, [], excludePatterns).length;
 	const counts = new Map<string, number>();
 	let unsupportedFiles = 0;
-	// Count through the same exclusion pipeline as supported files so an excluded
-	// subtree (vendor/, tests/, examples/, gitignored) can't skew the gate.
 	const candidates = filterProjectFiles(
 		rootDirectory,
-		listProjectFiles(rootDirectory),
+		allFiles,
 		Object.keys(UNSUPPORTED_CODE_EXTENSIONS),
+		excludePatterns,
 	);
 	for (const file of candidates) {
 		const lang = UNSUPPORTED_CODE_EXTENSIONS[path.extname(file).toLowerCase()];
@@ -286,12 +288,15 @@ const checkInstalledTools = async (): Promise<Record<string, boolean>> => {
 	return results;
 };
 
-export const discoverProject = async (directory: string): Promise<ProjectInfo> => {
+export const discoverProject = async (
+	directory: string,
+	excludePatterns: string[] = [],
+): Promise<ProjectInfo> => {
 	const resolvedDir = path.resolve(directory);
 	const languages = detectLanguages(resolvedDir);
 	const frameworks = detectFrameworks(resolvedDir);
 	const sourceFileCount = countSourceFiles(resolvedDir);
-	const coverage = analyzeCoverage(resolvedDir, sourceFileCount);
+	const coverage = analyzeCoverage(resolvedDir, excludePatterns);
 	const installedTools = await checkInstalledTools();
 
 	const packageJson = readPackageJson(path.join(resolvedDir, "package.json"));

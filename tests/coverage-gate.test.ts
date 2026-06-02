@@ -59,6 +59,31 @@ describe("coverage gate (discoverProject)", () => {
 		expect(info.coverage.scoreable).toBe(true);
 	});
 
+	it("honors user exclude patterns so an ignored unsupported tree does not withhold the score", async () => {
+		for (let i = 0; i < 5; i++) write(`src/m${i}.ts`, `export const v${i} = ${i};\n`);
+		for (let i = 0; i < 50; i++) write(`legacy/c${i}.c`, "int x;\n");
+
+		// Without the exclude the C tree dominates and the score is withheld.
+		const withoutExclude = await discoverProject(tmpDir);
+		expect(withoutExclude.coverage.scoreable).toBe(false);
+
+		// With the same exclude the scan applies, the C tree is ignored and the TS is scored.
+		const withExclude = await discoverProject(tmpDir, ["legacy"]);
+		expect(withExclude.coverage.unsupportedFiles).toBe(0);
+		expect(withExclude.coverage.scoreable).toBe(true);
+	});
+
+	it("counts supported files post-exclude, so excluding supported code can still withhold the score", async () => {
+		write("src/main.ts", "export const x = 1;\n");
+		for (let i = 0; i < 50; i++) write(`c${i}.c`, "int x;\n");
+		for (let i = 0; i < 30; i++) write(`legacy/old${i}.ts`, `export const y${i} = ${i};\n`);
+
+		// Excluding the legacy TS tree leaves 1 scanned TS file against 50 C files → withheld.
+		const info = await discoverProject(tmpDir, ["legacy"]);
+		expect(info.coverage.supportedFiles).toBe(1);
+		expect(info.coverage.scoreable).toBe(false);
+	});
+
 	it("withholds when there are no supported files to analyze", async () => {
 		write("README.md", "# docs only\n");
 		write("notes.md", "nothing to score\n");
