@@ -11,7 +11,7 @@
 
 The patterns Claude Code, Cursor, Codex, and OpenCode leave behind: narrative comments above self-explanatory code, swallowed exceptions, `as any` casts, hallucinated imports, duplicated helpers, dead code, todo stubs, oversized functions. Tests pass. Lint passes. The code rots anyway.
 
-aislop catches them. 40+ rules across 7 languages (TS/JS, Python, Go, Rust, Ruby, PHP, Java). Scores every change 0–100. Sub-second. Deterministic — no LLM in the runtime path, same code in, same score out. MIT-licensed, free CLI.
+aislop catches them. 50+ rules across 7 languages (TypeScript, JavaScript, Python, Go, Rust, Ruby, PHP). Scores every change 0–100. Sub-second. Deterministic — no LLM in the runtime path, same code in, same score out. MIT-licensed, free CLI.
 
 ## Quick start
 
@@ -90,6 +90,8 @@ exclude:
 
 Or via CLI: `npx aislop scan --exclude "**/*.test.ts,dist"`
 
+**Unsupported languages**: aislop only analyses the 8 languages above. If a repo is mostly something else (C, C++, C#, Swift, Kotlin, …), scoring a handful of incidental files would misrepresent it, so aislop **withholds the score** and says so rather than printing a number off code it never read. `--json` returns `score: null`, `scoreable: false`, and a `coverage` breakdown.
+
 **Per-rule severity**: Override the severity of any rule by id, or turn it off:
 
 ```yaml
@@ -101,6 +103,25 @@ rules:
 ```
 
 `off` drops matching diagnostics; `error`/`warning` rewrites severity before scoring and reporting. Absent map keeps default behavior.
+
+**Suppress findings inline**: Silence a specific line when you know better, with an optional reason after `--`:
+
+```ts
+// aislop-ignore-next-line ai-slop/empty-fallback -- options is validated upstream
+const opts = { ...defaults, ...(input || {}) };
+
+const legacy = doThing(); // aislop-ignore-line
+```
+
+`aislop-ignore-next-line` covers the line below, `aislop-ignore-line` the line it sits on, and `aislop-ignore-file` (place anywhere in the file) the whole file. Name one or more rules to scope the suppression, or omit them to silence every rule on that line. The directive works in any comment syntax (`//`, `#`, `<!-- -->`). Suppressed findings are removed before scoring, and the run reports how many were silenced.
+
+**Ignore whole paths**: Add an `.aislopignore` at the project root (same glob semantics as `exclude`, `#` comments allowed):
+
+```
+src/generated
+**/*.snap
+legacy
+```
 
 **Extend config**: Project config can extend a parent:
 
@@ -118,9 +139,12 @@ ci:
 Auto-fix what's mechanical (formatters, unused imports, dead code). For issues that need context, hand off to your agent with full diagnostic info.
 
 ```bash
-npx aislop fix                 # safe auto-fixes
+npx aislop fix                 # auto-fixes
+npx aislop fix --safe          # only reversible fixes (imports, comment removal, formatting)
 npx aislop fix -f              # aggressive: deps, unused files
 ```
+
+`--safe` restricts the run to fixes that cannot change behaviour — unused-import removal, import merging, narrative-comment removal, and formatting. Anything that deletes code or rewrites behaviour/attributes (console/dead-code removal, lint autofixes, unused-declaration and dependency pruning) is skipped, so a `--safe` run is genuinely "apply and commit".
 
 ### Hand off to agent
 
@@ -219,7 +243,7 @@ Or wire it into the [pre-commit](https://pre-commit.com) framework via the bundl
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/scanaislop/aislop
-    rev: v0.9.4
+    rev: v0.10.2
     hooks:
       - id: aislop
 ```
@@ -229,18 +253,42 @@ repos:
 Run `npx aislop init` and accept the workflow prompt, or add manually:
 
 ```yaml
+name: aislop
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: scanaislop/aislop@v0.10.2
+        with:
+          version: latest
+```
+
+`uses: scanaislop/aislop@v0.10.2` pins the GitHub Action wrapper. `version: latest` follows the latest npm CLI. For fully deterministic CI, set both to the same release:
+
+```yaml
+- uses: actions/checkout@v4
+
+- uses: scanaislop/aislop@v0.10.2
+  with:
+    version: "0.10.2"
+```
+
+Manual workflow without the Marketplace Action:
+
+```yaml
 - uses: actions/checkout@v4
 - uses: actions/setup-node@v4
   with:
     node-version: 20
-- run: npx aislop@latest ci .
-```
-
-**Composite action**:
-
-```yaml
-- uses: actions/checkout@v4
-- uses: scanaislop/aislop@v0.8
+- run: npx --yes aislop@latest ci .
 ```
 
 **GitHub code scanning (SARIF)**: emit a SARIF 2.1.0 report and upload it so findings appear in the Security tab:

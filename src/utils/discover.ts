@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getSourceFilesForRoot } from "./source-files.js";
+import { filterProjectFiles, getSourceFilesForRoot, listProjectFiles } from "./source-files.js";
 import { isToolAvailable } from "./tooling.js";
 
 export type Language =
@@ -25,14 +25,92 @@ export type Framework =
 	| "fastapi"
 	| "none";
 
+export interface Coverage {
+	supportedFiles: number;
+	unsupportedFiles: number;
+	dominantUnsupported: string | null;
+	scoreable: boolean;
+}
+
 export interface ProjectInfo {
 	rootDirectory: string;
 	projectName: string;
 	languages: Language[];
 	frameworks: Framework[];
 	sourceFileCount: number;
+	coverage: Coverage;
 	installedTools: Record<string, boolean>;
 }
+
+// Primary-language extensions aislop has no analyzer for. Used only to judge whether
+// a numeric score would represent the repo or just a sliver of incidental files.
+const UNSUPPORTED_CODE_EXTENSIONS: Record<string, string> = {
+	".c": "C/C++",
+	".h": "C/C++",
+	".cc": "C/C++",
+	".cpp": "C/C++",
+	".cxx": "C/C++",
+	".hpp": "C/C++",
+	".hh": "C/C++",
+	".hxx": "C/C++",
+	".cs": "C#",
+	".swift": "Swift",
+	".kt": "Kotlin",
+	".kts": "Kotlin",
+	".m": "Objective-C",
+	".mm": "Objective-C",
+	".scala": "Scala",
+	".dart": "Dart",
+	".ex": "Elixir",
+	".exs": "Elixir",
+	".erl": "Erlang",
+	".hs": "Haskell",
+	".clj": "Clojure",
+	".cljs": "Clojure",
+	".lua": "Lua",
+	".jl": "Julia",
+	".zig": "Zig",
+	".nim": "Nim",
+	".ml": "OCaml",
+	".fs": "F#",
+	".sol": "Solidity",
+	".groovy": "Groovy",
+};
+
+const analyzeCoverage = (rootDirectory: string, excludePatterns: string[] = []): Coverage => {
+	// Count both sides through the scan's own post-exclude file selection, so the gate reflects exactly what was analyzed.
+	const allFiles = listProjectFiles(rootDirectory);
+	const supportedFiles = filterProjectFiles(rootDirectory, allFiles, [], excludePatterns).length;
+	const counts = new Map<string, number>();
+	let unsupportedFiles = 0;
+	const candidates = filterProjectFiles(
+		rootDirectory,
+		allFiles,
+		Object.keys(UNSUPPORTED_CODE_EXTENSIONS),
+		excludePatterns,
+	);
+	for (const file of candidates) {
+		const lang = UNSUPPORTED_CODE_EXTENSIONS[path.extname(file).toLowerCase()];
+		if (!lang) continue;
+		unsupportedFiles += 1;
+		counts.set(lang, (counts.get(lang) ?? 0) + 1);
+	}
+
+	let dominantUnsupported: string | null = null;
+	let max = 0;
+	for (const [lang, count] of counts) {
+		if (count > max) {
+			max = count;
+			dominantUnsupported = lang;
+		}
+	}
+
+	// Withhold the score when aislop only saw a sliver: nothing it can analyze, or
+	// unsupported-language code outnumbers supported files by more than three to one.
+	const negligible =
+		supportedFiles === 0 || (unsupportedFiles >= 10 && unsupportedFiles > supportedFiles * 3);
+	return { supportedFiles, unsupportedFiles, dominantUnsupported, scoreable: !negligible };
+};
 
 const LANGUAGE_SIGNALS: Record<string, Language> = {
 	"tsconfig.json": "typescript",
@@ -210,11 +288,15 @@ const checkInstalledTools = async (): Promise<Record<string, boolean>> => {
 	return results;
 };
 
-export const discoverProject = async (directory: string): Promise<ProjectInfo> => {
+export const discoverProject = async (
+	directory: string,
+	excludePatterns: string[] = [],
+): Promise<ProjectInfo> => {
 	const resolvedDir = path.resolve(directory);
 	const languages = detectLanguages(resolvedDir);
 	const frameworks = detectFrameworks(resolvedDir);
 	const sourceFileCount = countSourceFiles(resolvedDir);
+	const coverage = analyzeCoverage(resolvedDir, excludePatterns);
 	const installedTools = await checkInstalledTools();
 
 	const packageJson = readPackageJson(path.join(resolvedDir, "package.json"));
@@ -226,6 +308,7 @@ export const discoverProject = async (directory: string): Promise<ProjectInfo> =
 		languages,
 		frameworks,
 		sourceFileCount,
+		coverage,
 		installedTools,
 	};
 };
