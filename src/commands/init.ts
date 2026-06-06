@@ -36,7 +36,7 @@ export const buildInitSuccessRender = (input: BuildInitRenderInput): string => {
 			: renderHeader(
 					{
 						version: APP_VERSION,
-						command: "init",
+						command: "Setup",
 						context: [],
 						brand: input.printBrand !== false,
 					},
@@ -178,6 +178,7 @@ const writeAislopConfig = (configDir: string, configPath: string, choices: InitC
 			weights: { ...DEFAULT_CONFIG.scoring.weights },
 			thresholds: { ...DEFAULT_CONFIG.scoring.thresholds },
 			smoothing: DEFAULT_CONFIG.scoring.smoothing,
+			maxPerRule: DEFAULT_CONFIG.scoring.maxPerRule,
 		},
 		ci: {
 			failBelow: choices.failBelow,
@@ -205,7 +206,7 @@ export const initCommand = async (directory: string, options: InitOptions = {}):
 	const printBrand = options.printBrand !== false;
 
 	process.stdout.write(
-		renderHeader({ version: APP_VERSION, command: "init", context: [], brand: printBrand }),
+		renderHeader({ version: APP_VERSION, command: "Setup", context: [], brand: printBrand }),
 	);
 
 	const configDir = path.join(resolvedDir, CONFIG_DIR);

@@ -1,4 +1,3 @@
-import { APP_VERSION } from "../version.js";
 import type { AislopConfig } from "./schema.js";
 
 export const DEFAULT_CONFIG: AislopConfig = {
@@ -40,6 +39,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 			ok: 50,
 		},
 		smoothing: 20,
+		maxPerRule: 40,
 	},
 	ci: {
 		failBelow: 70,
@@ -66,9 +66,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: scanaislop/aislop@v${APP_VERSION}
+      - uses: scanaislop/aislop@v1
         with:
-          version: ${APP_VERSION}
+          version: latest
 `;
 
 export const DEFAULT_RULES_YAML = `# Architecture rules (BYO)

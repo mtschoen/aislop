@@ -3,6 +3,7 @@ import path from "node:path";
 import { getSourceFiles } from "../../utils/source-files.js";
 import { maskStringsAndComments } from "../../utils/source-masker.js";
 import type { Diagnostic, EngineContext } from "../types.js";
+import { consumeTemplateLiteral, isSafeInnerHtmlAssignment } from "./html-safety.js";
 
 interface RiskyPattern {
 	pattern: RegExp;
@@ -118,6 +119,62 @@ const isStructuredDataScript = (content: string, matchIndex: number): boolean =>
 	return /__html\s*:\s*JSON\.stringify\s*\(/.test(after);
 };
 
+const isSafeShellSpawnArray = (content: string, matchIndex: number): boolean =>
+	/^spawn\s*\(\s*\[/.test(content.slice(matchIndex)) &&
+	!/^\s*spawn\s*\(\s*\[\s*["'](?:sh|bash|zsh|cmd|cmd\.exe|powershell|pwsh)["']\s*,\s*["'](?:-c|\/c|\/C)["']/i.test(
+		content.slice(matchIndex),
+	) &&
+	!/shell\s*:\s*true\b/.test(content.slice(matchIndex, matchIndex + 500));
+
+const PLACEHOLDER_EXPR_RE =
+	/^(?:placeholders?|placeholderList|bindMarkers?|bindingMarkers?|bindPlaceholders?|bindingPlaceholders?|parameterPlaceholders?|sqlPlaceholders?)(?:\.\w+\([^)]*\))?$/i;
+const SQL_PLACEHOLDER_LITERAL_RE = /["'](?:\?|\$\d+|\$\{[^}]+\})["']/;
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const isGeneratedPlaceholderList = (
+	content: string,
+	matchIndex: number,
+	placeholderExpr: string,
+): boolean => {
+	const name = placeholderExpr.match(/^([A-Za-z_$][\w$]*)/)?.[1];
+	if (!name) return false;
+
+	const prefix = content.slice(Math.max(0, matchIndex - 4000), matchIndex);
+	const declarationRe = new RegExp(
+		`\\b(?:const|let|var)\\s+${escapeRegExp(name)}\\s*=\\s*([^;\\n]+)`,
+		"g",
+	);
+	const declarations = [...prefix.matchAll(declarationRe)];
+	const declaration = declarations.at(-1);
+	if (!declaration) return false;
+
+	const expr = declaration[1];
+	if (!/\.join\s*\(/.test(expr)) return false;
+	return (
+		(/\.map\s*\(/.test(expr) && /=>/.test(expr) && SQL_PLACEHOLDER_LITERAL_RE.test(expr)) ||
+		(/\.fill\s*\(/.test(expr) && SQL_PLACEHOLDER_LITERAL_RE.test(expr))
+	);
+};
+
+const isSafeSqlPlaceholderTemplate = (content: string, matchIndex: number): boolean => {
+	const template = consumeTemplateLiteral(content, matchIndex);
+	if (!template) return false;
+	const afterTemplate = content.slice(template.endIndex + 1);
+	const hasSeparateBindings =
+		/^\s*,/.test(afterTemplate) || /^\s*\)\s*\.(?:all|get|run|values)\s*\(/.test(afterTemplate);
+	if (!hasSeparateBindings) return false;
+
+	const expressions = [...template.body.matchAll(/\$\{\s*([^}]+?)\s*\}/g)].map((match) =>
+		match[1].trim(),
+	);
+	if (expressions.length === 0) return false;
+	return expressions.every(
+		(expr) =>
+			PLACEHOLDER_EXPR_RE.test(expr) && isGeneratedPlaceholderList(content, matchIndex, expr),
+	);
+};
+
 export const detectRiskyConstructs = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const files = getSourceFiles(context);
 	const diagnostics: Diagnostic[] = [];
@@ -150,12 +207,21 @@ export const detectRiskyConstructs = async (context: EngineContext): Promise<Dia
 				// For innerHTML: skip if target is a <template> element (safe by design)
 				if (name === "innerhtml") {
 					const beforeMatch = content.slice(Math.max(0, match.index - 200), match.index);
+					if (isSafeInnerHtmlAssignment(content, match.index)) continue;
 					if (
 						/(?:template|tmpl|tpl)$/i.test(beforeMatch.trimEnd()) ||
 						/createElement\s*\(\s*['"]template['"]\s*\)$/.test(beforeMatch.trimEnd())
 					) {
 						continue;
 					}
+				}
+
+				if (name === "sql-injection" && isSafeSqlPlaceholderTemplate(content, match.index)) {
+					continue;
+				}
+
+				if (name === "shell-injection" && isSafeShellSpawnArray(content, match.index)) {
+					continue;
 				}
 
 				if (name === "dangerously-set-innerhtml") {
