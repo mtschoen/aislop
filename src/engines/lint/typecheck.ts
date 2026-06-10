@@ -6,9 +6,9 @@ import type { Diagnostic, EngineContext } from "../types.js";
 
 const MAX_DEPTH = 3;
 const TSC_TIMEOUT_MS = 120_000;
+const esmRequire = createRequire(import.meta.url);
 // tsc non-pretty output: `path/to/file.ts(line,col): error TSnnnn: message`
 const TSC_LINE_RE = /^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+TS(\d+):\s+(.+)$/;
-const require = createRequire(import.meta.url);
 
 const findTsconfigs = (root: string): string[] => {
 	const results: string[] = [];
@@ -31,9 +31,9 @@ const findTsconfigs = (root: string): string[] => {
 	return results;
 };
 
-const resolveBundledTsc = (): string | null => {
+export const resolveTrustedTscPath = (): string | null => {
 	try {
-		return require.resolve("typescript/lib/tsc.js");
+		return esmRequire.resolve("typescript/lib/tsc.js");
 	} catch {
 		return null;
 	}
@@ -64,7 +64,7 @@ export const runTypecheck = async (context: EngineContext): Promise<Diagnostic[]
 	const diagnostics: Diagnostic[] = [];
 	const seen = new Set<string>();
 
-	const tscCli = resolveBundledTsc();
+	const tscCli = resolveTrustedTscPath();
 	if (!tscCli) return [];
 
 	for (const tsconfig of tsconfigs) {
