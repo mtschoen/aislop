@@ -127,11 +127,12 @@ scripts portable:
   (the bundle is byte-identical with or without it), so it was dropped. If a
   script ever genuinely needs an env var set cross-platform, add the
   `cross-env` dev dependency and use `cross-env VAR=value cmd`.
-- **Known Windows test gaps.** A set of path/permission tests (telemetry
-  `install_id` home resolution, `0600` permission bits, repo-relative path
-  conversion, and related cases) fail on Windows but pass in Linux CI. They
-  are environment-specific, not regressions; a green Linux CI run is not a
-  Windows guarantee.
+- **Windows tests are fully green on this fork.** The `fix/windows-tests`
+  work merged into `schoen/main` made the entire suite pass on Windows
+  (112 files / 1164 tests as of the upstream-0.11.0 merge). A clean
+  *upstream* checkout still fails ~42 tests on Windows (path/permission
+  assumptions), so a red suite there is expected - but on `schoen/main`
+  any Windows test failure is a real regression, not environment noise.
 
 ## Local deploy (running your build as the global `aislop`)
 
@@ -149,6 +150,26 @@ branch). `pnpm link --global` from a worktree points the global command at
 that worktree's `dist/`, so rebuild after switching branches. Remotes:
 `origin` is upstream (scanaislop/aislop); `fork` is the personal fork
 (mtschoen/aislop) with an integration branch `schoen/main`.
+
+Alternative: install the fork build as a pinned global package (what the
+fleet machines use):
+
+```bash
+cd /tmp/x   # neutral dir: no pnpm-workspace.yaml, no packageManager pin
+~/AppData/Roaming/npm/pnpm add -g --allow-build=aislop "github:mtschoen/aislop#schoen/main"
+```
+
+Invoke pnpm's npm-installed shim directly, NOT via corepack: the nested
+`pnpm install` that prepares the git tarball sees this repo's
+`packageManager` pin, and a corepack-invoked pnpm refuses to version-switch
+(ERR_PNPM_PREPARE_PACKAGE). Re-run the same line after pushing new commits
+to refresh the pinned install.
+
+To publish the fork build to the internal Gitea npm registry as
+`@schoen/aislop` (for consumer repos that install it like a normal
+dependency), run `scripts/publish-gitea.ps1` from a machine on the
+internal network. Bump `version` in package.json first; the registry
+rejects an already-published version.
 
 ## Writing conventions
 
