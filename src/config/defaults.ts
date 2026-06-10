@@ -39,6 +39,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 			ok: 50,
 		},
 		smoothing: 20,
+		maxPerRule: 40,
 	},
 	ci: {
 		failBelow: 70,
@@ -65,12 +66,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: scanaislop/aislop@v1
         with:
-          node-version: 20
-      # Quality gate: exits 1 when score < ci.failBelow in .aislop/config.yml
-      # or when any error-severity diagnostic is present.
-      - run: npx aislop@latest ci .
+          version: latest
 `;
 
 export const DEFAULT_RULES_YAML = `# Architecture rules (BYO)

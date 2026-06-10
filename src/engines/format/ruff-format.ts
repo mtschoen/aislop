@@ -27,9 +27,8 @@ export const runRuffFormat = async (context: EngineContext): Promise<Diagnostic[
 const parseRuffFormatOutput = (output: string, rootDir: string): Diagnostic[] => {
 	const diagnostics: Diagnostic[] = [];
 	const filePattern = /^--- (.+)$/gm;
-	let match: RegExpExecArray | null;
 
-	while ((match = filePattern.exec(output)) !== null) {
+	for (const match of output.matchAll(filePattern)) {
 		const filePath = getRuffDiagnosticPath(rootDir, match[1]);
 		diagnostics.push({
 			filePath,
@@ -37,7 +36,7 @@ const parseRuffFormatOutput = (output: string, rootDir: string): Diagnostic[] =>
 			rule: "python-formatting",
 			severity: "warning",
 			message: "Python file is not formatted correctly",
-			help: "Run `npx aislop fix` to auto-format with ruff",
+			help: "Run `aislop fix` to auto-format with ruff",
 			line: 0,
 			column: 0,
 			category: "Format",

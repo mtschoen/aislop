@@ -195,6 +195,45 @@ describe("calculateScore", () => {
 		const drop10 = 100 - ten.score;
 		expect(drop10).toBeLessThan(drop1 * 10);
 	});
+
+	it("caps repeated findings from the same rule when maxPerRule is provided", () => {
+		const repeated = Array.from({ length: 100 }, () =>
+			makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/narrative-comment" }),
+		);
+
+		const uncapped = calculateScore(repeated, defaultWeights, defaultThresholds, 20, 20);
+		const capped = calculateScore(repeated, defaultWeights, defaultThresholds, 20, 20, 5);
+
+		expect(capped.score).toBeGreaterThan(uncapped.score);
+	});
+
+	it("uses a tighter cap for repeated comment-style findings", () => {
+		const commentFlood = Array.from({ length: 100 }, () =>
+			makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/narrative-comment" }),
+		);
+		const comparableRuleFlood = Array.from({ length: 100 }, () =>
+			makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/unsafe-type-assertion" }),
+		);
+
+		const commentScore = calculateScore(
+			commentFlood,
+			defaultWeights,
+			defaultThresholds,
+			20,
+			20,
+			40,
+		);
+		const comparableRuleScore = calculateScore(
+			comparableRuleFlood,
+			defaultWeights,
+			defaultThresholds,
+			20,
+			20,
+			40,
+		);
+
+		expect(commentScore.score).toBeGreaterThan(comparableRuleScore.score);
+	});
 });
 
 // ─── getScoreColor ─────────────────────────────────────────────────────────────

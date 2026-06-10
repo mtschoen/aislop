@@ -19,8 +19,13 @@ import {
 } from "../hooks/install/registry.js";
 import type { HookInstallOpts } from "../hooks/install/types.js";
 import { captureBaseline } from "../hooks/quality-gate/baseline.js";
-import { isCancel, multiselect } from "../ui/prompts.js";
+import { flushTelemetry } from "../telemetry/client.js";
+import { searchMultiselect } from "../ui/search-select.js";
 import { style, theme } from "../ui/theme.js";
+
+// A per-edit hook must not stall the agent on telemetry. Give the queued event a
+// brief window to send before the process exits, then give up.
+const HOOK_FLUSH_TIMEOUT_MS = 1500;
 
 const AGENT_LABELS: Record<AgentName, { label: string; hint: string }> = {
 	claude: { label: "Claude Code", hint: "PostToolUse, runtime" },
@@ -152,6 +157,9 @@ export const hookRun = async (
 		process.stderr.write(`hook: agent "${agent}" has no runtime adapter (rules-file-only)\n`);
 		process.exit(0);
 	}
+	// The adapters emit hook_scan_completed via fire-and-forget track(); flush it
+	// before process.exit kills the in-flight request.
+	await flushTelemetry(HOOK_FLUSH_TIMEOUT_MS);
 	process.exit(exitCode);
 };
 
@@ -217,19 +225,19 @@ export const promptAgentSelection = async (
 	if (pool.length === 0) return [];
 	const preChecked =
 		mode === "uninstall" ? installed : (AGENTS_SUPPORTING_BOTH_SCOPES as AgentName[]);
-	const choice = await multiselect<AgentName>({
+	const choice = await searchMultiselect<AgentName>({
 		message:
 			mode === "install"
 				? "Which agents should get aislop hooks?"
 				: "Which agent hooks should be removed?",
-		options: pool.map((a) => ({
+		items: pool.map((a) => ({
 			value: a,
 			label: AGENT_LABELS[a].label,
 			hint: AGENT_LABELS[a].hint,
+			keywords: [a],
 		})),
-		initialValues: preChecked.filter((a) => pool.includes(a)),
+		initialSelected: preChecked.filter((a) => pool.includes(a)),
 		required: false,
 	});
-	if (isCancel(choice)) return null;
-	return choice as AgentName[];
+	return choice;
 };

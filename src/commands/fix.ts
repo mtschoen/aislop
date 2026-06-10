@@ -1,18 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { findConfigDir, RULES_FILE, type AislopConfig } from "../config/index.js";
+import { type AislopConfig, findConfigDir, RULES_FILE } from "../config/index.js";
 import { runEngines } from "../engines/orchestrator.js";
 import type { Diagnostic, EngineConfig, EngineContext } from "../engines/types.js";
 import { calculateScore } from "../scoring/index.js";
-import { style, theme as defaultTheme } from "../ui/theme.js";
+import { withCommandLifecycle } from "../telemetry/index.js";
 import { renderHeader } from "../ui/header.js";
 import { LiveRail } from "../ui/live-rail.js";
 import { log } from "../ui/logger.js";
+import { theme as defaultTheme, style } from "../ui/theme.js";
 import { discoverProject } from "../utils/discover.js";
-import { withCommandLifecycle } from "../telemetry/index.js";
 import { APP_VERSION } from "../version.js";
-import { buildScanRender } from "./scan.js";
 import { launchAgent, printPrompt } from "./fix-code.js";
 import {
 	type PipelineDeps,
@@ -25,12 +24,15 @@ import {
 	runLintSteps,
 } from "./fix-pipeline.js";
 import { describeStep, type FixStepResult, runOneFixStep, statusFor } from "./fix-steps.js";
+import { buildScanRender } from "./scan.js";
 
 export { buildFixRender } from "./fix-render.js";
 
 interface FixOptions {
 	verbose: boolean;
 	force?: boolean;
+	/** Restrict to reversible fixes only (imports, comment removal, formatting) */
+	safe?: boolean;
 	/** Agent CLI to launch with remaining issues (e.g. "claude", "codex") */
 	agent?: string;
 	/** Print the prompt to stdout instead of launching an agent */
@@ -93,7 +95,7 @@ const runFixBody = async (
 		process.stdout.write(
 			renderHeader({
 				version: APP_VERSION,
-				command: "fix",
+				command: "Fix run",
 				context: [projectName],
 				brand: options.printBrand !== false,
 			}),
@@ -116,20 +118,25 @@ const runFixBody = async (
 		return result;
 	};
 
+	const safe = Boolean(options.safe);
 	const pipelineDeps: PipelineDeps = {
 		rail,
 		context,
 		config,
 		resolvedDir,
 		projectInfo,
-		force: Boolean(options.force),
+		force: safe ? false : Boolean(options.force),
+		safe,
 		runStep,
 	};
 
 	await runAiSlopSteps(pipelineDeps);
-	await runDeclarationStep(pipelineDeps);
-	await runLintSteps(pipelineDeps);
-	await runDependencyStep(pipelineDeps);
+	// Safe mode skips the steps that delete code or rewrite behaviour/attributes.
+	if (!safe) {
+		await runDeclarationStep(pipelineDeps);
+		await runLintSteps(pipelineDeps);
+		await runDependencyStep(pipelineDeps);
+	}
 
 	await runFormattingStep(pipelineDeps);
 
@@ -168,11 +175,13 @@ const runFixBody = async (
 		config.scoring.thresholds,
 		projectInfo.sourceFileCount,
 		config.scoring.smoothing,
+		config.scoring.maxPerRule,
 	);
 
 	const errors = allDiagnostics.filter((d) => d.severity === "error").length;
 	const warnings = allDiagnostics.filter((d) => d.severity === "warning").length;
 	const remaining = errors + warnings;
+	const actionableDiagnostics = allDiagnostics.filter((d) => d.severity !== "info");
 
 	// If no fix steps ran at all, emit a single "skipped" rail line so the
 	// footer has context. Otherwise the step lines were already emitted live.
@@ -197,7 +206,7 @@ const runFixBody = async (
 				language,
 				fileCount: projectInfo.sourceFileCount,
 				results: scanResults,
-				diagnostics: allDiagnostics,
+				diagnostics: actionableDiagnostics,
 				score: scoreResult,
 				elapsedMs: performance.now() - startTime,
 				thresholds: config.scoring.thresholds,
@@ -209,7 +218,7 @@ const runFixBody = async (
 	}
 
 	if (options.agent) {
-		launchAgent(options.agent, resolvedDir, allDiagnostics, scoreResult.score);
+		launchAgent(options.agent, resolvedDir, actionableDiagnostics, scoreResult.score);
 		return {
 			exitCode: 0,
 			score: scoreResult.score,
@@ -218,7 +227,7 @@ const runFixBody = async (
 		};
 	}
 	if (options.prompt) {
-		printPrompt(resolvedDir, allDiagnostics, scoreResult.score);
+		printPrompt(resolvedDir, actionableDiagnostics, scoreResult.score);
 		return {
 			exitCode: 0,
 			score: scoreResult.score,

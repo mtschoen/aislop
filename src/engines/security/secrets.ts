@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { maskComments } from "../../utils/source-masker.js";
 import { getSourceFilesWithExtras } from "../../utils/source-files.js";
+import { maskComments } from "../../utils/source-masker.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
 interface SecretPattern {
@@ -78,8 +78,40 @@ const isInsideStringLiteral = (content: string, matchIndex: number): boolean => 
 };
 
 const PLACEHOLDER_EXACT = new Set(["changeme", "password", "secret", "xxx", "todo", "replace_me"]);
+const PLACEHOLDER_URL_PARTS = new Set([
+	"example",
+	"host",
+	"localhost",
+	"pass",
+	"password",
+	"pw",
+	"user",
+	"username",
+]);
+
+const isPlaceholderCredentialUrl = (matchedText: string): boolean => {
+	const credentialMatch = matchedText.match(/^[a-z]+:\/\/([^:@/\s]+):([^@/\s]+)@/i);
+	if (credentialMatch) {
+		return (
+			PLACEHOLDER_URL_PARTS.has(credentialMatch[1].toLowerCase()) &&
+			PLACEHOLDER_URL_PARTS.has(credentialMatch[2].toLowerCase())
+		);
+	}
+
+	try {
+		const parsed = new URL(matchedText);
+		return (
+			PLACEHOLDER_URL_PARTS.has(parsed.username.toLowerCase()) &&
+			PLACEHOLDER_URL_PARTS.has(parsed.password.toLowerCase()) &&
+			PLACEHOLDER_URL_PARTS.has(parsed.hostname.toLowerCase())
+		);
+	} catch {
+		return false;
+	}
+};
 
 const isPlaceholderValue = (matchedText: string): boolean => {
+	if (isPlaceholderCredentialUrl(matchedText)) return true;
 	if (/env\(/i.test(matchedText)) return true;
 	if (matchedText.includes("process.env")) return true;
 	if (matchedText.includes("os.environ")) return true;
@@ -109,9 +141,8 @@ export const scanSecrets = async (context: EngineContext): Promise<Diagnostic[]>
 
 		for (const { pattern, name, keywordPrefixed } of SECRET_PATTERNS) {
 			const regex = new RegExp(pattern.source, pattern.flags);
-			let match: RegExpExecArray | null;
 
-			while ((match = regex.exec(content)) !== null) {
+			for (const match of content.matchAll(regex)) {
 				const matchedText = match[1] ?? match[0];
 				if (isPlaceholderValue(matchedText)) continue;
 				if (keywordPrefixed && isInsideStringLiteral(content, match.index)) continue;
