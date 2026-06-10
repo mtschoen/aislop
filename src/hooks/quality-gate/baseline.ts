@@ -75,8 +75,8 @@ export const captureBaseline = async (
 		},
 	};
 	const enabled: Record<EngineName, boolean> = {
-		format: config.engines.format,
-		lint: config.engines.lint,
+		format: false,
+		lint: false,
 		"code-quality": config.engines["code-quality"],
 		"ai-slop": config.engines["ai-slop"],
 		architecture: config.engines.architecture,

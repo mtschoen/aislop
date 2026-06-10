@@ -35,7 +35,7 @@ const makeContext = (file: string, allowProjectLocalTools?: boolean): EngineCont
 			maxParams: 6,
 		},
 		security: { audit: false, auditTimeout: 0 },
-		lint: { typecheck: false },
+		lint: { typecheck: false, expoDoctor: false },
 		allowProjectLocalTools,
 	},
 });
