@@ -92,6 +92,7 @@ export const captureBaseline = async (
 		config.scoring.thresholds,
 		project.sourceFileCount,
 		config.scoring.smoothing,
+		config.scoring.maxPerRule,
 	);
 	const byEngine: Record<string, number> = {};
 	for (const r of results) {
@@ -102,6 +103,7 @@ export const captureBaseline = async (
 			config.scoring.thresholds,
 			project.sourceFileCount,
 			config.scoring.smoothing,
+			config.scoring.maxPerRule,
 		);
 		byEngine[r.engine] = engineScore;
 	}

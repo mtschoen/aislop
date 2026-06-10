@@ -80,8 +80,7 @@ const detectThinWrappers = (content: string, relativePath: string, ext: string):
 	for (const { pattern, extensions } of THIN_WRAPPER_PATTERNS) {
 		if (!extensions.has(ext)) continue;
 		const regex = new RegExp(pattern.source, pattern.flags);
-		let match: RegExpExecArray | null;
-		while ((match = regex.exec(content)) !== null) {
+		for (const match of content.matchAll(regex)) {
 			const funcName = match[1];
 			const matchText = match[0];
 			const lineNumber = content.slice(0, match.index).split("\n").length;
@@ -95,7 +94,7 @@ const detectThinWrappers = (content: string, relativePath: string, ext: string):
 			// Skip functions preceded by a decorator (line above starts with @)
 			if (lineNumber >= 2) {
 				const prevLine = lines[lineNumber - 2]?.trim();
-				if (prevLine && prevLine.startsWith("@")) continue;
+				if (prevLine?.startsWith("@")) continue;
 			}
 
 			// Only flag a true passthrough; transforming/forwarding non-params is real work.

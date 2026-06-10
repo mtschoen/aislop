@@ -47,7 +47,7 @@ export const fixUnusedImports = async (context: EngineContext): Promise<void> =>
 			} else if (JS_EXTENSIONS.has(analysis.ext)) {
 				rewriteJsImportSpan(lines, importSpan, syms, unusedNames);
 			} else if (PY_EXTENSIONS.has(analysis.ext)) {
-				rewritePyImportLine(lines, lineIdx, syms, unusedNames);
+				rewritePyImportLine(lines, lineIdx, unusedNames);
 			}
 		}
 
@@ -163,15 +163,13 @@ const rewriteJsImportSpan = (
 	}
 };
 
-const rewritePyImportLine = (
-	lines: string[],
-	lineIdx: number,
-	syms: ImportedSymbol[],
-	unusedNames: Set<string>,
-): void => {
+const rewritePyImportLine = (lines: string[], lineIdx: number, unusedNames: Set<string>): void => {
 	const line = lines[lineIdx];
 	const fromMatch = line.match(/^(\s*from\s+[\w.]+\s+import\s+)(.+)$/);
-	if (!fromMatch) return;
+	if (!fromMatch) {
+		rewritePlainPyImportLine(lines, lineIdx, unusedNames);
+		return;
+	}
 
 	const prefix = fromMatch[1];
 	const importPart = fromMatch[2].replace(/#.*$/, "").trim();
@@ -189,4 +187,28 @@ const rewritePyImportLine = (
 
 	const joined = keptSpecifiers.join(", ");
 	lines[lineIdx] = hasParen ? `${prefix}(${joined})` : `${prefix}${joined}`;
+};
+
+const rewritePlainPyImportLine = (
+	lines: string[],
+	lineIdx: number,
+	unusedNames: Set<string>,
+): void => {
+	const match = lines[lineIdx].match(/^(\s*import\s+)(.+)$/);
+	if (!match) return;
+
+	const prefix = match[1];
+	const specifiers = match[2]
+		.replace(/#.*$/, "")
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const kept = specifiers.filter((spec) => {
+		const parts = spec.split(/\s+as\s+/);
+		const localName = parts.length > 1 ? parts[1].trim() : parts[0].trim().split(".")[0];
+		return !unusedNames.has(localName);
+	});
+
+	if (kept.length === 0 || kept.length === specifiers.length) return;
+	lines[lineIdx] = `${prefix}${kept.join(", ")}`;
 };

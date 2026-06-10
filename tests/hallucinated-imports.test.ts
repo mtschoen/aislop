@@ -201,6 +201,22 @@ export { spawn, config };
 		expect(diags).toHaveLength(0);
 	});
 
+	it("does not flag Deno-style remote and registry imports", async () => {
+		writePkgJson({});
+		writeFile(
+			"supabase/functions/update-check/index.ts",
+			`import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertEquals } from "jsr:@std/assert";
+import { z } from "npm:zod@4";
+export { createClient, assertEquals, z };
+`,
+		);
+
+		const diags = await detectHallucinatedImports(buildContext());
+
+		expect(diags).toHaveLength(0);
+	});
+
 	it("does not flag unplugin virtual icon and font modules when their plugins are installed", async () => {
 		writePkgJson({}, { "unplugin-icons": "^0.19.0", "unplugin-fonts": "^1.1.0" });
 		writeFile(
@@ -503,7 +519,10 @@ x = 1
 
 	it("recognizes stdlib modules code / codeop / rlcompleter", async () => {
 		writeFile("pyproject.toml", `[project]\ndependencies = ["click"]\n`);
-		writeFile("src/shell.py", `import code\nimport rlcompleter\nfrom codeop import compile_command\n`);
+		writeFile(
+			"src/shell.py",
+			`import code\nimport rlcompleter\nfrom codeop import compile_command\n`,
+		);
 		const diagnostics = await detectHallucinatedImports(buildContext());
 		expect(diagnostics).toEqual([]);
 	});
@@ -547,10 +566,7 @@ x = 1
 
 	it("resolves google-genai for `from google import genai` and still flags a garbage import alongside", async () => {
 		writeFile("requirements.txt", "google-genai==0.3.0\n");
-		writeFile(
-			"src/main.py",
-			`from google import genai\nimport made_up_garbage_pkg\n`,
-		);
+		writeFile("src/main.py", `from google import genai\nimport made_up_garbage_pkg\n`);
 
 		const diagnostics = await detectHallucinatedImports(buildContext());
 

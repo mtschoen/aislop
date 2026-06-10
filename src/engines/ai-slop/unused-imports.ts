@@ -119,21 +119,27 @@ const extractPyImportedSymbols = (
 			continue;
 		}
 
-		const importMatch = trimmed.match(/^import\s+([\w.]+)(?:\s+as\s+(\w+))?/);
+		const importMatch = trimmed.match(/^import\s+(.+)/);
 		if (importMatch) {
 			importLines.add(i);
-			const alias = importMatch[2];
-			// `import X as X` is also a re-export marker.
-			if (alias && alias === importMatch[1]) continue;
-			const localName = alias ?? importMatch[1];
-			const simpleName = localName.split(".")[0];
-			if (simpleName && /^\w+$/.test(simpleName)) {
-				symbols.push({
-					name: simpleName,
-					line: i + 1,
-					isDefault: false,
-					isNamespace: true,
-				});
+			// `import a, b.c as d` binds each comma-separated clause independently;
+			// capturing only the first would delete the whole line for one unused name.
+			for (const clause of importMatch[1].replace(/#.*$/, "").split(",")) {
+				const clauseMatch = clause.trim().match(/^([\w.]+)(?:\s+as\s+(\w+))?/);
+				if (!clauseMatch) continue;
+				const alias = clauseMatch[2];
+				// `import X as X` is a re-export marker.
+				if (alias && alias === clauseMatch[1]) continue;
+				const localName = alias ?? clauseMatch[1];
+				const simpleName = localName.split(".")[0];
+				if (simpleName && /^\w+$/.test(simpleName)) {
+					symbols.push({
+						name: simpleName,
+						line: i + 1,
+						isDefault: false,
+						isNamespace: true,
+					});
+				}
 			}
 		}
 	}
@@ -148,8 +154,7 @@ const isSymbolUsed = (
 	lines: string[],
 ): boolean => {
 	const pattern = new RegExp(`\\b${name}\\b`, "g");
-	let match: RegExpExecArray | null;
-	while ((match = pattern.exec(content)) !== null) {
+	for (const match of content.matchAll(pattern)) {
 		const lineIndex = content.slice(0, match.index).split("\n").length - 1;
 		if (!importLines.has(lineIndex)) return true;
 	}

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFixRender } from "../../src/commands/fix.js";
-
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = new RegExp(String.raw`\x1B\[[0-9;]*m`, "g");
-const strip = (s: string) => s.replace(ANSI_RE, "");
+import { stripAnsi as strip } from "../helpers/ansi.js";
 
 describe("fix render", () => {
 	it("renders rail steps and a footer with remaining count", () => {
@@ -20,7 +17,7 @@ describe("fix render", () => {
 				nextAgentHint: "Run aislop fix --claude to hand off the 3 remaining issues",
 			}),
 		);
-		expect(out).toContain("fix");
+		expect(out).toContain("Fix run");
 		expect(out).toContain("my-app");
 		expect(out).toContain("◆ Removed 12 unused imports");
 		expect(out).toContain("◇ Formatting…");
