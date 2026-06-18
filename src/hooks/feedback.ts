@@ -1,4 +1,5 @@
 import path from "node:path";
+import { toPosix } from "../utils/paths.js";
 import type { Diagnostic } from "../engines/types.js";
 
 interface FindingFix {
@@ -78,7 +79,9 @@ const REGRESSION_FLAG_THRESHOLD = 5;
 
 const toFinding = (d: Diagnostic, rootDirectory: string): Finding | null => {
 	if (d.severity !== "error" && d.severity !== "warning") return null;
-	const file = path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath;
+	const file = toPosix(
+		path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+	);
 	return {
 		ruleId: d.rule,
 		severity: d.severity,

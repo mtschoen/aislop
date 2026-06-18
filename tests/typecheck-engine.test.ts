@@ -17,7 +17,7 @@ const writeFile = (relative: string, content: string): void => {
 };
 
 const linkNodeModules = (): void => {
-	fs.symlinkSync(NODE_MODULES, path.join(tmpDir, "node_modules"));
+	fs.symlinkSync(NODE_MODULES, path.join(tmpDir, "node_modules"), "junction");
 };
 
 const buildContext = (): EngineContext => ({
