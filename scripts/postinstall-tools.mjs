@@ -14,6 +14,8 @@ const PACKAGE_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
 const TOOLS_BIN_DIR = path.join(PACKAGE_ROOT, "tools", "bin");
 const TOOLS_ANALYZERS_DIR = path.join(PACKAGE_ROOT, "tools", "analyzers");
 const USER_AGENT = "aislop-installer";
+const DOWNLOAD_ATTEMPTS = 3;
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 // Roslyn analyzer NuGet packages whose async/Task rules feed the C# lint engine
 // (AsyncFixer01-03, MA0040/42/45 — see RELEVANT_IDS in lint/dotnet.ts). Bundling
@@ -85,17 +87,35 @@ const withExecutableExtension = (name) => (isWindows ? `${name}.exe` : name);
 const info = (message) => console.error(`[aislop] ${message}`);
 const warn = (message) => console.error(`[aislop] ${message}`);
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const downloadError = (message, retryable) =>
+	Object.assign(new Error(message), { retryable });
+
 const downloadFile = async (url, destination) => {
-	const response = await fetch(url, {
-		headers: { "User-Agent": USER_AGENT },
-	});
-	if (!response.ok || !response.body) {
-		throw new Error(`Failed to download ${url} (${response.status})`);
+	let lastError = null;
+	for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
+		try {
+			const response = await fetch(url, {
+				headers: { "User-Agent": USER_AGENT },
+			});
+			if (response.ok && response.body) {
+				await pipeline(
+					Readable.fromWeb(response.body),
+					fs.createWriteStream(destination),
+				);
+				return;
+			}
+			const message = `Failed to download ${url} (${response.status})`;
+			lastError = downloadError(message, RETRYABLE_HTTP_STATUSES.has(response.status));
+			if (!lastError.retryable) throw lastError;
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+			if (lastError.retryable === false || attempt === DOWNLOAD_ATTEMPTS) break;
+		}
+		await sleep(400 * attempt);
 	}
-	await pipeline(
-		Readable.fromWeb(response.body),
-		fs.createWriteStream(destination),
-	);
+	throw lastError ?? new Error(`Failed to download ${url}`);
 };
 
 const extractArchive = async (archivePath, extractDir) => {
@@ -314,6 +334,16 @@ const main = async () => {
 
 	// Best-effort C# analyzer bundling — never fails the install if it can't complete.
 	await installAnalyzers();
+
+	printNextSteps();
+};
+
+const printNextSteps = () => {
+	if (process.env.CI) return;
+	info("Installed. Next:");
+	info("  aislop scan     score this repo for AI slop");
+	info("  aislop agent    run a coding agent and auto-scan its work");
+	info("  Gate every PR for your team, free → https://scanaislop.com");
 };
 
 main().catch((error) => {
