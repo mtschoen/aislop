@@ -5,6 +5,7 @@ import { runEngines } from "../../engines/orchestrator.js";
 import type { Diagnostic, EngineContext, EngineName } from "../../engines/types.js";
 import { calculateScore } from "../../scoring/index.js";
 import { discoverProject } from "../../utils/discover.js";
+import { toPosix } from "../../utils/paths.js";
 import { atomicWrite, readIfExists } from "../io/atomic-write.js";
 
 interface Baseline {
@@ -18,7 +19,9 @@ interface Baseline {
 }
 
 const fingerprintDiagnostic = (d: Diagnostic, rootDirectory: string): string => {
-	const rel = path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath;
+	const rel = toPosix(
+		path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+	);
 	return `${rel}:${d.line}:${d.rule}`;
 };
 
