@@ -42,8 +42,11 @@ $tokenPath  = Join-Path $HOME '.gitea-token'
 $token      = if ($env:GITEA_TOKEN) { $env:GITEA_TOKEN } else { (Get-Content $tokenPath -Raw).Trim() }
 $caPath     = if ($env:AISLOP_GITEA_CA) { $env:AISLOP_GITEA_CA } else { 'Y:\.local\share\mkcert\rootCA.pem' }
 
-# Derive the registry host so the per-registry _authToken key matches exactly.
-$registryNoScheme = ($registry -replace '^https?:', '').TrimEnd('/') + '/'
+# Derive the registry path (no scheme, no leading slashes) so the per-registry
+# _authToken nerf-dart matches exactly. Strip `https://` entirely: stripping only
+# `https:` leaves the `//`, and the key template below prepends another `//`,
+# producing a 4-slash key npm can't match (-> ENEEDAUTH).
+$registryNoScheme = ($registry -replace '^https?://', '').TrimEnd('/') + '/'
 
 $version = (Get-Content (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
 Write-Host "Publishing $scopedName@$version -> $registry"
@@ -63,8 +66,12 @@ if (-not (Test-Path 'dist\cli.js')) { throw 'build failed: dist/cli.js not produ
 # reachable (no TLS downgrade); otherwise fall back to disabling strict-ssl
 # for this publish only.
 $tmpNpmrc = Join-Path $env:TEMP 'aislop-gitea-publish-npmrc'
+# npm maps scoped packages to a registry by the SCOPE key (@schoen:registry),
+# NOT the full package name. A "@schoen/aislop:registry" key is silently ignored
+# and npm falls back to registry.npmjs.org -> ENEEDAUTH. Derive the scope.
+$scope = $scopedName.Split('/')[0]
 $npmrcLines = @(
-  "$scopedName`:registry=$registry"
+  "${scope}:registry=$registry"
   "//${registryNoScheme}:_authToken=$token"
 )
 if (Test-Path $caPath) {
@@ -79,7 +86,7 @@ if (Test-Path $caPath) {
 try {
   npm pkg set name="$scopedName"
   Write-Host '=== npm publish ==='
-  npm publish --userconfig $tmpNpmrc
+  npm publish --userconfig $tmpNpmrc --registry $registry
   if ($LASTEXITCODE -ne 0) { throw "npm publish failed (exit $LASTEXITCODE)" }
   Write-Host "Published $scopedName@$version"
 } finally {
