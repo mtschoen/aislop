@@ -107,7 +107,9 @@ describe("parseConfig", () => {
 	});
 
 	it("lets csharp lint be overridden (roslynator off, floor lowered)", () => {
-		const cfg = parseConfig({ lint: { csharp: { roslynator: false, jbSeverityFloor: "SUGGESTION" } } });
+		const cfg = parseConfig({
+			lint: { csharp: { roslynator: false, jbSeverityFloor: "SUGGESTION" } },
+		});
 		expect(cfg.lint.csharp.roslynator).toBe(false);
 		expect(cfg.lint.csharp.jb).toBe(true); // untouched default
 		expect(cfg.lint.csharp.jbSeverityFloor).toBe("SUGGESTION");
