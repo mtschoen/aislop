@@ -36,7 +36,7 @@ The C# lint pass is a **hybrid of two independently togglable tools** that both 
 - **jb inspectcode** (`jb/*` rules) - ReSharper-native inspections via the JetBrains CLI
 - **Roslynator** (`dotnet/*` rules) - Roslyn analyzer diagnostics
 
-Both tools are opt-in by environment: each runs only when its CLI is installed and a `.csproj`/`.sln` is present. Missing tooling is silently skipped.
+Both tools run by default when available: each runs only when it is enabled (both default to on) AND its CLI is installed AND a `.csproj`/`.sln` is present. Missing tooling is silently skipped.
 
 #### jb inspectcode (`jb/*`)
 
@@ -80,7 +80,7 @@ aislop bundles the AsyncFixer, Meziantou.Analyzer, and IDisposableAnalyzers asse
 
 #### De-duplication
 
-When both tools run, findings are merged and de-duplicated by `(filePath, line, bare-rule-id)`. When jb and roslynator report an equivalent finding at the same location, the jb finding wins.
+When both tools run, findings are merged and de-duplicated by `(filePath, line, bare-rule-id)`, where the bare rule id is the part after the `jb/` or `dotnet/` namespace prefix (so a `jb/CS0219` and a `dotnet/CS0219` at the same site count as one). When jb and roslynator report an equivalent finding at the same location, the jb finding wins.
 
 #### `lint.csharp` config block
 
