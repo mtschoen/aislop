@@ -243,8 +243,7 @@ const detectLanguages = (directory: string, sourceFiles: string[]): Language[] =
 			return fs
 				.readdirSync(directory)
 				.some(
-					(name) =>
-						name.endsWith(".csproj") || name.endsWith(".sln") || name.endsWith(".slnx"),
+					(name) => name.endsWith(".csproj") || name.endsWith(".sln") || name.endsWith(".slnx"),
 				);
 		} catch {
 			return false;

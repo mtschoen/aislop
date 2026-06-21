@@ -39,13 +39,14 @@ const decodeEntities = (value: string): string =>
 const extractDiagnostics = (xml: string): ParsedDiagnostic[] => {
 	const result: ParsedDiagnostic[] = [];
 	const blockRe = /<Diagnostic\b[^>]*\bId="([^"]+)"[\s\S]*?<\/Diagnostic>/g;
-	let block: RegExpExecArray | null;
-	while ((block = blockRe.exec(xml)) !== null) {
+	let block = blockRe.exec(xml);
+	while (block !== null) {
 		const id = block[1];
 		const body = block[0];
 		const message = /<Message>([\s\S]*?)<\/Message>/.exec(body)?.[1] ?? "";
 		const filePath = /<FilePath>([\s\S]*?)<\/FilePath>/.exec(body)?.[1] ?? "";
 		const location = /<Location\b[^>]*\bLine="(\d+)"[^>]*\bCharacter="(\d+)"/.exec(body);
+		block = blockRe.exec(xml);
 		if (!filePath) continue;
 		result.push({
 			id,
