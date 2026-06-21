@@ -32,5 +32,14 @@ Patterns to add (each at severity WARNING):
    expression (should be written as `$x$.ToString()` or cast directly).
 4. Redundant null-guard duplicating a non-null contract.
 
-See `docs/superpowers/plans/2026-06-20-jb-inspectcode-lint.md` Task 7 Steps
-3-4 for the full authoring and verification procedure.
+Authoring and verification procedure:
+
+1. In Rider, open ReSharper | Tools | Pattern Catalog | Add and define each
+   pattern with its placeholders and severity WARNING.
+2. Export the Solution-team-shared settings and copy the resulting
+   `/Default/PatternsAndTemplates/...` entries into `aislop.DotSettings`.
+3. Verify each pattern actually fires: build a tiny C# fixture containing one
+   violation of each, then run
+   `jb inspectcode <fixture> --format=Xml --output=ssr.xml --caches-home=<temp> --settings=tools/jb/aislop.DotSettings`
+   and confirm each authored pattern appears as both an `<IssueType>` and an
+   `<Issue>` in `ssr.xml`. Do not ship a pattern that does not fire.
