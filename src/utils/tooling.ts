@@ -35,6 +35,7 @@ const resolvePackageRoot = (startFile: string): string => {
 const PACKAGE_ROOT = resolvePackageRoot(THIS_FILE);
 const TOOLS_BIN_DIR = path.join(PACKAGE_ROOT, "tools", "bin");
 const TOOLS_ANALYZERS_DIR = path.join(PACKAGE_ROOT, "tools", "analyzers");
+const TOOLS_JB_DIR = path.join(PACKAGE_ROOT, "tools", "jb");
 
 const BUNDLED_TOOL_NAMES = new Set(["ruff", "golangci-lint"]);
 
@@ -69,4 +70,12 @@ export const resolveBundledAnalyzerAssemblies = (): string[] => {
 	} catch {
 		return [];
 	}
+};
+
+// Absolute path to the bundled aislop ReSharper settings (SSR patterns +
+// InconsistentNaming suppression), or null when not present so the runner omits
+// the --settings flag.
+export const resolveBundledJbSettings = (): string | null => {
+	const candidate = path.join(TOOLS_JB_DIR, "aislop.DotSettings");
+	return fs.existsSync(candidate) ? candidate : null;
 };

@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseJbXml } from "../../src/engines/lint/jb.js";
+import { runJbLint, resolveCsharpLintConfig } from "../../src/engines/lint/jb.js";
+import type { EngineContext } from "../../src/engines/types.js";
 
 const fixture = (): string =>
 	fs.readFileSync(path.join(__dirname, "../fixtures/dotnet/jb-output.xml"), "utf-8");
@@ -48,5 +50,32 @@ describe("parseJbXml", () => {
 
 	it("returns [] on malformed XML", () => {
 		expect(parseJbXml("<not-xml", "/repo", opts())).toEqual([]);
+	});
+});
+
+const ctx = (rootDirectory: string): EngineContext => ({
+	rootDirectory,
+	languages: ["csharp"],
+	frameworks: [],
+	installedTools: { jb: true },
+	config: { quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 }, security: { audit: false, auditTimeout: 0 }, lint: { typecheck: false, expoDoctor: false } },
+});
+
+describe("runJbLint gating", () => {
+	it("returns [] when there is no .sln/.csproj target", async () => {
+		expect(await runJbLint(ctx("/nonexistent-xyz"))).toEqual([]);
+	});
+});
+
+describe("resolveCsharpLintConfig", () => {
+	it("falls back to safe defaults when config.lint.csharp is absent", () => {
+		const cfg = resolveCsharpLintConfig(ctx("/x"));
+		expect(cfg).toEqual({
+			jb: true,
+			roslynator: true,
+			jbSeverityFloor: "WARNING",
+			jbExcludeTypes: ["InconsistentNaming"],
+			jbProjects: undefined,
+		});
 	});
 });

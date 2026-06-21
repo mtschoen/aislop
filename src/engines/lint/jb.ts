@@ -1,5 +1,11 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { runSubprocess } from "../../utils/subprocess.js";
+import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
+import { findDotnetTargets } from "../dotnet-targets.js";
 import type { Diagnostic, Severity } from "../types.js";
+import type { EngineContext } from "../types.js";
 
 export type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 
@@ -84,4 +90,92 @@ export const parseJbXml = (
 	} catch {
 		return [];
 	}
+};
+
+export interface CsharpLintConfig {
+	jb: boolean;
+	roslynator: boolean;
+	jbSeverityFloor: JbSeverity;
+	jbExcludeTypes: string[];
+	jbProjects?: string;
+}
+
+const CSHARP_LINT_DEFAULTS: CsharpLintConfig = {
+	jb: true,
+	roslynator: true,
+	jbSeverityFloor: "WARNING",
+	jbExcludeTypes: ["InconsistentNaming"],
+};
+
+export const resolveCsharpLintConfig = (context: EngineContext): CsharpLintConfig => {
+	const raw = context.config.lint.csharp;
+	if (!raw) return { ...CSHARP_LINT_DEFAULTS };
+	return {
+		jb: raw.jb,
+		roslynator: raw.roslynator,
+		jbSeverityFloor: raw.jbSeverityFloor,
+		jbExcludeTypes: raw.jbExcludeTypes,
+		jbProjects: raw.jbProjects,
+	};
+};
+
+// A complete jb report names at least one <Project>. A report with none is the
+// partial-cache garbage case (cold cache, stale model), so we discard it rather
+// than report a misleading subset. See reference_jb_inspectcode_cache.
+const reportLooksComplete = (xml: string): boolean => /<Project\b/.test(xml);
+
+const analyzeJbTarget = async (
+	context: EngineContext,
+	jb: string,
+	settings: string | null,
+	csharp: CsharpLintConfig,
+	target: string,
+): Promise<Diagnostic[]> => {
+	// Fresh caches every run: jb's result cache survives config edits and a cold
+	// cache yields partial reports. Removed in the finally block.
+	const cachesHome = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-jb-"));
+	const outputPath = path.join(cachesHome, "report.xml");
+	try {
+		const args = [
+			"inspectcode",
+			target,
+			"--format=Xml",
+			`--output=${outputPath}`,
+			`--caches-home=${cachesHome}`,
+			`--severity=${csharp.jbSeverityFloor}`,
+		];
+		if (settings) args.push(`--settings=${settings}`);
+		if (csharp.jbProjects) args.push(`--project=${csharp.jbProjects}`);
+		// jb is slow (solution-wide, with build): allow up to 10 minutes.
+		await runSubprocess(jb, args, { cwd: context.rootDirectory, timeout: 600000 });
+
+		let xml: string;
+		try {
+			xml = fs.readFileSync(outputPath, "utf-8");
+		} catch {
+			return [];
+		}
+		if (!reportLooksComplete(xml)) return [];
+		return parseJbXml(xml, context.rootDirectory, {
+			excludeTypes: new Set(csharp.jbExcludeTypes),
+			severityFloor: csharp.jbSeverityFloor,
+		});
+	} catch {
+		return [];
+	} finally {
+		fs.rmSync(cachesHome, { recursive: true, force: true });
+	}
+};
+
+export const runJbLint = async (context: EngineContext): Promise<Diagnostic[]> => {
+	const targets = findDotnetTargets(context);
+	if (targets.length === 0) return [];
+	const csharp = resolveCsharpLintConfig(context);
+	const jb = resolveToolBinary("jb"); // not bundled -> resolves to "jb" on PATH
+	const settings = resolveBundledJbSettings();
+	const diagnostics: Diagnostic[] = [];
+	for (const target of targets) {
+		diagnostics.push(...(await analyzeJbTarget(context, jb, settings, csharp, target)));
+	}
+	return diagnostics;
 };
