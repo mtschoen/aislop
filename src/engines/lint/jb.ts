@@ -4,8 +4,7 @@ import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
 import { findDotnetTargets } from "../dotnet-targets.js";
-import type { Diagnostic, Severity } from "../types.js";
-import type { EngineContext } from "../types.js";
+import type { Diagnostic, EngineContext, Severity } from "../types.js";
 
 export type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 
