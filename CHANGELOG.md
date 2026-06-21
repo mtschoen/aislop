@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+## 0.12.2 (2026-06-21)
+
+### Fixed
+
+- **Tool resolution prefers a system install over the vendored copy.** `resolveToolBinary` returned the bundled binary whenever present, so aislop ran its own vendored ruff (and golangci-lint) instead of the version a project pins and gates CI on. Because ruff's formatter output is versioned by style edition, the two could format the same file differently and aislop's `python-formatting` finding would disagree with the project's own `ruff format --check`. Bundled tools now prefer a `PATH` install, falling back to the vendored binary (then bare name) when absent, preserving the zero-dependency guarantee. Non-bundled tools (roslynator, jb) are unchanged. (#1)
+
 ## 0.12.1 (2026-06-20)
 
 ### Fixed
