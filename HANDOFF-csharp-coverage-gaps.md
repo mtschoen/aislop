@@ -1,5 +1,15 @@
 # C# engine coverage gaps (dogfooding handoff)
 
+> **ALL TIERS COMPLETE (2026-06-20).** Tier 1+2+1d landed in commit `0bad668`;
+> Tier 3 (1a formatter, item 4 worker exemption, coverage-label cleanup, idiom
+> rules incl. string-concat-in-loop, IDisposable via roslynator `IDISP001`) landed
+> in `db875d0` + biome cleanup `482cfa8`, merged into `schoen/main`, CI green on the
+> fork. `dotnet format whitespace` is scoped to whitespace only (the gofmt analogue)
+> so it doesn't overlap roslynator; IDisposable uses IDisposableAnalyzers (CA2000 is
+> disabled-by-default) so no curated type list is needed; `ConfigureAwait` is
+> deliberately left to roslynator. The per-tier notes below are retained as the
+> historical record. Nothing here is still open.
+
 Source: dogfooding `aislop 0.12.0` (the `mtschoen/aislop` C#-capable fork build) on
 **file-wizard** (a real multi-project C# repo: net8 class lib + CLI + net10 tests +
 MAUI), 2026-06-19. The repo scanned at 17/100 then 25/100 after a cleanup pass. The
