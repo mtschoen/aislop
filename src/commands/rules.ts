@@ -271,6 +271,10 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/csharp-empty-catch-rethrow",
 			"ai-slop/csharp-null-forgiving",
 			"ai-slop/csharp-console-leftover",
+			"ai-slop/csharp-broad-catch",
+			"ai-slop/csharp-linq-count",
+			"ai-slop/csharp-index-loop",
+			"ai-slop/csharp-if-ladder",
 		],
 	},
 	{

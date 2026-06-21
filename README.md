@@ -141,7 +141,7 @@ exclude:
 
 Or via CLI: `aislop scan --exclude "**/*.test.ts,dist"`
 
-**Unsupported languages**: aislop only analyses the 8 language targets above. If a repo is mostly something else (C, C++, C#, Swift, Kotlin, …), scoring a handful of incidental files would misrepresent it, so aislop **withholds the score** and says so rather than printing a number off code it never read. `--json` returns `score: null`, `scoreable: false`, and a `coverage` breakdown.
+**Unsupported languages**: aislop only analyses the 9 language targets above. If a repo is mostly something else (C, C++, Swift, Kotlin, …), scoring a handful of incidental files would misrepresent it, so aislop **withholds the score** and says so rather than printing a number off code it never read. `--json` returns `score: null`, `scoreable: false`, and a `coverage` breakdown.
 
 **Per-rule severity**: Override the severity of any rule by id, or turn it off:
 
