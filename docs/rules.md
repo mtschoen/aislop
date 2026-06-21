@@ -40,8 +40,9 @@ The C# lint pass shells out to the [`roslynator`](https://github.com/dotnet/rosl
 | `dotnet/AsyncFixer03` | Fire-and-forget `async void` — unhandled exceptions crash the process |
 | `dotnet/MA0040` / `MA0042` / `MA0045` | Meziantou async/`Task` best practices (cancellation tokens, blocking calls) |
 | `dotnet/CS0219` / `CS0162` | Unused variable / unreachable code (compiler diagnostics) |
+| `dotnet/IDISP001` | An `IDisposable` is created but never disposed (resource leak; from IDisposableAnalyzers) |
 
-This pass is **opt-in by environment**: it runs only when the .NET SDK and the `roslynator` global tool (`dotnet tool install -g roslynator.dotnet.cli`) are available and a `.csproj`/`.sln` is present. Otherwise it skips silently and returns nothing — exactly like the Python/Go lint wrappers. aislop bundles the AsyncFixer and Meziantou.Analyzer assemblies so these rules fire even on projects that don't reference them. Where Roslynator reports an accurate async finding, the approximate Phase-1 regex rule (`ai-slop/csharp-async-void` / `ai-slop/csharp-sync-over-async`) at the same line is suppressed so you never see both.
+This pass is **opt-in by environment**: it runs only when the .NET SDK and the `roslynator` global tool (`dotnet tool install -g roslynator.dotnet.cli`) are available and a `.csproj`/`.sln` is present. Otherwise it skips silently and returns nothing — exactly like the Python/Go lint wrappers. aislop bundles the AsyncFixer, Meziantou.Analyzer, and IDisposableAnalyzers assemblies so these rules fire even on projects that don't reference them. Where Roslynator reports an accurate async finding, the approximate Phase-1 regex rule (`ai-slop/csharp-async-void` / `ai-slop/csharp-sync-over-async`) at the same line is suppressed so you never see both.
 
 ## Code Quality
 
@@ -117,6 +118,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/csharp-linq-count` | warning | C# `.Count() > 0` / `.Count() == 0` enumerating a whole sequence where `.Any()` short-circuits |
 | `ai-slop/csharp-index-loop` | warning | C# index `for` loop over `.Length`/`.Count` that reads more clearly as `foreach` |
 | `ai-slop/csharp-if-ladder` | warning | C# chain of 4+ if/else-if branches comparing one value against constants (a `switch` in disguise) |
+| `ai-slop/csharp-string-concat-in-loop` | warning | C# string built with `+=` inside a loop (O(n^2) reallocation; use a `StringBuilder`) |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`).
 

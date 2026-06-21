@@ -15,6 +15,7 @@ const RELEVANT_IDS = new Set([
 	"MA0045", // Meziantou async/Task best practices
 	"CS0219",
 	"CS0162", // unused/unreachable
+	"IDISP001", // IDisposableAnalyzers: a created IDisposable is never disposed (resource leak)
 ]);
 
 interface ParsedDiagnostic {

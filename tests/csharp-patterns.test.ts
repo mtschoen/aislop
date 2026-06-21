@@ -440,3 +440,78 @@ describe("csharp-patterns: if/else-if ladder", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-if-ladder")).toBe(false);
 	});
 });
+
+describe("csharp-patterns: aislop-worker exemption", () => {
+	it("does NOT flag Console.WriteLine in a file marked // aislop-worker", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(path.join(root, "Lib.csproj"), "<Project></Project>");
+		write(
+			root,
+			"Worker.cs",
+			["// aislop-worker", 'class W { void M() { Console.WriteLine("{json}"); } }'].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
+	});
+
+	it("STILL flags Debug.WriteLine in a worker file (stderr-style debug is a leftover)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(path.join(root, "Lib.csproj"), "<Project></Project>");
+		write(
+			root,
+			"Worker.cs",
+			["// aislop-worker", 'class W { void M() { Debug.WriteLine("trace"); } }'].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(true);
+	});
+});
+
+describe("csharp-patterns: string concat in loop", () => {
+	it('flags s += "..." inside a foreach loop', async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  string M(string[] xs) {",
+				'    var result = "";',
+				"    foreach (var x in xs) {",
+				'      result += $"{x}, ";',
+				"    }",
+				"    return result;",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-string-concat-in-loop")).toBe(true);
+	});
+
+	it("does NOT flag a string += outside any loop", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", ['class A { string M() { var s = "a"; s += "b"; return s; } }'].join("\n"));
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-string-concat-in-loop")).toBe(false);
+	});
+
+	it("does NOT flag a numeric += inside a loop (no string literal on the RHS)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  int M(int[] xs) {",
+				"    int total = 0;",
+				"    foreach (var x in xs) { total += x; }",
+				"    return total;",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-string-concat-in-loop")).toBe(false);
+	});
+});

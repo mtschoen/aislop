@@ -1,5 +1,6 @@
 import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
 import { runBiomeFormat } from "./biome.js";
+import { runDotnetFormat } from "./dotnet-format.js";
 import { runGenericFormatter } from "./generic.js";
 import { runGofmt } from "./gofmt.js";
 import { runRuffFormat } from "./ruff-format.js";
@@ -35,6 +36,10 @@ export const formatEngine: Engine = {
 
 		if (languages.includes("php") && installedTools["php-cs-fixer"]) {
 			promises.push(runGenericFormatter(context, "php"));
+		}
+
+		if (languages.includes("csharp") && installedTools.dotnet) {
+			promises.push(runDotnetFormat(context));
 		}
 
 		// No formatter matched the detected languages/installed tools. Report this as

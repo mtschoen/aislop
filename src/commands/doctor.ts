@@ -189,6 +189,12 @@ const FORMAT_SPECS: LangToolSpec[] = [
 		"php-cs-fixer",
 		"Install: composer global require friendsofphp/php-cs-fixer",
 	),
+	spec(
+		"csharp",
+		"dotnet",
+		"dotnet format whitespace",
+		"Install the .NET SDK: https://dotnet.microsoft.com/download",
+	),
 ];
 
 const LINT_SPECS: LangToolSpec[] = [

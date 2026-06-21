@@ -225,6 +225,14 @@ const CONSOLE_OUT_RE = /\bConsole\.(?:Write|WriteLine)\s*\(/;
 // Writing to stderr is deliberate status output (the C# `console.error`), never flagged.
 const CONSOLE_ERROR_RE = /\bConsole\.Error\b/;
 
+// A file-level `// aislop-worker` comment marks a child-process worker whose
+// stdout IS its IPC protocol (the parent reads results from stdout). It exempts
+// ONLY the Console.Write* (stdout) scan; Debug/Trace output stays flagged because
+// those are still leftovers, not part of the contract.
+const WORKER_MARKER_RE = /^\s*\/\/\s*aislop-worker\b/;
+const isWorkerFile = (lines: string[]): boolean =>
+	lines.some((line) => WORKER_MARKER_RE.test(line));
+
 // Debug/Trace output is flagged everywhere (minus non-production paths). `Console.*`
 // stdout writes are flagged only in library projects - in an Exe (console app)
 // stdout IS the product. `Console.Error.*` (stderr) is always intentional. Mirrors
@@ -249,6 +257,8 @@ const flagConsoleLeftover = (
 	);
 
 	if (outputTypes.isExeProject(absolutePath)) return;
+	// An IPC worker's stdout is its protocol, not a leftover - skip the Console scan.
+	if (isWorkerFile(lines)) return;
 	scanLineMatches(
 		lines,
 		relPath,
@@ -256,7 +266,7 @@ const flagConsoleLeftover = (
 		CONSOLE_OUT_RE,
 		"ai-slop/csharp-console-leftover",
 		"`Console.Write*` in a library writes to stdout - almost always a leftover.",
-		"Remove it or route through the project's logger. (In a console app this rule doesn't fire.)",
+		"Remove it or route through the project's logger. (In a console app, or a file marked `// aislop-worker`, this rule doesn't fire.)",
 		(_match, i) => !CONSOLE_ERROR_RE.test(lines[i]),
 	);
 };
@@ -374,6 +384,68 @@ const flagIfLadder = (lines: string[], relPath: string, out: Diagnostic[]): void
 	finalize();
 };
 
+// Strip string/char literals and the trailing line comment so braces or loop
+// keywords *inside* them don't skew the brace-depth tracking below.
+const stripStringsAndComments = (line: string): string =>
+	line
+		.replace(/@?\$?"(?:[^"\\]|\\.)*"/g, '""')
+		.replace(/'(?:[^'\\]|\\.)'/g, "''")
+		.replace(/\/\/.*$/, "");
+
+const LOOP_HEADER_RE = /\b(?:for|foreach|while)\s*\(|\bdo\b/;
+// `<name> += ... "<literal>"` - a `+=` whose right-hand side contains a string
+// literal/interpolation, so we only flag concatenations we can SEE are string-typed.
+const STRING_CONCAT_RE = /(\w+)\s*\+=\s*[^;]*"/;
+
+// `s += "..."` inside a loop rebuilds the entire string each iteration (O(n^2)).
+// Loop bodies are tracked by brace depth (strings/comments stripped first); the
+// `{` may sit on the loop-header line or the next line, both handled.
+const flagStringConcatInLoop = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+	let braceDepth = 0;
+	const loopBodyDepths: number[] = [];
+	let pendingLoop = false;
+	for (let i = 0; i < lines.length; i++) {
+		const raw = lines[i];
+		if (raw.trim().startsWith("//")) continue;
+		const code = stripStringsAndComments(raw);
+
+		if (loopBodyDepths.length > 0) {
+			const match = STRING_CONCAT_RE.exec(raw);
+			if (match && !isInLineComment(raw, match.index)) {
+				pushFinding(
+					out,
+					relPath,
+					"ai-slop/csharp-string-concat-in-loop",
+					i,
+					`\`${match[1]} += ...\` inside a loop reallocates the whole string each iteration (O(n^2)).`,
+					"Build the result with a `StringBuilder` (append in the loop, `.ToString()` after) instead of `+=` concatenation.",
+				);
+			}
+		}
+
+		if (LOOP_HEADER_RE.test(code)) pendingLoop = true;
+
+		let openedBrace = false;
+		for (const char of code) {
+			if (char === "{") {
+				braceDepth++;
+				openedBrace = true;
+				if (pendingLoop) {
+					loopBodyDepths.push(braceDepth);
+					pendingLoop = false;
+				}
+			} else if (char === "}") {
+				const idx = loopBodyDepths.indexOf(braceDepth);
+				if (idx !== -1) loopBodyDepths.splice(idx, 1);
+				if (braceDepth > 0) braceDepth--;
+			}
+		}
+		// A single-statement loop body (`for (...) Foo();` with no `{`) - drop the
+		// pending flag so it can't wrongly mark the next braced block as a loop.
+		if (pendingLoop && !openedBrace && code.includes(";")) pendingLoop = false;
+	}
+};
+
 export const detectCSharpPatterns = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const diagnostics: Diagnostic[] = [];
 	const files = getSourceFiles(context);
@@ -435,6 +507,7 @@ export const detectCSharpPatterns = async (context: EngineContext): Promise<Diag
 		flagLinqCount(lines, relPath, diagnostics);
 		flagIndexLoop(lines, relPath, diagnostics);
 		flagIfLadder(lines, relPath, diagnostics);
+		flagStringConcatInLoop(lines, relPath, diagnostics);
 	}
 
 	return diagnostics;

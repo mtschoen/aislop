@@ -43,4 +43,11 @@ describe("format/lint engines skip honestly when no runner applies", () => {
 		const result = await formatEngine.run(ctx(["typescript"]));
 		expect(result.skipped).toBe(false);
 	});
+
+	it("format does NOT skip for a C# repo when dotnet is installed", async () => {
+		// Empty temp dir has no targets, so dotnet format finds nothing - but the
+		// engine still RAN it, so this is a real "done", not a laundered false green.
+		const result = await formatEngine.run(ctx(["csharp"], { dotnet: true }));
+		expect(result.skipped).toBe(false);
+	});
 });

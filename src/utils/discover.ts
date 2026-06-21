@@ -54,7 +54,9 @@ const UNSUPPORTED_CODE_EXTENSIONS: Record<string, string> = {
 	".hpp": "C/C++",
 	".hh": "C/C++",
 	".hxx": "C/C++",
-	".cs": "C#",
+	// NOTE: `.cs` is intentionally absent - C# is a supported language (ai-slop +
+	// roslynator lint + dotnet format/audit), so a C# repo must score, not be
+	// withheld as "dominantUnsupported: C#". `.cs` lives in SOURCE_EXTENSIONS.
 	".swift": "Swift",
 	".kt": "Kotlin",
 	".kts": "Kotlin",

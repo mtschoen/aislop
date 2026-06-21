@@ -199,11 +199,12 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"rust-formatting",
 			"ruby-formatting",
 			"php-formatting",
+			"csharp-formatting",
 		],
 	},
 	{
 		engine: "lint",
-		rules: ["oxlint/*", "ruff/*", "go/*", "clippy/*", "rubocop/*", "typescript/*"],
+		rules: ["oxlint/*", "ruff/*", "go/*", "clippy/*", "rubocop/*", "typescript/*", "dotnet/*"],
 	},
 	{
 		engine: "code-quality",
@@ -275,6 +276,7 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/csharp-linq-count",
 			"ai-slop/csharp-index-loop",
 			"ai-slop/csharp-if-ladder",
+			"ai-slop/csharp-string-concat-in-loop",
 		],
 	},
 	{
