@@ -10,16 +10,22 @@ import { runRuffLint } from "./ruff.js";
 // a project both references one of aislop's bundled analyzers AND jb runs it, the
 // same finding appears twice at the same site. De-dup by (file, line, bare id),
 // keeping the first pass's copy.
-const bareRuleId = (rule: string): string => {
+
+/** Exported for unit tests. */
+export const bareRuleId = (rule: string): string => {
 	const slash = rule.indexOf("/");
 	return slash === -1 ? rule : rule.slice(slash + 1);
 };
 
-const dedupeCsharpDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
+/** Exported for unit tests. */
+export const dedupeCsharpDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
 	const seen = new Set<string>();
 	const result: Diagnostic[] = [];
 	for (const diagnostic of diagnostics) {
-		const key = `${diagnostic.filePath}::${diagnostic.line}::${bareRuleId(diagnostic.rule)}`;
+		// Normalize path separators so Windows backslashes and Unix forward-slashes
+		// do not produce separate keys for the same logical file.
+		const normalizedPath = diagnostic.filePath.replace(/\\/g, "/");
+		const key = `${normalizedPath}::${diagnostic.line}::${bareRuleId(diagnostic.rule)}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		result.push(diagnostic);

@@ -72,7 +72,7 @@ export const resolveBundledAnalyzerAssemblies = (): string[] => {
 	}
 };
 
-// Absolute path to the bundled aislop ReSharper settings (SSR patterns +
+// Absolute path to the bundled aislop ReSharper settings (currently the
 // InconsistentNaming suppression), or null when not present so the runner omits
 // the --settings flag.
 export const resolveBundledJbSettings = (): string | null => {

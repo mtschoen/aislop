@@ -141,6 +141,7 @@ const analyzeJbTarget = async (
 			"--format=Xml",
 			`--output=${outputPath}`,
 			`--caches-home=${cachesHome}`,
+			// Coarse pre-filter only; parseJbXml re-applies the floor and is authoritative.
 			`--severity=${csharp.jbSeverityFloor}`,
 		];
 		if (settings) args.push(`--settings=${settings}`);

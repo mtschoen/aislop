@@ -219,7 +219,12 @@ const LINT_SPECS: LangToolSpec[] = [
 		"jb inspectcode",
 		"Install: dotnet tool install -g JetBrains.ReSharper.GlobalTools",
 	),
-	spec("csharp", "roslynator", "roslynator", "Install: dotnet tool install -g roslynator.dotnet"),
+	spec(
+		"csharp",
+		"roslynator",
+		"roslynator",
+		"Install: dotnet tool install -g roslynator.dotnet.cli",
+	),
 ];
 
 const planFormat = (ctx: PlanContext): ToolDecision => {
