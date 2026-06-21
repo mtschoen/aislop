@@ -2,8 +2,30 @@ import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.j
 import { runDotnetLint } from "./dotnet.js";
 import { runGenericLinter } from "./generic.js";
 import { runGolangciLint } from "./golangci.js";
+import { resolveCsharpLintConfig, runJbLint } from "./jb.js";
 import { runOxlint } from "./oxlint.js";
 import { runRuffLint } from "./ruff.js";
+
+// jb reports a Roslyn finding as "jb/<id>" and roslynator as "dotnet/<id>"; when
+// a project both references one of aislop's bundled analyzers AND jb runs it, the
+// same finding appears twice at the same site. De-dup by (file, line, bare id),
+// keeping the first pass's copy.
+const bareRuleId = (rule: string): string => {
+	const slash = rule.indexOf("/");
+	return slash === -1 ? rule : rule.slice(slash + 1);
+};
+
+const dedupeCsharpDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
+	const seen = new Set<string>();
+	const result: Diagnostic[] = [];
+	for (const diagnostic of diagnostics) {
+		const key = `${diagnostic.filePath}::${diagnostic.line}::${bareRuleId(diagnostic.rule)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(diagnostic);
+	}
+	return result;
+};
 
 export const lintEngine: Engine = {
 	name: "lint",
@@ -42,8 +64,16 @@ export const lintEngine: Engine = {
 			promises.push(runGenericLinter(context, "ruby"));
 		}
 
-		if (languages.includes("csharp") && installedTools["roslynator"]) {
-			promises.push(runDotnetLint(context));
+		if (languages.includes("csharp")) {
+			const csharp = resolveCsharpLintConfig(context);
+			const csharpPasses: Promise<Diagnostic[]>[] = [];
+			if (csharp.jb && installedTools.jb) csharpPasses.push(runJbLint(context));
+			if (csharp.roslynator && installedTools.roslynator) csharpPasses.push(runDotnetLint(context));
+			if (csharpPasses.length > 0) {
+				promises.push(
+					Promise.all(csharpPasses).then((passes) => dedupeCsharpDiagnostics(passes.flat())),
+				);
+			}
 		}
 
 		// No linter matched the detected languages/installed tools. Report this as

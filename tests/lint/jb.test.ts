@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { lintEngine } from "../../src/engines/lint/index.js";
 import { parseJbXml, resolveCsharpLintConfig, runJbLint } from "../../src/engines/lint/jb.js";
 import type { EngineContext } from "../../src/engines/types.js";
 
@@ -89,5 +90,37 @@ describe("resolveCsharpLintConfig", () => {
 			jbExcludeTypes: ["InconsistentNaming"],
 			jbProjects: undefined,
 		});
+	});
+});
+
+const ctxTools = (installedTools: Record<string, boolean>): EngineContext => ({
+	...ctx("/nonexistent-csharp"),
+	installedTools,
+});
+
+describe("lintEngine C# selection", () => {
+	it("skips C# entirely when neither jb nor roslynator is installed", async () => {
+		const result = await lintEngine.run(ctxTools({ jb: false, roslynator: false }));
+		expect(result.skipped).toBe(true);
+	});
+
+	it("does not crash and yields [] when jb is installed but no target exists", async () => {
+		const result = await lintEngine.run(ctxTools({ jb: true, roslynator: false }));
+		expect(result.diagnostics).toEqual([]);
+	});
+
+	it("respects config.lint.csharp.jb=false (no jb pass attempted)", async () => {
+		const base = ctxTools({ jb: true, roslynator: true });
+		const result = await lintEngine.run({
+			...base,
+			config: {
+				...base.config,
+				lint: {
+					...base.config.lint,
+					csharp: { jb: false, roslynator: false, jbSeverityFloor: "WARNING", jbExcludeTypes: [] },
+				},
+			},
+		});
+		expect(result.skipped).toBe(true); // both passes disabled -> no promises -> skipped
 	});
 });
