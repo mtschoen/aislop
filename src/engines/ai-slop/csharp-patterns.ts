@@ -280,10 +280,50 @@ const IF_LADDER_THRESHOLD = 4;
 const BROAD_CATCH_RE = /\bcatch\s*\(\s*(?:System\.)?Exception\b/;
 const CATCH_WHEN_FILTER_RE = /\bwhen\b/;
 const BROAD_CATCH_EMPTY_RE = /\bcatch\b\s*\(\s*(?:System\.)?Exception\b[^)]*\)\s*\{\s*\}/;
+// The caught exception variable, when the clause declares one (`catch (Exception ex)`).
+const BROAD_CATCH_VAR_RE = /\bcatch\s*\(\s*(?:System\.)?Exception\s+([A-Za-z_]\w*)\s*\)/;
+// The `catch (...) {` opening, allowing the brace on a following line (Allman style).
+const CATCH_BODY_OPEN_RE = /\bcatch\s*\([^)]*\)\s*\{/;
 
-// A broad `catch (Exception)` buries the specific failures you didn't plan for.
-// Empty and pure-rethrow broad catches are already covered by swallowed-exception
-// and csharp-empty-catch-rethrow, so skip those here to avoid double-counting.
+// Body of a `{ ... }` block by brace matching from its opening brace. Interpolation
+// braces in `$"..."` are balanced so naive counting handles them; a lone brace inside
+// a string or char literal is the only mis-count risk and is vanishingly rare in a
+// catch body.
+const extractBlockBody = (content: string, openBraceIndex: number): string | null => {
+	let depth = 0;
+	for (let i = openBraceIndex; i < content.length; i++) {
+		const character = content[i];
+		if (character === "{") depth += 1;
+		else if (character === "}") {
+			depth -= 1;
+			if (depth === 0) return content.slice(openBraceIndex + 1, i);
+		}
+	}
+	return null;
+};
+
+// A broad catch surfaces (rather than buries) the error when its body references the
+// caught exception variable - logging it, wrapping it, or otherwise keeping the failure
+// diagnosable. This is the same bar python-broad-except applies: it flags only silent
+// `pass` bodies, not logged ones. A catch with no variable, or one whose variable is
+// never used, drops the error and stays flagged. The variable is block-scoped, so the
+// body is brace-matched to avoid crediting a reference in a sibling catch.
+const broadCatchSurfacesError = (lines: string[], catchLineIndex: number): boolean => {
+	const variableMatch = BROAD_CATCH_VAR_RE.exec(lines[catchLineIndex]);
+	if (!variableMatch) return false;
+	const content = lines.slice(catchLineIndex).join("\n");
+	const openMatch = CATCH_BODY_OPEN_RE.exec(content);
+	if (!openMatch) return false;
+	const openBraceIndex = openMatch.index + openMatch[0].length - 1;
+	const body = extractBlockBody(content, openBraceIndex);
+	if (body === null) return false;
+	return new RegExp(`\\b${variableMatch[1]}\\b`).test(body);
+};
+
+// A broad `catch (Exception)` that drops the failure buries problems you didn't plan
+// for. Empty and pure-rethrow broad catches are covered by swallowed-exception and
+// csharp-empty-catch-rethrow; a catch-and-log boundary (the body references the caught
+// exception) is observable recovery, matching python-broad-except - so skip those here.
 const flagBroadCatch = (lines: string[], relPath: string, out: Diagnostic[]): void => {
 	for (let i = 0; i < lines.length; i++) {
 		if (lines[i].trim().startsWith("//")) continue;
@@ -295,13 +335,14 @@ const flagBroadCatch = (lines: string[], relPath: string, out: Diagnostic[]): vo
 			.replace(/\s+/g, " ");
 		if (CATCH_ONLY_THROW_RE.test(window)) continue;
 		if (BROAD_CATCH_EMPTY_RE.test(window)) continue;
+		if (broadCatchSurfacesError(lines, i)) continue;
 		pushFinding(
 			out,
 			relPath,
 			"ai-slop/csharp-broad-catch",
 			i,
-			"`catch (Exception)` catches everything - it buries the specific failures you didn't plan for.",
-			"Catch the specific exception type(s) you can handle and let the rest propagate. If a broad catch is a deliberate boundary, add a `when` filter or a comment naming why.",
+			"`catch (Exception)` catches everything and drops the failure - the specific problems you didn't plan for vanish.",
+			"Catch the specific exception type(s) you can handle and let the rest propagate. At a deliberate boundary, log the caught exception (or add a `when` filter) so the failure stays diagnosable instead of disappearing.",
 		);
 	}
 };
@@ -329,6 +370,47 @@ const flagLinqCount = (lines: string[], relPath: string, out: Diagnostic[]): voi
 const INDEX_FOR_RE =
 	/\bfor\s*\(\s*(?:int|long|uint|nint|var)\s+(\w+)\s*=\s*0\s*;\s*\1\s*<\s*[A-Za-z_][\w.]*\.(?:Length|Count)\b[^;]*;\s*\1\s*(?:\+\+|\+=\s*1)/;
 
+// Body of the `for` loop starting on `forLineIndex`, whether a `{ }` block or a single
+// braceless statement. The header's own parentheses (e.g. a `.Count()` call) are matched
+// past before the body is read.
+const extractLoopBody = (lines: string[], forLineIndex: number): string | null => {
+	const content = lines.slice(forLineIndex).join("\n");
+	const forIndex = content.search(/\bfor\s*\(/);
+	if (forIndex === -1) return null;
+	let depth = 0;
+	let i = content.indexOf("(", forIndex);
+	for (; i < content.length; i++) {
+		if (content[i] === "(") depth += 1;
+		else if (content[i] === ")") {
+			depth -= 1;
+			if (depth === 0) {
+				i += 1;
+				break;
+			}
+		}
+	}
+	while (i < content.length && /\s/.test(content[i])) i += 1;
+	if (content[i] === "{") return extractBlockBody(content, i);
+	const semicolon = content.indexOf(";", i);
+	return semicolon === -1 ? content.slice(i) : content.slice(i, semicolon + 1);
+};
+
+// True when the loop counter is only ever a `collection[index]` subscript - the shape a
+// `foreach` expresses more clearly. If the index is used for anything else (a nested
+// `j = i + 1` look-ahead, arithmetic, logging, an argument), `foreach` cannot express it,
+// so the loop is left alone. Mirrors the rule's own "if the index itself is used, ignore
+// this" guidance, which the line-only match could not honor.
+const indexUsedOnlyForElementAccess = (
+	lines: string[],
+	forLineIndex: number,
+	indexName: string,
+): boolean => {
+	const body = extractLoopBody(lines, forLineIndex);
+	if (body === null) return true;
+	const withoutSubscripts = body.replace(new RegExp(`\\[\\s*${indexName}\\s*\\]`, "g"), "");
+	return !new RegExp(`\\b${indexName}\\b`).test(withoutSubscripts);
+};
+
 const flagIndexLoop = (lines: string[], relPath: string, out: Diagnostic[]): void => {
 	scanLineMatches(
 		lines,
@@ -338,7 +420,8 @@ const flagIndexLoop = (lines: string[], relPath: string, out: Diagnostic[]): voi
 		"ai-slop/csharp-index-loop",
 		"Index `for` loop over `.Length`/`.Count` is usually clearer as `foreach`.",
 		"Use `foreach (var item in collection)` when you don't need the index. If the index itself is used, ignore this.",
-		(match, i) => !isInLineComment(lines[i], match.index),
+		(match, i) =>
+			!isInLineComment(lines[i], match.index) && indexUsedOnlyForElementAccess(lines, i, match[1]),
 	);
 };
 

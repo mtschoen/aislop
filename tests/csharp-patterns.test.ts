@@ -302,11 +302,68 @@ describe("csharp-patterns: console-leftover (Console.*)", () => {
 });
 
 describe("csharp-patterns: broad-catch", () => {
-	it("flags a non-empty catch (Exception ex)", async () => {
+	it("flags a broad catch that drops the error (no variable)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { object M() { try { F(); } catch (Exception) { return null; } } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(true);
+	});
+
+	it("flags a broad catch that declares but never references its variable", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { object M() { try { F(); } catch (Exception ex) { return null; } } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(true);
+	});
+
+	it("does NOT flag catch-and-log that references the caught variable", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
 		write(root, "A.cs", "class A { void M() { try { F(); } catch (Exception ex) { Log(ex); } } }");
 		const diags = await detectCSharpPatterns(ctx(root));
-		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(true);
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(false);
+	});
+
+	it("does NOT flag catch-and-log that references the variable inside an interpolated string", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'class A { void M() { try { F(); } catch (Exception ex) { Log($"failed: {ex.Message}"); } } }',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(false);
+	});
+
+	it("does not cross into a sibling catch body when bounding the error reference", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  void M1() {",
+				"    try { F(); }",
+				"    catch (Exception exception) { return; }",
+				"  }",
+				"  void M2() {",
+				"    try { F(); }",
+				"    catch (Exception exception) { Log(exception); }",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		const broad = diags.filter((d) => d.rule === "ai-slop/csharp-broad-catch");
+		expect(broad.length).toBe(1);
+		expect(broad[0].line).toBe(4);
 	});
 
 	it("does NOT flag a specific exception type", async () => {
@@ -394,6 +451,28 @@ describe("csharp-patterns: index loop vs foreach", () => {
 	it("does NOT flag a loop that does not start at 0 / walk Length", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
 		write(root, "A.cs", "class A { void M() { for (int i = 1; i < n; i++) { Use(i); } } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-index-loop")).toBe(false);
+	});
+
+	it("does NOT flag when the index feeds a nested look-ahead loop (used beyond arr[i])", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { void M() { for (int i = 0; i < args.Length; i++) { for (int j = i + 1; j < args.Length; j++) { Use(args[j]); } } } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-index-loop")).toBe(false);
+	});
+
+	it("does NOT flag when the index itself is used (logged) alongside element access", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { void M() { for (int i = 0; i < arr.Length; i++) { Log(i); Use(arr[i]); } } }",
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-index-loop")).toBe(false);
 	});
