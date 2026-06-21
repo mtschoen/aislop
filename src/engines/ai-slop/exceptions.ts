@@ -52,9 +52,11 @@ const SWALLOWED_EXCEPTION_PATTERNS: Array<{
 		languages: [".java"],
 		message: "Empty catch block swallows errors silently",
 	},
-	// C#: empty catch block (with or without an exception filter/variable)
+	// C#: truly-empty catch block (no statements). A catch whose body is only a
+	// comment - line (`// ...`) OR block (`/* ... */`) - is treated as a documented
+	// intentional catch and passes, so the two comment syntaxes behave the same.
 	{
-		pattern: /catch\s*(?:\([^)]*\))?\s*\{\s*(?:\/\/[^\n]*)?\s*\}/,
+		pattern: /catch\s*(?:\([^)]*\))?\s*\{\s*\}/,
 		languages: [".cs"],
 		message: "Empty catch block swallows errors silently",
 	},

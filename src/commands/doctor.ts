@@ -189,6 +189,12 @@ const FORMAT_SPECS: LangToolSpec[] = [
 		"php-cs-fixer",
 		"Install: composer global require friendsofphp/php-cs-fixer",
 	),
+	spec(
+		"csharp",
+		"dotnet",
+		"dotnet format whitespace",
+		"Install the .NET SDK: https://dotnet.microsoft.com/download",
+	),
 ];
 
 const LINT_SPECS: LangToolSpec[] = [
@@ -252,6 +258,9 @@ const planAiSlop = (_ctx: PlanContext): ToolDecision => ({
 
 interface AuditSpec {
 	files: string[];
+	// Matched by language when there is no fixed manifest filename (e.g. C# uses
+	// arbitrary `*.csproj`/`*.sln` names that `hasFile` can't glob).
+	languages?: Language[];
 	bundled?: string;
 	systemTool?: SystemToolSpec & { requiresBinaries?: string[] };
 }
@@ -284,6 +293,15 @@ const AUDIT_SPECS: AuditSpec[] = [
 			remediation: "Install: go install golang.org/x/vuln/cmd/govulncheck@latest",
 		},
 	},
+	{
+		files: [],
+		languages: ["csharp"],
+		systemTool: {
+			binary: "dotnet",
+			toolLabel: "dotnet list package --vulnerable",
+			remediation: "Install the .NET SDK: https://dotnet.microsoft.com/download",
+		},
+	},
 ];
 
 const planSecurity = (ctx: PlanContext): ToolDecision => {
@@ -291,7 +309,11 @@ const planSecurity = (ctx: PlanContext): ToolDecision => {
 	const { installedTools } = projectInfo;
 	const hasFile = (rel: string): boolean => fs.existsSync(path.join(rootDirectory, rel));
 	for (const spec of AUDIT_SPECS) {
-		if (!spec.files.some(hasFile)) continue;
+		const filesMatch = spec.files.some(hasFile);
+		const languageMatch = spec.languages
+			? hasAnyLanguage(projectInfo.languages, spec.languages)
+			: false;
+		if (!filesMatch && !languageMatch) continue;
 		if (spec.bundled) return { tool: spec.bundled, status: "ok" };
 		if (spec.systemTool) {
 			const required = spec.systemTool.requiresBinaries ?? [spec.systemTool.binary];

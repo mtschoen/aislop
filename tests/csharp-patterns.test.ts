@@ -130,7 +130,11 @@ describe("csharp-patterns: suppressed-warning", () => {
 
 	it("does NOT flag a pragma justified by a preceding comment", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
-		write(root, "A.cs", "// docs not required for generated code\n#pragma warning disable CS1591\nclass A { }\n");
+		write(
+			root,
+			"A.cs",
+			"// docs not required for generated code\n#pragma warning disable CS1591\nclass A { }\n",
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
 	});
@@ -144,14 +148,22 @@ describe("csharp-patterns: suppressed-warning", () => {
 
 	it("flags [SuppressMessage] with a <Pending> placeholder justification", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
-		write(root, "A.cs", '[SuppressMessage("Usage", "CA2200", Justification = "<Pending>")]\nclass A { }\n');
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Usage", "CA2200", Justification = "<Pending>")]\nclass A { }\n',
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
 	});
 
 	it("does NOT flag [SuppressMessage] with a real justification", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
-		write(root, "A.cs", '[SuppressMessage("Usage", "CA2200", Justification = "rethrow preserves the original frame")]\nclass A { }\n');
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Usage", "CA2200", Justification = "rethrow preserves the original frame")]\nclass A { }\n',
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
 	});
@@ -167,21 +179,33 @@ describe("csharp-patterns: empty-catch-rethrow", () => {
 
 	it("flags a multi-line catch that only rethrows", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
-		write(root, "A.cs", ["try {", "  Do();", "} catch (Exception ex) {", "  throw;", "}"].join("\n"));
+		write(
+			root,
+			"A.cs",
+			["try {", "  Do();", "} catch (Exception ex) {", "  throw;", "}"].join("\n"),
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(true);
 	});
 
 	it("does NOT flag a catch that logs before rethrow", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
-		write(root, "A.cs", ["try { Do(); } catch (Exception ex) {", "  Log(ex);", "  throw;", "}"].join("\n"));
+		write(
+			root,
+			"A.cs",
+			["try { Do(); } catch (Exception ex) {", "  Log(ex);", "  throw;", "}"].join("\n"),
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(false);
 	});
 
 	it("does NOT flag a catch that wraps and rethrows", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
-		write(root, "A.cs", "class A { void M() { try { Do(); } catch (Exception ex) { throw new InvalidOperationException(\"x\", ex); } } }");
+		write(
+			root,
+			"A.cs",
+			'class A { void M() { try { Do(); } catch (Exception ex) { throw new InvalidOperationException("x", ex); } } }',
+		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-empty-catch-rethrow")).toBe(false);
 	});
@@ -274,5 +298,220 @@ describe("csharp-patterns: console-leftover (Console.*)", () => {
 		write(root, "A.cs", 'class A { void M() { Console.Error.WriteLine("oops"); } }');
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
+	});
+});
+
+describe("csharp-patterns: broad-catch", () => {
+	it("flags a non-empty catch (Exception ex)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { void M() { try { F(); } catch (Exception ex) { Log(ex); } } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(true);
+	});
+
+	it("does NOT flag a specific exception type", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { void M() { try { F(); } catch (IOException ex) { Log(ex); } } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(false);
+	});
+
+	it("does NOT flag a catch (Exception) with a when filter", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { void M() { try { F(); } catch (Exception ex) when (ex is IOException) { Log(ex); } } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(false);
+	});
+
+	it("does NOT double-flag an empty or rethrow-only broad catch", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  void M() {",
+				"    try { F(); } catch (Exception) { throw; }",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-broad-catch")).toBe(false);
+	});
+});
+
+describe("csharp-patterns: LINQ count vs Any", () => {
+	it("flags .Count() > 0", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { bool M() { return items.Count() > 0; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-linq-count")).toBe(true);
+	});
+
+	it("flags .Count() == 0", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { bool M() { return items.Count() == 0; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-linq-count")).toBe(true);
+	});
+
+	it("does NOT flag the O(1) .Count property without parentheses", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { bool M() { return list.Count > 0; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-linq-count")).toBe(false);
+	});
+
+	it("does NOT flag .Count() compared to a larger number", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { bool M() { return items.Count() > 10; } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-linq-count")).toBe(false);
+	});
+});
+
+describe("csharp-patterns: index loop vs foreach", () => {
+	it("flags for (int i = 0; i < arr.Length; i++)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			"class A { void M() { for (int i = 0; i < arr.Length; i++) { Use(arr[i]); } } }",
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-index-loop")).toBe(true);
+	});
+
+	it("does NOT flag a loop that does not start at 0 / walk Length", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", "class A { void M() { for (int i = 1; i < n; i++) { Use(i); } } }");
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-index-loop")).toBe(false);
+	});
+});
+
+describe("csharp-patterns: if/else-if ladder", () => {
+	it("flags a 4+ branch ladder on the same variable", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  string M(string kind) {",
+				'    if (kind == "a") return "1";',
+				'    else if (kind == "b") return "2";',
+				'    else if (kind == "c") return "3";',
+				'    else if (kind == "d") return "4";',
+				'    return "0";',
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-if-ladder")).toBe(true);
+	});
+
+	it("does NOT flag a short 2-branch if/else", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  string M(string kind) {",
+				'    if (kind == "a") return "1";',
+				'    else if (kind == "b") return "2";',
+				'    return "0";',
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-if-ladder")).toBe(false);
+	});
+});
+
+describe("csharp-patterns: aislop-worker exemption", () => {
+	it("does NOT flag Console.WriteLine in a file marked // aislop-worker", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(path.join(root, "Lib.csproj"), "<Project></Project>");
+		write(
+			root,
+			"Worker.cs",
+			["// aislop-worker", 'class W { void M() { Console.WriteLine("{json}"); } }'].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(false);
+	});
+
+	it("STILL flags Debug.WriteLine in a worker file (stderr-style debug is a leftover)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		fs.writeFileSync(path.join(root, "Lib.csproj"), "<Project></Project>");
+		write(
+			root,
+			"Worker.cs",
+			["// aislop-worker", 'class W { void M() { Debug.WriteLine("trace"); } }'].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-console-leftover")).toBe(true);
+	});
+});
+
+describe("csharp-patterns: string concat in loop", () => {
+	it('flags s += "..." inside a foreach loop', async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  string M(string[] xs) {",
+				'    var result = "";',
+				"    foreach (var x in xs) {",
+				'      result += $"{x}, ";',
+				"    }",
+				"    return result;",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-string-concat-in-loop")).toBe(true);
+	});
+
+	it("does NOT flag a string += outside any loop", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(root, "A.cs", ['class A { string M() { var s = "a"; s += "b"; return s; } }'].join("\n"));
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-string-concat-in-loop")).toBe(false);
+	});
+
+	it("does NOT flag a numeric += inside a loop (no string literal on the RHS)", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			[
+				"class A {",
+				"  int M(int[] xs) {",
+				"    int total = 0;",
+				"    foreach (var x in xs) { total += x; }",
+				"    return total;",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-string-concat-in-loop")).toBe(false);
 	});
 });

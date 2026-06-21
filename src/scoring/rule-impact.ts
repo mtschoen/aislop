@@ -61,6 +61,7 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"rust-formatting": mechanical("Rust formatter output is mechanical cleanup.", 12),
 	"ruby-formatting": mechanical("Ruby formatter output is mechanical cleanup.", 12),
 	"php-formatting": mechanical("PHP formatter output is mechanical cleanup.", 12),
+	"csharp-formatting": mechanical("C# formatter output is mechanical cleanup.", 12),
 
 	"code-quality/duplicate-block": maintainability(
 		"Large copy-paste blocks are real maintenance debt, but repeated blocks are less severe than defects.",
@@ -186,6 +187,46 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	),
 	"ai-slop/hallucinated-import": strict(
 		"Imports missing from the manifest are high-confidence install/runtime failures.",
+	),
+
+	"ai-slop/csharp-not-implemented": standard(
+		"NotImplementedException stubs usually indicate unfinished behavior.",
+	),
+	"ai-slop/csharp-async-void": standard(
+		"async void can't be awaited and its exceptions crash the process.",
+	),
+	"ai-slop/csharp-sync-over-async": standard(
+		"Blocking on a Task with .Result/.Wait() risks deadlock and burns a thread.",
+	),
+	"ai-slop/csharp-suppressed-warning": maintainability(
+		"Unjustified warning suppression hides analyzer findings rather than fixing them.",
+	),
+	"ai-slop/csharp-empty-catch-rethrow": mechanical(
+		"catch (...) { throw; } is pure noise with no behavior change - mechanical cleanup.",
+	),
+	"ai-slop/csharp-null-forgiving": maintainability(
+		"The null-forgiving ! silences nullable safety without proving the value is non-null.",
+	),
+	"ai-slop/csharp-console-leftover": style(
+		"Leftover Console/Debug/Trace output is visible cleanup unless it leaks sensitive data.",
+	),
+	"ai-slop/csharp-redundant-doc-comment": style(
+		"XML-doc that restates the member name is a cleanup/style finding, not a defect.",
+	),
+	"ai-slop/csharp-broad-catch": standard(
+		"catch (Exception) buries specific failures, though it is sometimes intentional at boundaries.",
+	),
+	"ai-slop/csharp-linq-count": advisory(
+		"Comparing .Count() to 0/1 is a readability/perf idiom signal, often harmless.",
+	),
+	"ai-slop/csharp-index-loop": advisory(
+		"Index for-loops over .Length/.Count are style/readability signals, often not harmful.",
+	),
+	"ai-slop/csharp-if-ladder": maintainability(
+		"Repeated if/else-if ladders dispatching on one value create maintainability debt.",
+	),
+	"ai-slop/csharp-string-concat-in-loop": maintainability(
+		"Repeated string += in a loop is O(n^2) allocation churn; a StringBuilder is the fix.",
 	),
 
 	"security/hardcoded-secret": strict("Secret-looking source literals are high-risk."),

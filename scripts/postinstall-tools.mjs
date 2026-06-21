@@ -17,16 +17,19 @@ const USER_AGENT = "aislop-installer";
 const DOWNLOAD_ATTEMPTS = 3;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
-// Roslyn analyzer NuGet packages whose async/Task rules feed the C# lint engine
-// (AsyncFixer01-03, MA0040/42/45 — see RELEVANT_IDS in lint/dotnet.ts). Bundling
-// their assemblies lets `roslynator analyze --analyzer-assemblies` cover projects
-// that don't reference these analyzers themselves. Entirely best-effort: a failure
-// here (offline, missing version) only reduces optional C# lint coverage.
+// Roslyn analyzer NuGet packages whose rules feed the C# lint engine
+// (AsyncFixer01-03, MA0040/42/45, IDISP001 — see RELEVANT_IDS in lint/dotnet.ts).
+// Bundling their assemblies lets `roslynator analyze --analyzer-assemblies` cover
+// projects that don't reference these analyzers themselves. Entirely best-effort: a
+// failure here (offline, missing version) only reduces optional C# lint coverage.
+// IDisposableAnalyzers is single-assembly and its IDISP rules are on by default
+// (unlike CA2000, which is disabled by default in the SDK analyzers), so it gives
+// type-accurate "created but never disposed" detection with no curated type list.
 //
 // Roslynator.Analyzers is intentionally NOT bundled: its RCS rules aren't in
 // RELEVANT_IDS, and its nupkg flattens dependency assemblies under analyzers/dotnet/cs
 // with prefixed names that break naive extraction.
-const ANALYZER_PACKAGE_IDS = ["AsyncFixer", "Meziantou.Analyzer"];
+const ANALYZER_PACKAGE_IDS = ["AsyncFixer", "Meziantou.Analyzer", "IDisposableAnalyzers"];
 
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 

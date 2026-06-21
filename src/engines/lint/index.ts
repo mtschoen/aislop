@@ -46,6 +46,19 @@ export const lintEngine: Engine = {
 			promises.push(runDotnetLint(context));
 		}
 
+		// No linter matched the detected languages/installed tools. Report this as
+		// skipped (mirroring `doctor`) rather than returning an empty result, which the
+		// scan summary would otherwise launder into a misleading "done (0 issues)".
+		if (promises.length === 0) {
+			return {
+				engine: "lint",
+				diagnostics,
+				elapsed: 0,
+				skipped: true,
+				skipReason: "no linter for the detected languages",
+			};
+		}
+
 		const results = await Promise.allSettled(promises);
 		for (const result of results) {
 			if (result.status === "fulfilled") {

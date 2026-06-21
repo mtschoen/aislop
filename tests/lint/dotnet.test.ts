@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { lintEngine } from "../../src/engines/lint/index.js";
 import { parseRoslynatorXml } from "../../src/engines/lint/dotnet.js";
+import { lintEngine } from "../../src/engines/lint/index.js";
 import type { EngineContext } from "../../src/engines/types.js";
 
 const csharpContext = (
@@ -52,6 +52,24 @@ describe("parseRoslynatorXml", () => {
 		);
 		const diags = parseRoslynatorXml(xml, "/repo");
 		expect(diags[0].filePath).toBe("Bad.cs");
+	});
+
+	it("keeps IDISP001 (created IDisposable never disposed)", () => {
+		const xml = [
+			"<Roslynator><CodeAnalysis><Diagnostics>",
+			'<Diagnostic Id="IDISP001">',
+			"<Severity>Warning</Severity>",
+			"<Message>Dispose created.</Message>",
+			"<FilePath>/repo/src/Leak.cs</FilePath>",
+			'<Location Line="5" Character="9" />',
+			"</Diagnostic>",
+			"</Diagnostics></CodeAnalysis></Roslynator>",
+		].join("");
+		const diags = parseRoslynatorXml(xml, "/repo");
+		expect(diags).toHaveLength(1);
+		expect(diags[0].rule).toBe("dotnet/IDISP001");
+		expect(diags[0].filePath).toBe(path.join("src", "Leak.cs"));
+		expect(diags[0].line).toBe(5);
 	});
 
 	it("returns [] on malformed XML", () => {

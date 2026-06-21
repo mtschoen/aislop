@@ -57,6 +57,11 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/csharp-empty-catch-rethrow": "Empty catch that only rethrows",
 	"ai-slop/csharp-null-forgiving": "Null-forgiving ! operator",
 	"ai-slop/csharp-console-leftover": "Console/Debug/Trace output leftover",
+	"ai-slop/csharp-broad-catch": "Broad catch (Exception)",
+	"ai-slop/csharp-linq-count": "LINQ .Count() instead of .Any()",
+	"ai-slop/csharp-index-loop": "Index for-loop better as foreach",
+	"ai-slop/csharp-if-ladder": "if/else-if ladder better as switch",
+	"ai-slop/csharp-string-concat-in-loop": "String += in a loop (use StringBuilder)",
 	"ai-slop/hallucinated-import": "Import not in package.json",
 	"security/hardcoded-secret": "Possible hardcoded secret",
 	"security/vulnerable-dependency": "Vulnerable dependency",
@@ -161,6 +166,7 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"rust-formatting": "Rust file needs rustfmt.",
 	"ruby-formatting": "Ruby file needs rubocop formatting.",
 	"php-formatting": "PHP file needs php-cs-fixer formatting.",
+	"csharp-formatting": "C# file needs dotnet format.",
 };
 
 const prettifyFallback = (ruleId: string): string => {

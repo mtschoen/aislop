@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { aiSlopEngine } from "./ai-slop/index.js";
 import { architectureEngine } from "./architecture/index.js";
 import { codeQualityEngine } from "./code-quality/index.js";
+import { dedupeOverlappingComments } from "./comment-dedupe.js";
 import { dedupeCSharpAsync } from "./csharp-dedupe.js";
 import { formatEngine } from "./format/index.js";
 import { lintEngine } from "./lint/index.js";
@@ -61,5 +62,5 @@ export const runEngines = async (
 				},
 	);
 
-	return dedupeCSharpAsync(finalResults);
+	return dedupeOverlappingComments(dedupeCSharpAsync(finalResults));
 };

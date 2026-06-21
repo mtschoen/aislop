@@ -33,7 +33,7 @@ export const findCsprojFiles = (root: string): string[] => {
 // back to every .csproj in the tree: a lone .slnx is not a reliable roslynator
 // target (MSBuild's solution parser fails to load .slnx on some SDKs, notably
 // .NET 10), and projects routinely live in subdirectories rather than at the root.
-export const findDotnetTargets = (context: EngineContext): string[] => {
+export const findDotnetTargets = (context: Pick<EngineContext, "rootDirectory">): string[] => {
 	const root = context.rootDirectory;
 	let entries: string[];
 	try {
