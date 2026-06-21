@@ -1,14 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseJbXml } from "../../src/engines/lint/jb.js";
-import { runJbLint, resolveCsharpLintConfig } from "../../src/engines/lint/jb.js";
+import { parseJbXml, resolveCsharpLintConfig, runJbLint } from "../../src/engines/lint/jb.js";
 import type { EngineContext } from "../../src/engines/types.js";
 
 const fixture = (): string =>
 	fs.readFileSync(path.join(__dirname, "../fixtures/dotnet/jb-output.xml"), "utf-8");
 
-const opts = (over: Partial<{ excludeTypes: Set<string>; severityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT" }> = {}) => ({
+const opts = (
+	over: Partial<{
+		excludeTypes: Set<string>;
+		severityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
+	}> = {},
+) => ({
 	excludeTypes: over.excludeTypes ?? new Set<string>(),
 	severityFloor: over.severityFloor ?? ("WARNING" as const),
 });
@@ -44,7 +48,11 @@ describe("parseJbXml", () => {
 	});
 
 	it("excludes denylisted inspection types", () => {
-		const diags = parseJbXml(fixture(), "/repo", opts({ excludeTypes: new Set(["InconsistentNaming"]) }));
+		const diags = parseJbXml(
+			fixture(),
+			"/repo",
+			opts({ excludeTypes: new Set(["InconsistentNaming"]) }),
+		);
 		expect(diags.some((d) => d.rule === "jb/InconsistentNaming")).toBe(false);
 	});
 
@@ -58,7 +66,11 @@ const ctx = (rootDirectory: string): EngineContext => ({
 	languages: ["csharp"],
 	frameworks: [],
 	installedTools: { jb: true },
-	config: { quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 }, security: { audit: false, auditTimeout: 0 }, lint: { typecheck: false, expoDoctor: false } },
+	config: {
+		quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
+		security: { audit: false, auditTimeout: 0 },
+		lint: { typecheck: false, expoDoctor: false },
+	},
 });
 
 describe("runJbLint gating", () => {
