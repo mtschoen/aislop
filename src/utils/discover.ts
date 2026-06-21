@@ -301,7 +301,7 @@ const detectFrameworks = (directory: string): Framework[] => {
 	return [...frameworks];
 };
 
-const TOOLS_TO_CHECK = [
+export const TOOLS_TO_CHECK = [
 	"oxlint",
 	"biome",
 	"ruff",
@@ -320,6 +320,7 @@ const TOOLS_TO_CHECK = [
 	"php-cs-fixer",
 	"dotnet",
 	"roslynator",
+	"jb",
 ];
 
 const checkInstalledTools = async (): Promise<Record<string, boolean>> => {

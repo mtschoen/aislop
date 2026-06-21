@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { type AislopConfig, CONFIG_DIR, loadConfig, RULES_FILE } from "../config/index.js";
 import { loadArchitectureRules } from "../engines/architecture/rule-loader.js";
 import { resolveTrustedTscPath } from "../engines/lint/typecheck.js";
@@ -160,14 +161,24 @@ const systemToolDecision = (
 				remediation: spec.remediation,
 			};
 
+// Installed-first selection: among specs whose language is detected, prefer the
+// first whose tool is actually installed (this is how csharp reports jb over
+// roslynator, and how a mixed-language repo reports an installed linter rather
+// than a not-found one). Fall back to the first language match's "not found"
+// when none are installed. For a single spec per language this is identical to
+// returning that spec directly.
 const firstMatching = (
 	langs: Language[],
 	installed: Record<string, boolean>,
 	specs: LangToolSpec[],
 ): ToolDecision | null => {
-	for (const spec of specs) {
-		if (langs.includes(spec.language)) return systemToolDecision(installed, spec);
+	let firstLanguageMatch: LangToolSpec | null = null;
+	for (const langToolSpec of specs) {
+		if (!langs.includes(langToolSpec.language)) continue;
+		if (firstLanguageMatch === null) firstLanguageMatch = langToolSpec;
+		if (installed[langToolSpec.binary]) return systemToolDecision(installed, langToolSpec);
 	}
+	if (firstLanguageMatch !== null) return systemToolDecision(installed, firstLanguageMatch);
 	return null;
 };
 
@@ -202,6 +213,18 @@ const LINT_SPECS: LangToolSpec[] = [
 	spec("go", "golangci-lint", "golangci-lint", "Install: brew install golangci-lint"),
 	spec("rust", "clippy-driver", "clippy", "Install: rustup component add clippy"),
 	spec("ruby", "rubocop", "rubocop", "Install: gem install rubocop"),
+	spec(
+		"csharp",
+		"jb",
+		"jb inspectcode",
+		"Install: dotnet tool install -g JetBrains.ReSharper.GlobalTools",
+	),
+	spec(
+		"csharp",
+		"roslynator",
+		"roslynator",
+		"Install: dotnet tool install -g roslynator.dotnet.cli",
+	),
 ];
 
 const planFormat = (ctx: PlanContext): ToolDecision => {
@@ -243,6 +266,30 @@ const planLint = (ctx: PlanContext): ToolDecision => {
 		}
 	);
 };
+
+/** Exported for unit tests only. Runs planLint with a minimal synthetic context. */
+export const planLintForTest = (overrides: {
+	languages: Language[];
+	installedTools: Record<string, boolean>;
+}): ToolDecision =>
+	planLint({
+		rootDirectory: "",
+		projectInfo: {
+			rootDirectory: "",
+			projectName: "test",
+			languages: overrides.languages,
+			frameworks: [],
+			sourceFileCount: 0,
+			coverage: {
+				supportedFiles: 0,
+				unsupportedFiles: 0,
+				dominantUnsupported: null,
+				scoreable: false,
+			},
+			installedTools: overrides.installedTools,
+		},
+		config: DEFAULT_CONFIG,
+	});
 
 const planCodeQuality = (ctx: PlanContext): ToolDecision => {
 	if (hasJsLike(ctx.projectInfo.languages)) {

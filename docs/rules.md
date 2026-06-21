@@ -27,22 +27,82 @@ Catches bugs and bad practices.
 | Go | golangci-lint |
 | Rust | clippy |
 | Ruby | rubocop |
-| C# | Roslynator + AsyncFixer/Meziantou (optional, requires .NET SDK) |
+| C# | jb inspectcode + Roslynator + AsyncFixer/Meziantou (optional, requires .NET SDK; each tool toggleable independently) |
 
-### C# linting (`dotnet/*`)
+### C# linting: hybrid jb + Roslynator
 
-The C# lint pass shells out to the [`roslynator`](https://github.com/dotnet/roslynator) CLI and reports a curated subset of analyzer diagnostics, each prefixed `dotnet/`:
+The C# lint pass is a **hybrid of two independently togglable tools** that both run when available, with findings merged and de-duplicated:
+
+- **jb inspectcode** (`jb/*` rules) - ReSharper-native inspections via the JetBrains CLI
+- **Roslynator** (`dotnet/*` rules) - Roslyn analyzer diagnostics
+
+Both tools run by default when available: each runs only when it is enabled (both default to on) AND its CLI is installed AND a `.csproj`/`.sln` is present. Missing tooling is silently skipped.
+
+#### jb inspectcode (`jb/*`)
+
+Rules are named `jb/<ReSharper-inspection-id>`, e.g. `jb/RedundantUsingDirective`. jb inspectcode produces ReSharper-native inspections across the full solution.
+
+**Severity mapping:**
+
+| jb severity | aislop severity |
+|---|---|
+| ERROR, WARNING | warning |
+| SUGGESTION, HINT | info |
+
+The floor is controlled by `jbSeverityFloor` (default: `WARNING`). Findings below the floor are dropped. `InconsistentNaming` is excluded by default because it binds to a machine-global ReSharper config and produces unreliable results via the CLI.
+
+**Install:**
+
+```bash
+dotnet tool install -g JetBrains.ReSharper.GlobalTools
+```
+
+#### Roslynator (`dotnet/*`)
+
+Shells out to the [`roslynator`](https://github.com/dotnet/roslynator) CLI and reports a curated subset of analyzer diagnostics, each prefixed `dotnet/`:
 
 | Rule | What it catches |
 |---|---|
 | `dotnet/AsyncFixer01` | Unnecessary `async`/`await` (the await is the last statement) |
 | `dotnet/AsyncFixer02` | Long-running or blocking operations inside an `async` method |
-| `dotnet/AsyncFixer03` | Fire-and-forget `async void` — unhandled exceptions crash the process |
+| `dotnet/AsyncFixer03` | Fire-and-forget `async void` - unhandled exceptions crash the process |
 | `dotnet/MA0040` / `MA0042` / `MA0045` | Meziantou async/`Task` best practices (cancellation tokens, blocking calls) |
 | `dotnet/CS0219` / `CS0162` | Unused variable / unreachable code (compiler diagnostics) |
 | `dotnet/IDISP001` | An `IDisposable` is created but never disposed (resource leak; from IDisposableAnalyzers) |
 
-This pass is **opt-in by environment**: it runs only when the .NET SDK and the `roslynator` global tool (`dotnet tool install -g roslynator.dotnet.cli`) are available and a `.csproj`/`.sln` is present. Otherwise it skips silently and returns nothing — exactly like the Python/Go lint wrappers. aislop bundles the AsyncFixer, Meziantou.Analyzer, and IDisposableAnalyzers assemblies so these rules fire even on projects that don't reference them. Where Roslynator reports an accurate async finding, the approximate Phase-1 regex rule (`ai-slop/csharp-async-void` / `ai-slop/csharp-sync-over-async`) at the same line is suppressed so you never see both.
+**Install:**
+
+```bash
+dotnet tool install -g roslynator.dotnet.cli
+```
+
+aislop bundles the AsyncFixer, Meziantou.Analyzer, and IDisposableAnalyzers assemblies so these rules fire even on projects that don't reference them. Where Roslynator reports an accurate async finding, the approximate Phase-1 regex rule (`ai-slop/csharp-async-void` / `ai-slop/csharp-sync-over-async`) at the same line is suppressed so you never see both.
+
+#### De-duplication
+
+When both tools run, findings are merged and de-duplicated by `(filePath, line, bare-rule-id)`, where the bare rule id is the part after the `jb/` or `dotnet/` namespace prefix (so a `jb/CS0219` and a `dotnet/CS0219` at the same site count as one). When jb and roslynator report an equivalent finding at the same location, the jb finding wins.
+
+#### `lint.csharp` config block
+
+Both passes are independently togglable via the `lint.csharp` config block:
+
+```yaml
+lint:
+  csharp:
+    jb: true                              # run jb inspectcode if installed
+    roslynator: true                      # run roslynator if installed
+    jbSeverityFloor: WARNING              # ERROR | WARNING | SUGGESTION | HINT
+    jbExcludeTypes: [InconsistentNaming]  # CLI-unreliable; bound to machine-global config
+    # jbProjects: "MyApp*"               # optional --project glob to scope big solutions
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `jb` | `true` | Run jb inspectcode when installed |
+| `roslynator` | `true` | Run roslynator when installed |
+| `jbSeverityFloor` | `WARNING` | Drop jb findings below this severity |
+| `jbExcludeTypes` | `["InconsistentNaming"]` | Inspection type IDs to exclude from jb results |
+| `jbProjects` | (unset) | Optional `--project` glob passed to jb inspectcode to scope analysis in large solutions |
 
 ## Code Quality
 
@@ -161,4 +221,4 @@ See [examples/architecture-rules.yml](../examples/architecture-rules.yml) for a 
 | Rust | cargo fmt | clippy | complexity | Comments | Secrets, audit |
 | Ruby | rubocop | rubocop | complexity | Exceptions, comments | Secrets |
 | PHP | php-cs-fixer | -- | complexity | Comments | Secrets |
-| C# | -- | Roslynator (optional) | complexity | NotImplementedException, redundant XML-doc, async, exceptions, comments | Secrets |
+| C# | -- | jb inspectcode + Roslynator (optional, each independently togglable) | complexity | NotImplementedException, redundant XML-doc, async, exceptions, comments | Secrets |

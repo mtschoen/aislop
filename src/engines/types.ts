@@ -55,6 +55,13 @@ export interface EngineConfig {
 	lint: {
 		typecheck: boolean;
 		expoDoctor: boolean;
+		csharp?: {
+			jb: boolean;
+			roslynator: boolean;
+			jbSeverityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
+			jbExcludeTypes: string[];
+			jbProjects?: string;
+		};
 	};
 	allowProjectLocalTools?: boolean;
 	architectureRulesPath?: string;
