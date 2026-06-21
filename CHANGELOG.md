@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+## 0.12.3 (2026-06-21)
+
+### Fixed
+
+- **Typecheck discovery honors `.gitignore`.** `findTsconfigs` walked the raw filesystem and ran `tsc` on every `tsconfig.json` it found (skipping only `node_modules` and dot-dirs), so a `tsconfig.json` under a gitignored non-dot directory - a spike, scratch checkout, or vendored tree - got type-checked and flooded the report with errors from code that was never meant to ship. The git-aware source scan already skipped those paths; target discovery now does too via `dropGitIgnoredPaths`, with a no-op fallback outside a git repository. Mirrors the same fix already applied to dotnet target discovery.
+
 ## 0.12.2 (2026-06-21)
 
 ### Fixed
