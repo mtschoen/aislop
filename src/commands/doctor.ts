@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { type AislopConfig, CONFIG_DIR, loadConfig, RULES_FILE } from "../config/index.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { type AislopConfig, CONFIG_DIR, loadConfig, RULES_FILE } from "../config/index.js";
 import { loadArchitectureRules } from "../engines/architecture/rule-loader.js";
 import { resolveTrustedTscPath } from "../engines/lint/typecheck.js";
 import type { EngineName } from "../engines/types.js";
@@ -161,6 +161,12 @@ const systemToolDecision = (
 				remediation: spec.remediation,
 			};
 
+// Installed-first selection: among specs whose language is detected, prefer the
+// first whose tool is actually installed (this is how csharp reports jb over
+// roslynator, and how a mixed-language repo reports an installed linter rather
+// than a not-found one). Fall back to the first language match's "not found"
+// when none are installed. For a single spec per language this is identical to
+// returning that spec directly.
 const firstMatching = (
 	langs: Language[],
 	installed: Record<string, boolean>,
@@ -207,7 +213,12 @@ const LINT_SPECS: LangToolSpec[] = [
 	spec("go", "golangci-lint", "golangci-lint", "Install: brew install golangci-lint"),
 	spec("rust", "clippy-driver", "clippy", "Install: rustup component add clippy"),
 	spec("ruby", "rubocop", "rubocop", "Install: gem install rubocop"),
-	spec("csharp", "jb", "jb inspectcode", "Install: dotnet tool install -g JetBrains.ReSharper.GlobalTools"),
+	spec(
+		"csharp",
+		"jb",
+		"jb inspectcode",
+		"Install: dotnet tool install -g JetBrains.ReSharper.GlobalTools",
+	),
 	spec("csharp", "roslynator", "roslynator", "Install: dotnet tool install -g roslynator.dotnet"),
 ];
 
@@ -264,7 +275,12 @@ export const planLintForTest = (overrides: {
 			languages: overrides.languages,
 			frameworks: [],
 			sourceFileCount: 0,
-			coverage: { supportedFiles: 0, unsupportedFiles: 0, dominantUnsupported: null, scoreable: false },
+			coverage: {
+				supportedFiles: 0,
+				unsupportedFiles: 0,
+				dominantUnsupported: null,
+				scoreable: false,
+			},
 			installedTools: overrides.installedTools,
 		},
 		config: DEFAULT_CONFIG,
