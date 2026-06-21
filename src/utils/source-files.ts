@@ -222,6 +222,19 @@ const getIgnoredPaths = (rootDirectory: string, files: string[]): Set<string> =>
 	);
 };
 
+// Filter absolute paths down to those git does not ignore (working-tree `.gitignore`).
+// The dotnet target discovery walks the raw filesystem, so without this it would pick up
+// projects under ignored directories (e.g. a spike under a gitignored `.claude/`). Keeps
+// every path when the directory is not a git repo (`getIgnoredPaths` returns empty then).
+export const dropGitIgnoredPaths = (rootDirectory: string, absolutePaths: string[]): string[] => {
+	if (absolutePaths.length === 0) return absolutePaths;
+	const relativePaths = absolutePaths.map((absolutePath) =>
+		toProjectPath(rootDirectory, absolutePath),
+	);
+	const ignored = getIgnoredPaths(rootDirectory, relativePaths);
+	return absolutePaths.filter((_, index) => !ignored.has(relativePaths[index]));
+};
+
 export const listProjectFiles = (rootDirectory: string): string[] => {
 	const result = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
 		cwd: rootDirectory,

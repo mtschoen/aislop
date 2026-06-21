@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
-import { findDotnetTargets } from "../dotnet-targets.js";
+import { findJbTargets } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 
 export type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
@@ -168,7 +168,7 @@ const analyzeJbTarget = async (
 };
 
 export const runJbLint = async (context: EngineContext): Promise<Diagnostic[]> => {
-	const targets = findDotnetTargets(context);
+	const targets = findJbTargets(context);
 	if (targets.length === 0) return [];
 	const csharp = resolveCsharpLintConfig(context);
 	const jb = resolveToolBinary("jb"); // not bundled -> resolves to "jb" on PATH

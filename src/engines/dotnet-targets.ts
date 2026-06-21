@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { dropGitIgnoredPaths } from "../utils/source-files.js";
 import type { EngineContext } from "./types.js";
 
 // Build-output and vendor directories that never hold first-party project files.
@@ -25,7 +26,9 @@ export const findCsprojFiles = (root: string): string[] => {
 		}
 	};
 	walk(root);
-	return results;
+	// Honor .gitignore: the raw walk would otherwise lint projects under ignored
+	// directories (spikes, scratch checkouts) that the git-aware file discovery skips.
+	return dropGitIgnoredPaths(root, results);
 };
 
 // Targets for the Roslynator lint pass. Prefer a classic .sln — roslynator loads
@@ -42,6 +45,26 @@ export const findDotnetTargets = (context: Pick<EngineContext, "rootDirectory">)
 		return [];
 	}
 	const solution = entries.find((name) => name.endsWith(".sln"));
-	if (solution) return [path.join(root, solution)];
+	if (solution) return dropGitIgnoredPaths(root, [path.join(root, solution)]);
+	return findCsprojFiles(root);
+};
+
+// Targets for the jb (ReSharper CLT) lint pass. Unlike roslynator, jb inspectcode
+// loads a .slnx solution natively, so prefer a single solution target - .sln
+// first, then .slnx - for full project-reference context. Inspecting projects one
+// at a time loses cross-project symbol resolution and floods CSharpErrors
+// ("Cannot resolve symbol", "has no constructors defined"). Fall back to every
+// .csproj only when no solution file exists.
+export const findJbTargets = (context: Pick<EngineContext, "rootDirectory">): string[] => {
+	const root = context.rootDirectory;
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(root);
+	} catch {
+		return [];
+	}
+	const solution =
+		entries.find((name) => name.endsWith(".sln")) ?? entries.find((name) => name.endsWith(".slnx"));
+	if (solution) return dropGitIgnoredPaths(root, [path.join(root, solution)]);
 	return findCsprojFiles(root);
 };
