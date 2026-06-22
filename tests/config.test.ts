@@ -114,6 +114,17 @@ describe("parseConfig", () => {
 		expect(cfg.lint.csharp.jb).toBe(true); // untouched default
 		expect(cfg.lint.csharp.jbSeverityFloor).toBe("SUGGESTION");
 	});
+
+	it("provides cpp lint defaults and honors overrides", () => {
+		expect(parseConfig({}).lint.cpp).toEqual({
+			cppcheck: true,
+			clangTidy: true,
+			cppcheckEnable: "warning,performance,portability",
+		});
+		const overridden = parseConfig({ lint: { cpp: { cppcheckEnable: "all" } } });
+		expect(overridden.lint.cpp.cppcheckEnable).toBe("all");
+		expect(overridden.lint.cpp.cppcheck).toBe(true); // other defaults preserved
+	});
 });
 
 // ─── DEFAULT_CONFIG ────────────────────────────────────────────────────────────

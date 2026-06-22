@@ -33,6 +33,12 @@ const CsharpLintSchema = z.object({
 	jbProjects: z.string().optional(),
 });
 
+const CppLintSchema = z.object({
+	cppcheck: z.boolean().default(true),
+	clangTidy: z.boolean().default(true),
+	cppcheckEnable: z.string().default("warning,performance,portability"),
+});
+
 const LintConfigSchema = z.object({
 	typecheck: z.boolean().default(false),
 	/**
@@ -45,6 +51,11 @@ const LintConfigSchema = z.object({
 		roslynator: true,
 		jbSeverityFloor: "WARNING" as const,
 		jbExcludeTypes: ["InconsistentNaming"],
+	})),
+	cpp: CppLintSchema.default(() => ({
+		cppcheck: true,
+		clangTidy: true,
+		cppcheckEnable: "warning,performance,portability",
 	})),
 });
 
@@ -105,6 +116,11 @@ const AislopConfigSchema = z.object({
 			roslynator: true,
 			jbSeverityFloor: "WARNING" as const,
 			jbExcludeTypes: ["InconsistentNaming"],
+		},
+		cpp: {
+			cppcheck: true,
+			clangTidy: true,
+			cppcheckEnable: "warning,performance,portability",
 		},
 	})),
 	security: SecurityConfigSchema.default(() => ({
