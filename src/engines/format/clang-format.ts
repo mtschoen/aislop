@@ -29,9 +29,11 @@ const formattingDiagnostic = (relativeFilePath: string): Diagnostic => ({
 
 // `clang-format --dry-run --Werror <file>` exits non-zero when the file would
 // change. Failures (missing binary, parse error) are swallowed to "formatted".
+// The `--` sentinel stops clang-format's option parser before the file path, so a
+// source named like a flag (e.g. "-foo.cpp") can never be smuggled in as an option.
 const isUnformatted = async (filePath: string, rootDirectory: string): Promise<boolean> => {
 	try {
-		const result = await runSubprocess("clang-format", ["--dry-run", "--Werror", filePath], {
+		const result = await runSubprocess("clang-format", ["--dry-run", "--Werror", "--", filePath], {
 			cwd: rootDirectory,
 			timeout: 60000,
 		});
@@ -57,7 +59,7 @@ export const fixClangFormat = async (rootDirectory: string): Promise<void> => {
 	if (!hasClangFormatConfig(rootDirectory)) return;
 	const files = findCppSourcesForRoot(rootDirectory);
 	if (files.length === 0) return;
-	const result = await runSubprocess("clang-format", ["-i", ...files], {
+	const result = await runSubprocess("clang-format", ["-i", "--", ...files], {
 		cwd: rootDirectory,
 		timeout: 180000,
 	});
