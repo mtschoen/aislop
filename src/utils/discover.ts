@@ -74,20 +74,10 @@ const UNSUPPORTED_CODE_EXTENSIONS: Record<string, string> = {
 	".groovy": "Groovy",
 };
 
-// C/C++ source extensions treated as supported for coverage scoring. These are not yet
-// in SOURCE_EXTENSIONS (that is task 2), so we pass them explicitly here so a C/C++ repo
-// is not withheld as un-scoreable while the engine plumbing is incomplete.
-const CPP_SOURCE_EXTENSIONS = [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"];
-
 const analyzeCoverage = (rootDirectory: string, excludePatterns: string[] = []): Coverage => {
 	// Count both sides through the scan's own post-exclude file selection, so the gate reflects exactly what was analyzed.
 	const allFiles = listProjectFiles(rootDirectory);
-	const supportedFiles = filterProjectFiles(
-		rootDirectory,
-		allFiles,
-		CPP_SOURCE_EXTENSIONS,
-		excludePatterns,
-	).length;
+	const supportedFiles = filterProjectFiles(rootDirectory, allFiles, [], excludePatterns).length;
 	const counts = new Map<string, number>();
 	let unsupportedFiles = 0;
 	const candidates = filterProjectFiles(
