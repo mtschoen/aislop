@@ -1,4 +1,6 @@
 import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
+import { runClangTidy } from "./clang-tidy.js";
+import { resolveCppLintConfig, runCppcheck } from "./cppcheck.js";
 import { runDotnetLint } from "./dotnet.js";
 import { runGenericLinter } from "./generic.js";
 import { runGolangciLint } from "./golangci.js";
@@ -15,6 +17,21 @@ import { runRuffLint } from "./ruff.js";
 export const bareRuleId = (rule: string): string => {
 	const slash = rule.indexOf("/");
 	return slash === -1 ? rule : rule.slice(slash + 1);
+};
+
+/** Exported for unit tests. cppcheck and clang-tidy frequently report the same
+ *  underlying defect at the same site; collapse by (file, line, bare rule id). */
+export const dedupeCppDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
+	const seen = new Set<string>();
+	const result: Diagnostic[] = [];
+	for (const diagnostic of diagnostics) {
+		const normalizedPath = diagnostic.filePath.replace(/\\/g, "/");
+		const key = `${normalizedPath}::${diagnostic.line}::${bareRuleId(diagnostic.rule)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(diagnostic);
+	}
+	return result;
 };
 
 /** Exported for unit tests. */
@@ -68,6 +85,18 @@ export const lintEngine: Engine = {
 
 		if (languages.includes("ruby") && installedTools.rubocop) {
 			promises.push(runGenericLinter(context, "ruby"));
+		}
+
+		if (languages.includes("cpp")) {
+			const cpp = resolveCppLintConfig(context);
+			const cppPasses: Promise<Diagnostic[]>[] = [];
+			if (cpp.cppcheck && installedTools.cppcheck) cppPasses.push(runCppcheck(context));
+			if (cpp.clangTidy && installedTools["clang-tidy"]) cppPasses.push(runClangTidy(context));
+			if (cppPasses.length > 0) {
+				promises.push(
+					Promise.all(cppPasses).then((passes) => dedupeCppDiagnostics(passes.flat())),
+				);
+			}
 		}
 
 		if (languages.includes("csharp")) {
