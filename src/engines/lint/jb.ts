@@ -81,7 +81,7 @@ export const parseJbXml = (
 				help: "",
 				line: lineRaw ? Number(lineRaw) : 1,
 				column: 1,
-				category: "C# Lint",
+				category: typeId.startsWith("Cpp") ? "C++ Lint" : "C# Lint",
 				fixable: false,
 			});
 		}
@@ -165,6 +165,14 @@ const analyzeJbTarget = async (
 	} finally {
 		fs.rmSync(cachesHome, { recursive: true, force: true });
 	}
+};
+
+export const buildJbProjectScope = (
+	csharpProjects: string | undefined,
+	cppProjects: string | undefined,
+): string | undefined => {
+	const parts = [csharpProjects, cppProjects].filter((p): p is string => !!p && p.length > 0);
+	return parts.length > 0 ? parts.join(";") : undefined;
 };
 
 export const runJbLint = async (context: EngineContext): Promise<Diagnostic[]> => {
