@@ -200,11 +200,12 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ruby-formatting",
 			"php-formatting",
 			"csharp-formatting",
-		],
+		"cpp-formatting",
+	],
 	},
 	{
 		engine: "lint",
-		rules: ["oxlint/*", "ruff/*", "go/*", "clippy/*", "rubocop/*", "typescript/*", "dotnet/*"],
+		rules: ["oxlint/*", "ruff/*", "go/*", "clippy/*", "rubocop/*", "typescript/*", "dotnet/*", "cppcheck/*", "clang-tidy/*"],
 	},
 	{
 		engine: "code-quality",
@@ -277,7 +278,12 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/csharp-index-loop",
 			"ai-slop/csharp-if-ladder",
 			"ai-slop/csharp-string-concat-in-loop",
-		],
+		"ai-slop/cpp-not-implemented",
+		"ai-slop/cpp-using-namespace-std-in-header",
+		"ai-slop/cpp-c-style-cast",
+		"ai-slop/cpp-manual-delete",
+		"ai-slop/cpp-iostream-leftover",
+	],
 	},
 	{
 		engine: "security",

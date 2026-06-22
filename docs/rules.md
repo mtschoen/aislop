@@ -179,6 +179,11 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/csharp-index-loop` | warning | C# index `for` loop over `.Length`/`.Count` that reads more clearly as `foreach` |
 | `ai-slop/csharp-if-ladder` | warning | C# chain of 4+ if/else-if branches comparing one value against constants (a `switch` in disguise) |
 | `ai-slop/csharp-string-concat-in-loop` | warning | C# string built with `+=` inside a loop (O(n^2) reallocation; use a `StringBuilder`) |
+| `ai-slop/cpp-not-implemented` | warning | C++ stub throws `std::logic_error("not implemented")` or `assert(false && "not implemented")` |
+| `ai-slop/cpp-using-namespace-std-in-header` | warning | `using namespace std;` at header scope leaks into every translation unit that includes the header |
+| `ai-slop/cpp-c-style-cast` | warning | C-style cast in C++ code; prefer `static_cast` / `reinterpret_cast` for explicitness |
+| `ai-slop/cpp-manual-delete` | warning | Manual `delete` / `delete[]`; prefer `std::unique_ptr` or RAII containers |
+| `ai-slop/cpp-iostream-leftover` | warning | `std::cout` / `std::cerr` left in library code (files without a `main`) |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`).
 
