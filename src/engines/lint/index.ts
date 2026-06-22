@@ -93,9 +93,7 @@ export const lintEngine: Engine = {
 			if (cpp.cppcheck && installedTools.cppcheck) cppPasses.push(runCppcheck(context));
 			if (cpp.clangTidy && installedTools["clang-tidy"]) cppPasses.push(runClangTidy(context));
 			if (cppPasses.length > 0) {
-				promises.push(
-					Promise.all(cppPasses).then((passes) => dedupeCppDiagnostics(passes.flat())),
-				);
+				promises.push(Promise.all(cppPasses).then((passes) => dedupeCppDiagnostics(passes.flat())));
 			}
 		}
 

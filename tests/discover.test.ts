@@ -156,7 +156,11 @@ describe("discoverProject", () => {
 		gitInit(tmpDir);
 		fs.mkdirSync(path.join(tmpDir, "src"), { recursive: true });
 		createFile(tmpDir, "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\n");
-		createFile(tmpDir, "src/foo.cpp", "#include <vector>\nint add(int a, int b) { return a + b; }\n");
+		createFile(
+			tmpDir,
+			"src/foo.cpp",
+			"#include <vector>\nint add(int a, int b) { return a + b; }\n",
+		);
 		createFile(tmpDir, "src/foo.h", "#pragma once\nint add(int, int);\n");
 		const info = await discoverProject(tmpDir);
 		expect(info.languages).toContain("cpp");

@@ -3,8 +3,16 @@ import { dedupeCppDiagnostics } from "../../src/engines/lint/index.js";
 import type { Diagnostic } from "../../src/engines/types.js";
 
 const make = (rule: string, file: string, line: number): Diagnostic => ({
-	filePath: file, engine: "lint", rule, severity: "warning", message: "",
-	help: "", line, column: 1, category: "C++ Lint", fixable: false,
+	filePath: file,
+	engine: "lint",
+	rule,
+	severity: "warning",
+	message: "",
+	help: "",
+	line,
+	column: 1,
+	category: "C++ Lint",
+	fixable: false,
 });
 
 describe("dedupeCppDiagnostics", () => {

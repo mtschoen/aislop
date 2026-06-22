@@ -21,7 +21,9 @@ describe("cpp-targets", () => {
 		fs.writeFileSync(path.join(tmpDir, "src", "a.h"), "int a;\n");
 		fs.mkdirSync(path.join(tmpDir, "build"));
 		fs.writeFileSync(path.join(tmpDir, "build", "gen.cpp"), "int g;\n");
-		const names = findCppSourcesForRoot(tmpDir).map((f) => path.basename(f)).sort();
+		const names = findCppSourcesForRoot(tmpDir)
+			.map((f) => path.basename(f))
+			.sort();
 		expect(names).toEqual(["a.cpp", "a.h"]);
 	});
 

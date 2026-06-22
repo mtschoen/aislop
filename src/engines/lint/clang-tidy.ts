@@ -6,8 +6,7 @@ import type { Diagnostic, EngineContext } from "../types.js";
 
 // clang-tidy prints: `<file>:<line>:<col>: warning|error: <message> [<check-name>]`.
 // `note:` continuation lines and the trailing "N warnings generated." are ignored.
-const LINE_RE =
-	/^(.+?):(\d+):(\d+):\s+(warning|error):\s+(.*?)\s+\[([A-Za-z0-9_.-]+)\]\s*$/;
+const LINE_RE = /^(.+?):(\d+):(\d+):\s+(warning|error):\s+(.*?)\s+\[([A-Za-z0-9_.-]+)\]\s*$/;
 
 export const parseClangTidyOutput = (output: string, rootDirectory: string): Diagnostic[] => {
 	const out: Diagnostic[] = [];

@@ -1,11 +1,11 @@
 import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
 import { detectOverAbstraction } from "./abstractions.js";
 import { detectTrivialComments } from "./comments.js";
+import { detectCppPatterns } from "./cpp-patterns.js";
+import { detectCSharpPatterns } from "./csharp-patterns.js";
 import { detectDeadPatterns } from "./dead-patterns.js";
 import { detectDefensivePatterns } from "./defensive-patterns.js";
 import { detectDuplicateImports } from "./duplicate-imports.js";
-import { detectCSharpPatterns } from "./csharp-patterns.js";
-import { detectCppPatterns } from "./cpp-patterns.js";
 import { detectSwallowedExceptions } from "./exceptions.js";
 import { detectGoPatterns } from "./go-patterns.js";
 import { detectHallucinatedImports } from "./hallucinated-imports.js";

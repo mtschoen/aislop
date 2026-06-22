@@ -21,6 +21,9 @@ describe("parseClangTidyOutput", () => {
 			category: "C++ Lint",
 			engine: "lint",
 		});
-		expect(diags[1]).toMatchObject({ rule: "clang-tidy/clang-diagnostic-error", severity: "error" });
+		expect(diags[1]).toMatchObject({
+			rule: "clang-tidy/clang-diagnostic-error",
+			severity: "error",
+		});
 	});
 });

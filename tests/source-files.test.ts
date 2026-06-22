@@ -144,7 +144,11 @@ describe("source file selection", () => {
 		createFile(tmpDir, "src/app.ts", "export const app = true;\n");
 		createFile(tmpDir, "src/components/Button.stories.tsx", "export const Story = {};\n");
 		createFile(tmpDir, "src/components/__stories__/Button.tsx", "export const Story = {};\n");
-		createFile(tmpDir, "packages/sdk/src/metadata/generated/schema.ts", "export const generated = true;\n");
+		createFile(
+			tmpDir,
+			"packages/sdk/src/metadata/generated/schema.ts",
+			"export const generated = true;\n",
+		);
 		createFile(tmpDir, "backend/app/DomainObjects/Generated/Model.php", "<?php\n");
 		createFile(tmpDir, "src/parser/testdata/case.go", "package testdata\n");
 		createFile(tmpDir, "e2e/fixtures.ts", "export const fixture = true;\n");

@@ -62,9 +62,9 @@ describe("detectCppPatterns", () => {
 		expect(await rulesFor({ "src/a.cpp": "void f(int* p){ delete p; }\n" })).toContain(
 			"ai-slop/cpp-manual-delete",
 		);
-		expect(
-			await rulesFor({ "src/lib.cpp": 'void log(){ std::cout << "x"; }\n' }),
-		).toContain("ai-slop/cpp-iostream-leftover");
+		expect(await rulesFor({ "src/lib.cpp": 'void log(){ std::cout << "x"; }\n' })).toContain(
+			"ai-slop/cpp-iostream-leftover",
+		);
 	});
 
 	it("does not flag std::cout in a file with int main()", async () => {

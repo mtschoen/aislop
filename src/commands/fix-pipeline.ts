@@ -263,9 +263,7 @@ export const runFormattingStep = async (deps: PipelineDeps): Promise<void> => {
 			() => fixClangFormat(deps.resolvedDir),
 		);
 	} else if (deps.projectInfo.languages.includes("cpp")) {
-		log.warn(
-			"C/C++ detected but clang-format is not installed; skipping C/C++ formatting fixes.",
-		);
+		log.warn("C/C++ detected but clang-format is not installed; skipping C/C++ formatting fixes.");
 	}
 };
 
