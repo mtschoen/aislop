@@ -37,6 +37,10 @@ const CppLintSchema = z.object({
 	cppcheck: z.boolean().default(true),
 	clangTidy: z.boolean().default(true),
 	cppcheckEnable: z.string().default("warning,performance,portability"),
+	jb: z.boolean().default(false),
+	jbProjects: z.string().optional(),
+	jbSeverityFloor: z.enum(["ERROR", "WARNING", "SUGGESTION", "HINT"]).default("WARNING"),
+	jbExcludeTypes: z.array(z.string()).default(() => []),
 });
 
 const LintConfigSchema = z.object({
@@ -56,6 +60,9 @@ const LintConfigSchema = z.object({
 		cppcheck: true,
 		clangTidy: true,
 		cppcheckEnable: "warning,performance,portability",
+		jb: false,
+		jbSeverityFloor: "WARNING" as const,
+		jbExcludeTypes: [],
 	})),
 });
 
@@ -121,6 +128,9 @@ const AislopConfigSchema = z.object({
 			cppcheck: true,
 			clangTidy: true,
 			cppcheckEnable: "warning,performance,portability",
+			jb: false,
+			jbSeverityFloor: "WARNING" as const,
+			jbExcludeTypes: [],
 		},
 	})),
 	security: SecurityConfigSchema.default(() => ({

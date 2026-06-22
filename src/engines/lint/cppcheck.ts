@@ -2,26 +2,38 @@ import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { findCppSources, hasCppOnlySources } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
+import type { JbSeverity } from "./jb.js";
 
 export interface CppLintConfig {
 	cppcheck: boolean;
 	clangTidy: boolean;
 	cppcheckEnable: string;
+	jb: boolean;
+	jbProjects?: string;
+	jbSeverityFloor: JbSeverity;
+	jbExcludeTypes: string[];
 }
 
 export const CPP_LINT_DEFAULTS: CppLintConfig = {
 	cppcheck: true,
 	clangTidy: true,
 	cppcheckEnable: "warning,performance,portability",
+	jb: false,
+	jbSeverityFloor: "WARNING",
+	jbExcludeTypes: [],
 };
 
 export const resolveCppLintConfig = (context: EngineContext): CppLintConfig => {
 	const cpp = context.config.lint.cpp;
-	if (!cpp) return CPP_LINT_DEFAULTS;
+	if (!cpp) return { ...CPP_LINT_DEFAULTS };
 	return {
 		cppcheck: cpp.cppcheck,
 		clangTidy: cpp.clangTidy,
 		cppcheckEnable: cpp.cppcheckEnable,
+		jb: cpp.jb,
+		jbProjects: cpp.jbProjects,
+		jbSeverityFloor: cpp.jbSeverityFloor,
+		jbExcludeTypes: cpp.jbExcludeTypes,
 	};
 };
 
