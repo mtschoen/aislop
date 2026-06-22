@@ -120,10 +120,21 @@ describe("parseConfig", () => {
 			cppcheck: true,
 			clangTidy: true,
 			cppcheckEnable: "warning,performance,portability",
+			jb: false,
+			jbSeverityFloor: "WARNING",
+			jbExcludeTypes: [],
 		});
 		const overridden = parseConfig({ lint: { cpp: { cppcheckEnable: "all" } } });
 		expect(overridden.lint.cpp.cppcheckEnable).toBe("all");
 		expect(overridden.lint.cpp.cppcheck).toBe(true); // other defaults preserved
+	});
+
+	it("defaults cpp jb to off, WARNING floor, empty excludes", () => {
+		const cfg = parseConfig({});
+		expect(cfg.lint.cpp.jb).toBe(false);
+		expect(cfg.lint.cpp.jbSeverityFloor).toBe("WARNING");
+		expect(cfg.lint.cpp.jbExcludeTypes).toEqual([]);
+		expect(cfg.lint.cpp.jbProjects).toBeUndefined();
 	});
 });
 

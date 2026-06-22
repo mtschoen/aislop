@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lintEngine } from "../../src/engines/lint/index.js";
-import { parseJbXml, resolveCsharpLintConfig, runJbLint } from "../../src/engines/lint/jb.js";
+import {
+	buildJbProjectScope,
+	parseJbXml,
+	resolveCsharpLintConfig,
+	runJbLint,
+} from "../../src/engines/lint/jb.js";
 import type { EngineContext } from "../../src/engines/types.js";
 
 const fixture = (): string =>
@@ -14,8 +19,14 @@ const opts = (
 		severityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 	}> = {},
 ) => ({
-	excludeTypes: over.excludeTypes ?? new Set<string>(),
-	severityFloor: over.severityFloor ?? ("WARNING" as const),
+	csharp: {
+		excludeTypes: over.excludeTypes ?? new Set<string>(),
+		severityFloor: over.severityFloor ?? ("WARNING" as const),
+	},
+	cpp: {
+		excludeTypes: new Set<string>(),
+		severityFloor: "WARNING" as const,
+	},
 });
 
 describe("parseJbXml", () => {
@@ -60,6 +71,39 @@ describe("parseJbXml", () => {
 	it("returns [] on malformed XML", () => {
 		expect(parseJbXml("<not-xml", "/repo", opts())).toEqual([]);
 	});
+
+	it("labels C# TypeIds as C# Lint and Cpp TypeIds as C++ Lint", () => {
+		const xml = `
+<IssueTypes>
+  <IssueType Id="CS0168" Severity="WARNING" />
+  <IssueType Id="CppCStyleCast" Severity="WARNING" />
+</IssueTypes>
+<Issues>
+  <Issue TypeId="CS0168" File="src/Foo.cs" Line="10" Message="unused var" />
+  <Issue TypeId="CppCStyleCast" File="src/Foo.cpp" Line="20" Message="c-style cast" />
+</Issues>`;
+		const diags = parseJbXml(xml, "/repo", opts());
+		const cs = diags.find((d) => d.rule === "jb/CS0168");
+		const cpp = diags.find((d) => d.rule === "jb/CppCStyleCast");
+		expect(cs).toBeDefined();
+		expect(cs?.category).toBe("C# Lint");
+		expect(cpp).toBeDefined();
+		expect(cpp?.category).toBe("C++ Lint");
+	});
+});
+
+describe("buildJbProjectScope", () => {
+	it("joins both non-empty project scopes with a semicolon", () => {
+		expect(buildJbProjectScope("A;B", "N")).toBe("A;B;N");
+	});
+
+	it("returns the cpp scope when csharp is undefined", () => {
+		expect(buildJbProjectScope(undefined, "N")).toBe("N");
+	});
+
+	it("returns undefined when both are undefined", () => {
+		expect(buildJbProjectScope(undefined, undefined)).toBeUndefined();
+	});
 });
 
 const ctx = (rootDirectory: string): EngineContext => ({
@@ -76,7 +120,9 @@ const ctx = (rootDirectory: string): EngineContext => ({
 
 describe("runJbLint gating", () => {
 	it("returns [] when there is no .sln/.csproj target", async () => {
-		expect(await runJbLint(ctx("/nonexistent-xyz"))).toEqual([]);
+		expect(
+			await runJbLint(ctx("/nonexistent-xyz"), { includeCsharp: true, includeCpp: false }),
+		).toEqual([]);
 	});
 });
 

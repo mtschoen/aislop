@@ -19,14 +19,30 @@ export const bareRuleId = (rule: string): string => {
 	return slash === -1 ? rule : rule.slice(slash + 1);
 };
 
+// CamelCase -> kebab: "BugproneNarrowingConversions" -> "bugprone-narrowing-conversions"
+const camelToKebab = (s: string): string =>
+	s
+		.replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+		.replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+		.toLowerCase();
+
+// Canonical id for cpp dedup: jb "CppClangTidyX" and clang-tidy "cat-check" collapse to the
+// same key; everything else falls back to bareRuleId.
+export const canonicalCppRuleId = (rule: string): string => {
+	const bare = bareRuleId(rule);
+	const m = /^CppClangTidy(.+)$/.exec(bare);
+	return m ? camelToKebab(m[1]) : bare;
+};
+
 /** Exported for unit tests. cppcheck and clang-tidy frequently report the same
- *  underlying defect at the same site; collapse by (file, line, bare rule id). */
+ *  underlying defect at the same site; collapse by (file, line, canonical rule id).
+ *  jb CppClangTidy* inspections normalize to the same key as aislop clang-tidy findings. */
 export const dedupeCppDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
 	const seen = new Set<string>();
 	const result: Diagnostic[] = [];
 	for (const diagnostic of diagnostics) {
 		const normalizedPath = diagnostic.filePath.replace(/\\/g, "/");
-		const key = `${normalizedPath}::${diagnostic.line}::${bareRuleId(diagnostic.rule)}`;
+		const key = `${normalizedPath}::${diagnostic.line}::${canonicalCppRuleId(diagnostic.rule)}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		result.push(diagnostic);
@@ -87,26 +103,32 @@ export const lintEngine: Engine = {
 			promises.push(runGenericLinter(context, "ruby"));
 		}
 
+		const cpp = resolveCppLintConfig(context);
+		const csharp = resolveCsharpLintConfig(context);
+		const wantJbCsharp = languages.includes("csharp") && csharp.jb && installedTools.jb;
+		const wantJbCpp = languages.includes("cpp") && cpp.jb && installedTools.jb;
+		const jbPromise: Promise<Diagnostic[]> =
+			wantJbCsharp || wantJbCpp
+				? runJbLint(context, { includeCsharp: wantJbCsharp, includeCpp: wantJbCpp })
+				: Promise.resolve([]);
+
 		if (languages.includes("cpp")) {
-			const cpp = resolveCppLintConfig(context);
 			const cppPasses: Promise<Diagnostic[]>[] = [];
 			if (cpp.cppcheck && installedTools.cppcheck) cppPasses.push(runCppcheck(context));
 			if (cpp.clangTidy && installedTools["clang-tidy"]) cppPasses.push(runClangTidy(context));
-			if (cppPasses.length > 0) {
-				promises.push(Promise.all(cppPasses).then((passes) => dedupeCppDiagnostics(passes.flat())));
-			}
+			if (wantJbCpp)
+				cppPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C++ Lint")));
+			if (cppPasses.length > 0)
+				promises.push(Promise.all(cppPasses).then((p) => dedupeCppDiagnostics(p.flat())));
 		}
 
 		if (languages.includes("csharp")) {
-			const csharp = resolveCsharpLintConfig(context);
 			const csharpPasses: Promise<Diagnostic[]>[] = [];
-			if (csharp.jb && installedTools.jb) csharpPasses.push(runJbLint(context));
 			if (csharp.roslynator && installedTools.roslynator) csharpPasses.push(runDotnetLint(context));
-			if (csharpPasses.length > 0) {
-				promises.push(
-					Promise.all(csharpPasses).then((passes) => dedupeCsharpDiagnostics(passes.flat())),
-				);
-			}
+			if (wantJbCsharp)
+				csharpPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C# Lint")));
+			if (csharpPasses.length > 0)
+				promises.push(Promise.all(csharpPasses).then((p) => dedupeCsharpDiagnostics(p.flat())));
 		}
 
 		// No linter matched the detected languages/installed tools. Report this as

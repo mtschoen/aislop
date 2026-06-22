@@ -31,6 +31,9 @@ export const DEFAULT_CONFIG: AislopConfig = {
 			cppcheck: true,
 			clangTidy: true,
 			cppcheckEnable: "warning,performance,portability",
+			jb: false,
+			jbSeverityFloor: "WARNING" as const,
+			jbExcludeTypes: [],
 		},
 	},
 	security: {

@@ -66,6 +66,10 @@ export interface EngineConfig {
 			cppcheck: boolean;
 			clangTidy: boolean;
 			cppcheckEnable: string;
+			jb: boolean;
+			jbProjects?: string;
+			jbSeverityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
+			jbExcludeTypes: string[];
 		};
 	};
 	allowProjectLocalTools?: boolean;
