@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lintEngine } from "../../src/engines/lint/index.js";
-import { buildJbProjectScope, parseJbXml, resolveCsharpLintConfig, runJbLint } from "../../src/engines/lint/jb.js";
+import {
+	buildJbProjectScope,
+	parseJbXml,
+	resolveCsharpLintConfig,
+	runJbLint,
+} from "../../src/engines/lint/jb.js";
 import type { EngineContext } from "../../src/engines/types.js";
 
 const fixture = (): string =>
@@ -115,7 +120,9 @@ const ctx = (rootDirectory: string): EngineContext => ({
 
 describe("runJbLint gating", () => {
 	it("returns [] when there is no .sln/.csproj target", async () => {
-		expect(await runJbLint(ctx("/nonexistent-xyz"))).toEqual([]);
+		expect(
+			await runJbLint(ctx("/nonexistent-xyz"), { includeCsharp: true, includeCpp: false }),
+		).toEqual([]);
 	});
 });
 

@@ -21,7 +21,10 @@ export const bareRuleId = (rule: string): string => {
 
 // CamelCase -> kebab: "BugproneNarrowingConversions" -> "bugprone-narrowing-conversions"
 const camelToKebab = (s: string): string =>
-	s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2").toLowerCase();
+	s
+		.replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+		.replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+		.toLowerCase();
 
 // Canonical id for cpp dedup: jb "CppClangTidyX" and clang-tidy "cat-check" collapse to the
 // same key; everything else falls back to bareRuleId.
@@ -113,7 +116,8 @@ export const lintEngine: Engine = {
 			const cppPasses: Promise<Diagnostic[]>[] = [];
 			if (cpp.cppcheck && installedTools.cppcheck) cppPasses.push(runCppcheck(context));
 			if (cpp.clangTidy && installedTools["clang-tidy"]) cppPasses.push(runClangTidy(context));
-			if (wantJbCpp) cppPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C++ Lint")));
+			if (wantJbCpp)
+				cppPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C++ Lint")));
 			if (cppPasses.length > 0)
 				promises.push(Promise.all(cppPasses).then((p) => dedupeCppDiagnostics(p.flat())));
 		}
