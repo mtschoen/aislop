@@ -1,6 +1,6 @@
 import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
-import { findCppSources } from "../cpp-targets.js";
+import { findCppSources, hasCppOnlySources } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 
 export interface CppLintConfig {
@@ -33,6 +33,31 @@ const SEVERITY_MAP: Record<string, Severity | undefined> = {
 	performance: "warning",
 	portability: "warning",
 	style: "warning",
+};
+
+// cppcheck self-diagnostics that signal it could not parse a translation unit,
+// not a code defect: they fire when a project macro or system header that the
+// real compiler has is missing from cppcheck's flag-free view (e.g. the Windows
+// `min`/`max` macros, an unknown attribute). cppcheck's own docs say these are
+// unreliable without the build's defines/includes, so a standalone scan
+// suppresses them rather than scoring clean code as broken. clang-tidy, which
+// does run with the compilation database, remains the source of truth for real
+// parse errors.
+const PARSE_CONTEXT_SUPPRESSIONS = [
+	"syntaxError",
+	"unknownMacro",
+	"internalAstError",
+	"internalError",
+] as const;
+
+// Build the cppcheck argv. Pass --language=c++ for C++ trees so cppcheck stops
+// treating ambiguous `.h` headers as C and rejecting C++ constructs in them.
+export const buildCppcheckArgs = (sources: string[], config: CppLintConfig): string[] => {
+	const args = [`--enable=${config.cppcheckEnable}`, "--inline-suppr", "--quiet"];
+	if (hasCppOnlySources(sources)) args.push("--language=c++");
+	for (const id of PARSE_CONTEXT_SUPPRESSIONS) args.push(`--suppress=${id}`);
+	args.push("--xml", "--xml-version=2", ...sources);
+	return args;
 };
 
 const decodeEntities = (value: string): string =>
@@ -82,18 +107,10 @@ export const runCppcheck = async (context: EngineContext): Promise<Diagnostic[]>
 	const config = resolveCppLintConfig(context);
 	try {
 		// cppcheck writes its XML report to STDERR.
-		const result = await runSubprocess(
-			"cppcheck",
-			[
-				`--enable=${config.cppcheckEnable}`,
-				"--inline-suppr",
-				"--quiet",
-				"--xml",
-				"--xml-version=2",
-				...sources,
-			],
-			{ cwd: context.rootDirectory, timeout: 180000 },
-		);
+		const result = await runSubprocess("cppcheck", buildCppcheckArgs(sources, config), {
+			cwd: context.rootDirectory,
+			timeout: 180000,
+		});
 		return parseCppcheckXml(result.stderr, context.rootDirectory);
 	} catch {
 		return [];

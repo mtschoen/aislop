@@ -1,7 +1,13 @@
 import path from "node:path";
 import { relativePosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
-import { CPP_IMPL_EXTENSIONS, findCompileCommandsDir, findCppSources } from "../cpp-targets.js";
+import {
+	CPP_IMPL_EXTENSIONS,
+	filterSourcesInDatabase,
+	findCompileCommandsDir,
+	findCppSources,
+	readCompileCommandsFiles,
+} from "../cpp-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
 // clang-tidy prints: `<file>:<line>:<col>: warning|error: <message> [<check-name>]`.
@@ -36,8 +42,16 @@ export const runClangTidy = async (context: EngineContext): Promise<Diagnostic[]
 	// still covers the repo). clang-tidy auto-discovers the project's `.clang-tidy`.
 	const compileCommandsDir = findCompileCommandsDir(context);
 	if (!compileCommandsDir) return [];
-	const sources = findCppSources(context).filter((f) =>
+	const implSources = findCppSources(context).filter((f) =>
 		CPP_IMPL_EXTENSIONS.has(path.extname(f).toLowerCase()),
+	);
+	// Restrict to the files the database describes. clang-tidy guesses flags for
+	// any source it has no compile command for, which surfaces false
+	// clang-diagnostic-error on platform-specific files (e.g. a POSIX .cpp on a
+	// Windows database) that were never meant to build in this configuration.
+	const sources = filterSourcesInDatabase(
+		implSources,
+		readCompileCommandsFiles(compileCommandsDir),
 	);
 	if (sources.length === 0) return [];
 	try {

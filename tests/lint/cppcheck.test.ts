@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { parseCppcheckXml } from "../../src/engines/lint/cppcheck.js";
+import {
+	buildCppcheckArgs,
+	CPP_LINT_DEFAULTS,
+	parseCppcheckXml,
+} from "../../src/engines/lint/cppcheck.js";
+
+describe("buildCppcheckArgs", () => {
+	it("passes --language=c++ for a C++ tree and suppresses parse-context diagnostics", () => {
+		const args = buildCppcheckArgs(["/p/a.cpp", "/p/a.h"], CPP_LINT_DEFAULTS);
+		expect(args).toContain("--language=c++");
+		expect(args).toContain("--suppress=syntaxError");
+		expect(args).toContain("--suppress=unknownMacro");
+		expect(args).toContain(`--enable=${CPP_LINT_DEFAULTS.cppcheckEnable}`);
+		// sources come last, after the flags.
+		expect(args.slice(-2)).toEqual(["/p/a.cpp", "/p/a.h"]);
+	});
+
+	it("omits --language=c++ for a pure C tree", () => {
+		const args = buildCppcheckArgs(["/p/a.c", "/p/a.h"], CPP_LINT_DEFAULTS);
+		expect(args).not.toContain("--language=c++");
+		// parse-context suppressions still apply regardless of language.
+		expect(args).toContain("--suppress=syntaxError");
+	});
+});
 
 const XML = `<?xml version="1.0"?>
 <results version="2">
