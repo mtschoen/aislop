@@ -5,6 +5,7 @@ import { detectDeadPatterns } from "./dead-patterns.js";
 import { detectDefensivePatterns } from "./defensive-patterns.js";
 import { detectDuplicateImports } from "./duplicate-imports.js";
 import { detectCSharpPatterns } from "./csharp-patterns.js";
+import { detectCppPatterns } from "./cpp-patterns.js";
 import { detectSwallowedExceptions } from "./exceptions.js";
 import { detectGoPatterns } from "./go-patterns.js";
 import { detectHallucinatedImports } from "./hallucinated-imports.js";
@@ -39,6 +40,7 @@ export const aiSlopEngine: Engine = {
 			detectSilentRecovery(context),
 			detectMetaComments(context),
 			detectCSharpPatterns(context),
+			detectCppPatterns(context),
 		]);
 
 		for (const result of results) {
