@@ -12,14 +12,28 @@ import type { Diagnostic, EngineContext } from "../types.js";
 
 // clang-tidy prints: `<file>:<line>:<col>: warning|error: <message> [<check-name>]`.
 // `note:` continuation lines and the trailing "N warnings generated." are ignored.
-const LINE_RE = /^(.+?):(\d+):(\d+):\s+(warning|error):\s+(.*?)\s+\[([A-Za-z0-9_.-]+)\]\s*$/;
+// The bracket can hold a comma-separated list: a project `.clang-tidy` with
+// `WarningsAsErrors: "*"` appends `,-warnings-as-errors` to every check name, and
+// clang-tidy may list multiple checks. We capture the whole list (commas allowed)
+// and resolve the real check id from it.
+const LINE_RE = /^(.+?):(\d+):(\d+):\s+(warning|error):\s+(.*?)\s+\[([A-Za-z0-9_.,-]+)\]\s*$/;
+
+// From a bracket payload like `bugprone-narrowing-conversions,-warnings-as-errors`,
+// return the first real check id, dropping the `-warnings-as-errors` pseudo-entry.
+const resolveCheckId = (payload: string): string | undefined =>
+	payload
+		.split(",")
+		.map((part) => part.trim())
+		.find((part) => part.length > 0 && part !== "-warnings-as-errors");
 
 export const parseClangTidyOutput = (output: string, rootDirectory: string): Diagnostic[] => {
 	const out: Diagnostic[] = [];
 	for (const raw of output.split(/\r?\n/)) {
 		const match = LINE_RE.exec(raw);
 		if (!match) continue;
-		const [, file, line, column, severity, message, check] = match;
+		const [, file, line, column, severity, message, checkPayload] = match;
+		const check = resolveCheckId(checkPayload);
+		if (!check) continue;
 		out.push({
 			filePath: path.isAbsolute(file) ? relativePosix(rootDirectory, file) : file,
 			engine: "lint",
