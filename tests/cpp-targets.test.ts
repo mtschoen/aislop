@@ -2,7 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { findCompileCommandsDir, findCppSourcesForRoot } from "../src/engines/cpp-targets.js";
+import {
+	filterSourcesInDatabase,
+	findCompileCommandsDir,
+	findCppSourcesForRoot,
+	hasCppOnlySources,
+	readCompileCommandsFiles,
+} from "../src/engines/cpp-targets.js";
 
 describe("cpp-targets", () => {
 	let tmpDir: string;
@@ -37,5 +43,45 @@ describe("cpp-targets", () => {
 		fs.mkdirSync(path.join(tmpDir, "src"));
 		fs.writeFileSync(path.join(tmpDir, "src", "a.cpp"), "int a;\n");
 		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(null);
+	});
+
+	it("finds compile_commands.json nested one level under build/ (e.g. build/lint)", () => {
+		const lintDir = path.join(tmpDir, "build", "lint");
+		fs.mkdirSync(lintDir, { recursive: true });
+		fs.writeFileSync(path.join(lintDir, "compile_commands.json"), "[]\n");
+		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(lintDir);
+	});
+
+	it("detects a C++ tree from C++-only extensions and not from pure C", () => {
+		expect(hasCppOnlySources(["/p/a.c", "/p/a.h"])).toBe(false);
+		expect(hasCppOnlySources(["/p/a.c", "/p/b.cpp"])).toBe(true);
+		expect(hasCppOnlySources(["/p/widget.hpp"])).toBe(true);
+	});
+
+	it("reads the translation units a compile database describes", () => {
+		const db = [
+			{ directory: tmpDir, file: path.join(tmpDir, "src", "a.cpp"), command: "clang a.cpp" },
+			{ directory: tmpDir, file: "src/b.cpp", command: "clang src/b.cpp" },
+		];
+		fs.writeFileSync(path.join(tmpDir, "compile_commands.json"), JSON.stringify(db));
+		const files = readCompileCommandsFiles(tmpDir);
+		expect(files).toHaveLength(2);
+		// filterSourcesInDatabase keeps only sources the database lists.
+		const kept = filterSourcesInDatabase(
+			[path.join(tmpDir, "src", "a.cpp"), path.join(tmpDir, "src", "posix-only.cpp")],
+			files,
+		);
+		expect(kept.map((f) => path.basename(f))).toEqual(["a.cpp"]);
+	});
+
+	it("filterSourcesInDatabase passes all sources through when the database is empty", () => {
+		const sources = ["/p/a.cpp", "/p/b.cpp"];
+		expect(filterSourcesInDatabase(sources, [])).toEqual(sources);
+	});
+
+	it("readCompileCommandsFiles returns [] for a missing or malformed database", () => {
+		expect(readCompileCommandsFiles(tmpDir)).toEqual([]);
+		fs.writeFileSync(path.join(tmpDir, "compile_commands.json"), "{ not json");
+		expect(readCompileCommandsFiles(tmpDir)).toEqual([]);
 	});
 });
