@@ -20,6 +20,7 @@ import {
 	removeUnusedDeclarations,
 } from "../engines/code-quality/unused-removal.js";
 import { fixBiomeFormat, runBiomeFormat } from "../engines/format/biome.js";
+import { fixClangFormat, runClangFormat } from "../engines/format/clang-format.js";
 import { fixDotnetFormat, runDotnetFormat } from "../engines/format/dotnet-format.js";
 import { fixGenericFormatter, runGenericFormatter } from "../engines/format/generic.js";
 import { fixGofmt, runGofmt } from "../engines/format/gofmt.js";
@@ -250,6 +251,21 @@ export const runFormattingStep = async (deps: PipelineDeps): Promise<void> => {
 		);
 	} else if (deps.projectInfo.languages.includes("csharp")) {
 		log.warn("C# detected but dotnet is not installed; skipping C# formatting fixes.");
+	}
+
+	if (
+		deps.projectInfo.languages.includes("cpp") &&
+		deps.projectInfo.installedTools["clang-format"]
+	) {
+		await deps.runStep(
+			"Formatting (cpp)",
+			() => runClangFormat(deps.context),
+			() => fixClangFormat(deps.resolvedDir),
+		);
+	} else if (deps.projectInfo.languages.includes("cpp")) {
+		log.warn(
+			"C/C++ detected but clang-format is not installed; skipping C/C++ formatting fixes.",
+		);
 	}
 };
 
