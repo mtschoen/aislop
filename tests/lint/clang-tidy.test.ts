@@ -26,4 +26,26 @@ describe("parseClangTidyOutput", () => {
 			severity: "error",
 		});
 	});
+
+	// A project .clang-tidy with `WarningsAsErrors: "*"` makes clang-tidy append
+	// `,-warnings-as-errors` to the bracketed check name. The real check id is the
+	// first comma-separated entry; the pseudo-entry must not break the match or
+	// leak into the rule id (else every finding is silently dropped).
+	it("parses the real check id when WarningsAsErrors appends -warnings-as-errors", () => {
+		const output = [
+			"/repo/src/io.cpp:78:23: error: narrowing conversion from 'uint64_t' to 'int64_t' [bugprone-narrowing-conversions,-warnings-as-errors]",
+			"/repo/src/io.cpp:15:9: warning: parameter name 'f' is too short [readability-identifier-length,-warnings-as-errors]",
+		].join("\n");
+		const diags = parseClangTidyOutput(output, "/repo");
+		expect(diags).toHaveLength(2);
+		expect(diags[0]).toMatchObject({
+			rule: "clang-tidy/bugprone-narrowing-conversions",
+			severity: "error",
+			line: 78,
+		});
+		expect(diags[1]).toMatchObject({
+			rule: "clang-tidy/readability-identifier-length",
+			severity: "warning",
+		});
+	});
 });
