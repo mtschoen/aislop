@@ -100,7 +100,8 @@ export const lintEngine: Engine = {
 		if (languages.includes("csharp")) {
 			const csharp = resolveCsharpLintConfig(context);
 			const csharpPasses: Promise<Diagnostic[]>[] = [];
-			if (csharp.jb && installedTools.jb) csharpPasses.push(runJbLint(context));
+			if (csharp.jb && installedTools.jb)
+			csharpPasses.push(runJbLint(context, { includeCsharp: true, includeCpp: false }));
 			if (csharp.roslynator && installedTools.roslynator) csharpPasses.push(runDotnetLint(context));
 			if (csharpPasses.length > 0) {
 				promises.push(

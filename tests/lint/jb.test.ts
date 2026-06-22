@@ -14,8 +14,14 @@ const opts = (
 		severityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 	}> = {},
 ) => ({
-	excludeTypes: over.excludeTypes ?? new Set<string>(),
-	severityFloor: over.severityFloor ?? ("WARNING" as const),
+	csharp: {
+		excludeTypes: over.excludeTypes ?? new Set<string>(),
+		severityFloor: over.severityFloor ?? ("WARNING" as const),
+	},
+	cpp: {
+		excludeTypes: new Set<string>(),
+		severityFloor: "WARNING" as const,
+	},
 });
 
 describe("parseJbXml", () => {
