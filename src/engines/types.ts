@@ -62,6 +62,11 @@ export interface EngineConfig {
 			jbExcludeTypes: string[];
 			jbProjects?: string;
 		};
+		cpp?: {
+			cppcheck: boolean;
+			clangTidy: boolean;
+			cppcheckEnable: string;
+		};
 	};
 	allowProjectLocalTools?: boolean;
 	architectureRulesPath?: string;

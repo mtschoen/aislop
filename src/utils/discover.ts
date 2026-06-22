@@ -12,7 +12,8 @@ export type Language =
 	| "java"
 	| "ruby"
 	| "php"
-	| "csharp";
+	| "csharp"
+	| "cpp";
 
 export type Framework =
 	| "nextjs"
@@ -46,17 +47,10 @@ export interface ProjectInfo {
 // Primary-language extensions aislop has no analyzer for. Used only to judge whether
 // a numeric score would represent the repo or just a sliver of incidental files.
 const UNSUPPORTED_CODE_EXTENSIONS: Record<string, string> = {
-	".c": "C/C++",
-	".h": "C/C++",
-	".cc": "C/C++",
-	".cpp": "C/C++",
-	".cxx": "C/C++",
-	".hpp": "C/C++",
-	".hh": "C/C++",
-	".hxx": "C/C++",
-	// NOTE: `.cs` is intentionally absent - C# is a supported language (ai-slop +
-	// roslynator lint + dotnet format/audit), so a C# repo must score, not be
-	// withheld as "dominantUnsupported: C#". `.cs` lives in SOURCE_EXTENSIONS.
+	// NOTE: `.cs` and the C/C++ extensions are intentionally absent - both are
+	// supported languages (C# via roslynator/jb + dotnet format; C/C++ via cppcheck
+	// + clang-tidy + clang-format), so their repos must score, not be withheld.
+	// Those extensions live in SOURCE_EXTENSIONS.
 	".swift": "Swift",
 	".kt": "Kotlin",
 	".kts": "Kotlin",
@@ -153,6 +147,14 @@ const EXTENSION_LANGUAGES: Record<string, Language> = {
 	".rb": "ruby",
 	".java": "java",
 	".php": "php",
+	".c": "cpp",
+	".cc": "cpp",
+	".cpp": "cpp",
+	".cxx": "cpp",
+	".h": "cpp",
+	".hh": "cpp",
+	".hpp": "cpp",
+	".hxx": "cpp",
 };
 
 const FRAMEWORK_PACKAGES: Record<string, Framework> = {
@@ -251,6 +253,20 @@ const detectLanguages = (directory: string, sourceFiles: string[]): Language[] =
 	})();
 	if (hasDotnetProject) languages.add("csharp");
 
+	// C/C++ projects have no single manifest name; recognize the common build-system
+	// markers in addition to the extension-based detection above. compile_commands.json
+	// in particular tells the lint engine clang-tidy is runnable.
+	const hasCppProject = (() => {
+		if (fs.existsSync(path.join(directory, "CMakeLists.txt"))) return true;
+		if (fs.existsSync(path.join(directory, "compile_commands.json"))) return true;
+		try {
+			return fs.readdirSync(directory).some((name) => name.endsWith(".vcxproj"));
+		} catch {
+			return false;
+		}
+	})();
+	if (hasCppProject) languages.add("cpp");
+
 	return [...languages];
 };
 
@@ -321,6 +337,9 @@ export const TOOLS_TO_CHECK = [
 	"dotnet",
 	"roslynator",
 	"jb",
+	"cppcheck",
+	"clang-format",
+	"clang-tidy",
 ];
 
 const checkInstalledTools = async (): Promise<Record<string, boolean>> => {

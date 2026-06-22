@@ -229,6 +229,22 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 		"Repeated string += in a loop is O(n^2) allocation churn; a StringBuilder is the fix.",
 	),
 
+	"ai-slop/cpp-not-implemented": standard(
+		"Stubs that throw or assert 'not implemented' usually indicate unfinished behavior.",
+	),
+	"ai-slop/cpp-using-namespace-std-in-header": maintainability(
+		"A using-directive at header scope leaks std names into every includer, a hygiene debt.",
+	),
+	"ai-slop/cpp-c-style-cast": style(
+		"A C-style cast in C++ is a cleanup/style finding; a named cast makes intent explicit.",
+	),
+	"ai-slop/cpp-manual-delete": maintainability(
+		"Manual delete is a memory-safety hazard; RAII/smart pointers own the resource instead.",
+	),
+	"ai-slop/cpp-iostream-leftover": style(
+		"Leftover std::cout/std::cerr in library code is visible cleanup unless it leaks data.",
+	),
+
 	"security/hardcoded-secret": strict("Secret-looking source literals are high-risk."),
 	"security/vulnerable-dependency": strict(
 		"Known vulnerabilities deserve full impact even when remediation varies.",

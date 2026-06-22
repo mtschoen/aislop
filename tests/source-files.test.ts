@@ -7,6 +7,7 @@ import { discoverProject } from "../src/utils/discover.js";
 import {
 	filterProjectFiles,
 	getSourceFilesForRoot,
+	listProjectFiles,
 	readAislopIgnorePatterns,
 } from "../src/utils/source-files.js";
 
@@ -143,7 +144,11 @@ describe("source file selection", () => {
 		createFile(tmpDir, "src/app.ts", "export const app = true;\n");
 		createFile(tmpDir, "src/components/Button.stories.tsx", "export const Story = {};\n");
 		createFile(tmpDir, "src/components/__stories__/Button.tsx", "export const Story = {};\n");
-		createFile(tmpDir, "packages/sdk/src/metadata/generated/schema.ts", "export const generated = true;\n");
+		createFile(
+			tmpDir,
+			"packages/sdk/src/metadata/generated/schema.ts",
+			"export const generated = true;\n",
+		);
 		createFile(tmpDir, "backend/app/DomainObjects/Generated/Model.php", "<?php\n");
 		createFile(tmpDir, "src/parser/testdata/case.go", "package testdata\n");
 		createFile(tmpDir, "e2e/fixtures.ts", "export const fixture = true;\n");
@@ -257,6 +262,23 @@ describe("source file selection", () => {
 		);
 
 		expect(filtered).toEqual([path.join(tmpDir, "src/app.ts")]);
+	});
+});
+
+describe("C/C++ file discovery", () => {
+	it("includes C/C++ sources and excludes C/C++ test files", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-cpp-"));
+		fs.mkdirSync(path.join(root, "src"), { recursive: true });
+		fs.mkdirSync(path.join(root, "tests"), { recursive: true });
+		fs.writeFileSync(path.join(root, "src/widget.cpp"), "int x;\n");
+		fs.writeFileSync(path.join(root, "src/widget.h"), "int x;\n");
+		fs.writeFileSync(path.join(root, "src/widget_test.cpp"), "int main(){}\n");
+		fs.writeFileSync(path.join(root, "tests/runner.cpp"), "int main(){}\n");
+		const files = filterProjectFiles(root, listProjectFiles(root)).map((f) => path.basename(f));
+		expect(files).toContain("widget.cpp");
+		expect(files).toContain("widget.h");
+		expect(files).not.toContain("widget_test.cpp");
+		expect(files).not.toContain("runner.cpp"); // under tests/
 	});
 });
 
