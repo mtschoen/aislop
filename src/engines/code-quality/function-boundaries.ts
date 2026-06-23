@@ -31,7 +31,11 @@ const findBraceFunctionEnd = (
 			const ch = l[ci];
 			if (ch === "{") {
 				depth++;
-				if (!started) {
+				if (!started && depth === 1) {
+					// Only latch onto the opening brace when depth transitions 0->1.
+					// If depth is already negative (we are inside a surrounding block
+					// that was open before startIndex), a `{` just brings depth toward
+					// zero and must not be treated as the function body opener.
 					started = true;
 					functionStartDepth = depth;
 					braceStack.push(false);
