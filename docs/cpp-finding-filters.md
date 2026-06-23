@@ -161,32 +161,40 @@ whenever a new filter lands.
   - `extern` on the definitions. Rejected as the framing: redundant (the header already
     gives external linkage), so its ONLY effect is tripping the check's
     `isExternStorageClass()` exclusion. Honest to call that placation, not architecture.
-- **Chosen mechanism (3-model convergence: Claude + GPT-5.5-via-pi):** treat as a jb
-  divergence / module-boundary FP and suppress HONESTLY, one of:
-  - (i) per-site `// ReSharper disable once CppClangTidyMiscUseInternalLinkage` x3 with
-    reason "declared in <header>; intentional cross-file NTFS primitive; upstream
-    clang-tidy does not flag header redecls." Zero engine change; explicit about WHY.
-  - (ii) aislop **corroboration filter**: drop a jb `CppClangTidy<X>` finding when real
-    clang-tidy ran on that TU and did not corroborate `<X>`; fail CLOSED if clang-tidy
-    did not run. Principled + reusable (fixes jb's divergence generally); folds into B1.
-  - DECISION PENDING (i vs ii). The check is not a reliable architectural oracle here
-    (it flags ParseDataRuns/ReadMFTRecord but NOT the equally-internal ReadNonResidentData/
-    FindAttribute), which is itself evidence of a buggy jb heuristic.
-  - Leaning (i) for minimal engine leniency unless we want the reusable filter.
+- **Chosen mechanism (3-model convergence: Claude + GPT-5.5-via-pi; user locked option ii):**
+  treat as a jb divergence / module-boundary FP and suppress HONESTLY via focused
+  corroboration filtering:
+  - Rejected alternative: per-site `// ReSharper disable once CppClangTidyMiscUseInternalLinkage`
+    x3 with reason "declared in <header>; intentional cross-file NTFS primitive; upstream
+    clang-tidy does not flag header redecls." This would be acceptable but less reusable.
+  - LOCKED: aislop **focused corroboration filter**. Drop a jb `CppClangTidy<X>` mirror
+    finding only when standalone clang-tidy actually ran successfully on that TU/file and
+    did not corroborate the same canonical rule. Fail CLOSED if clang-tidy did not run,
+    failed, was missing, or did not analyze that file. Scope is `jb/CppClangTidy*` only;
+    native ReSharper C++ rules (`jb/CppUnusedIncludeDirective`, `jb/CppCStyleCast`, etc.)
+    must never pass through this filter. Principled + reusable (fixes jb's divergence
+    generally); folds into B1.
+  - The check is not a reliable architectural oracle here (it flags ParseDataRuns/
+    ReadMFTRecord but NOT the equally-internal ReadNonResidentData/FindAttribute), which
+    is itself evidence of a buggy jb heuristic.
 
 ---
 
 ## Holistic review checklist
 
-The only items that hide a *real* finding are #4 (2 NOLINTs, ABI-forced) and, IF
-chosen, 5b option (ii) (the corroboration filter). #1-3 are measurement fixes; 5a is a
-standard IWYU annotation; internal-swappable is restructured, not suppressed.
+The only items that hide a *real* finding are #4 (2 NOLINTs, ABI-forced) and 5b
+(the focused corroboration filter). #1-3 are measurement fixes; 5a is a standard IWYU
+annotation; internal-swappable is restructured, not suppressed.
 
 - [ ] #4 is exactly 2 NOLINTs on extern-C exports, each justified, and does NOT leak to
       the 8 internal helpers (those are restructured).
 - [ ] 5a uses `// IWYU pragma: keep` (resolves the FP) - confirm jb version honors it.
-- [ ] 5b: if the corroboration filter is chosen, it has the clang-tidy-actually-ran
-      guard and fails CLOSED; if per-case disables are chosen, each cites the header.
+- [ ] 5b: if the corroboration filter is chosen, it is focused and fail-closed:
+      `jb/CppClangTidy*` only, standalone clang-tidy actually ran successfully, the
+      affected file/TU was analyzed, canonical rule ids match, same file+line matches
+      dedupe normally, and jb is kept whenever clang-tidy is missing/skipped/failed or
+      did not analyze the file. Native ReSharper rules are never filtered. If per-case
+      disables are chosen instead, each cites the header.
 - [ ] No engine carve-out is reachable by a project that hasn't opted into the C++ lint
       path - default-off preserved.
 - [ ] Every suppression has a hand-verified justification, not a category hunch.
