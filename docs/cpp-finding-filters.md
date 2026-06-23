@@ -35,7 +35,8 @@ whenever a new filter lands.
 
 ## 2. complexity statement-keyword lookahead - CORRECTNESS (removes fakes)
 
-- **Where:** `src/engines/code-quality/complexity.ts` (uncommitted working tree).
+- **Where:** `src/engines/code-quality/complexity.ts` (committed `3c221c6` on branch
+  `fix/clang-tidy-warnings-as-errors-parse`).
 - **What:** The C-family `FUNCTION_PATTERNS` regex treated any `<token> <name>(...)`
   as a function definition, so call expressions and control-flow headers
   (`return Foo(args)`, `if (Foo(args))`, a bare Win32 call like
@@ -50,7 +51,7 @@ whenever a new filter lands.
 
 ## 3. function-boundaries depth===1 latch guard - CORRECTNESS (removes fakes)
 
-- **Where:** `src/engines/code-quality/function-boundaries.ts` (uncommitted).
+- **Where:** `src/engines/code-quality/function-boundaries.ts` (committed `3c221c6`).
 - **What:** `findBraceFunctionEnd` latched onto the first `{` it saw. When the scan
   starts inside an already-open surrounding block (depth < 0 relative to start), a
   `{` that merely brings depth back toward zero was wrongly treated as the function
@@ -124,77 +125,39 @@ whenever a new filter lands.
 - **Leniency risk:** None - it is an annotation that resolves the FP, not a suppression
   of a real finding.
 
-## 5b. `CppClangTidyMiscUseInternalLinkage` x3 - jb-vs-upstream divergence (genuine FP)
+## 5b. `CppClangTidyMiscUseInternalLinkage` x3 - STRUCTURAL FIX, filter reverted
 
-- **Rule:** jb `CppClangTidyMiscUseInternalLinkage` on `ParseDataRuns`/`ReadMFTRecord`
-  (declared in `ntfs_io.h`) and `ShouldFailUsnIo` (declared in `internal.h`) - all
-  genuinely cross-TU.
-- **Research verdict (PROVEN from upstream source):** upstream `misc-use-internal-linkage`
-  mechanically EXCLUDES any function with a header redeclaration via the
-  `isAllRedeclsInMainFile` matcher (`UseInternalLinkageCheck.cpp`). Real clang-tidy
-  with a resolved compile DB does NOT flag these. jb's `inspectcode` invocation likely
-  doesn't resolve the header redeclaration, so it mis-fires. There is NO harmonious
-  fix via making them internal: a function declared in a shared header and called from
-  another .cpp CANNOT be given internal linkage (it would fail to link).
-- **Empirically confirmed this session (compiler/gate as authority, not assertion):**
-  - Making them `static` (ReSharper's autofix) -> `LNK2001 unresolved external symbol`
-    on all 3 (the cross-TU callers can't link). Proves they require external linkage.
-  - Wrapping `ntfs_io` in a named `namespace mftlib::ntfs` -> still links (named ns keeps
-    external linkage) AND the finding STILL fires -> namespaces are orthogonal to this
-    check; they do not satisfy it. (Kept the namespace anyway: real name-hygiene win.)
-- **Options considered and REJECTED (do not re-litigate):**
-  - RELOCATE the helpers into `mft_parse.cpp`'s anon namespace (so they are genuinely
-    internal). Rejected: it drags the interdependent cluster (ParseDataRuns ->
-    ReadNonResidentData -> ReadMFTRecord -> Read/FindAttribute) and, applied consistently,
-    collapses most of `ntfs_io.cpp` back into `mft_parse.cpp` - partially reversing the
-    intentional B7 module split. "Single current consumer" != "wrong module boundary."
-    ntfs_io is a coherent NTFS I/O/decode layer (Read/ApplyFixup/FindAttribute/
-    ParseDataRuns/ReadNonResidentData/ReadMFTRecord). Does NOT help ShouldFailUsnIo
-    (multi-consumer test seam). NOTE: this means there is NO harmonious relocation fix -
-    relocation was evaluated and rejected, not available.
-  - UNITY/jumbo build (compile the split files as one TU so helpers can be anon-ns
-    internal). Possible (MSVC EnableUnitySupport, or amalgamation), and groupable. Rejected
-    for this: to clear the finding you must drop the header decls and rely on in-unit
-    include ORDER, which makes each file non-self-contained (LSP can't resolve a file
-    opened alone) - directly against the LLM-read/edit reason the files were split. Trades
-    a cosmetic FP for a real readability cost.
-  - `extern` on the definitions. Rejected as the framing: redundant (the header already
-    gives external linkage), so its ONLY effect is tripping the check's
-    `isExternStorageClass()` exclusion. Honest to call that placation, not architecture.
-- **Chosen mechanism (3-model convergence: Claude + GPT-5.5-via-pi; user locked option ii):**
-  treat as a jb divergence / module-boundary FP and suppress HONESTLY via focused
-  corroboration filtering:
-  - Rejected alternative: per-site `// ReSharper disable once CppClangTidyMiscUseInternalLinkage`
-    x3 with reason "declared in <header>; intentional cross-file NTFS primitive; upstream
-    clang-tidy does not flag header redecls." This would be acceptable but less reusable.
-  - LOCKED: aislop **focused corroboration filter**. Drop a jb `CppClangTidy<X>` mirror
-    finding only when standalone clang-tidy actually ran successfully on that TU/file and
-    did not corroborate the same canonical rule. Fail CLOSED if clang-tidy did not run,
-    failed, was missing, or did not analyze that file. Scope is `jb/CppClangTidy*` only;
-    native ReSharper C++ rules (`jb/CppUnusedIncludeDirective`, `jb/CppCStyleCast`, etc.)
-    must never pass through this filter. Principled + reusable (fixes jb's divergence
-    generally); folds into B1.
-  - The check is not a reliable architectural oracle here (it flags ParseDataRuns/
-    ReadMFTRecord but NOT the equally-internal ReadNonResidentData/FindAttribute), which
-    is itself evidence of a buggy jb heuristic.
+- **Rule:** jb `CppClangTidyMiscUseInternalLinkage` on helpers that became external
+  only because a large C++ module was split into several `.cpp` files.
+- **Revised verdict:** the previous corroboration filter was unsound. aislop runs
+  real clang-tidy with the project's selected `.clang-tidy` check set, while jb can
+  surface an augmented clang-tidy mirror set. Therefore, real clang-tidy silence is
+  not a reliable oracle that jb is wrong.
+- **Structural fix:** use the C++ component pattern instead of filtering. A component
+  keeps one owner translation unit and includes small fragment files. Helpers used
+  only within that component live in anonymous namespaces and are honestly internal;
+  public API remains in the component header. See `docs/cpp-component-pattern.md`.
+- **Code direction:** the `filterUncorroboratedJbCppClangTidy` engine carve-out and
+  `ClangTidyResult.analyzedFiles` plumbing were reverted. The existing C++ diagnostic
+  de-duplication remains, so duplicated jb/clang-tidy findings at the same site still
+  collapse without hiding an uncorroborated finding.
+- **Residual exceptions:** symbols genuinely used by more than one component, or a
+  deliberate cross-cutting seam, stay external. Suppress those per site with a reason
+  only after confirming the component pattern does not apply.
 
 ---
 
 ## Holistic review checklist
 
-The only items that hide a *real* finding are #4 (2 NOLINTs, ABI-forced) and 5b
-(the focused corroboration filter). #1-3 are measurement fixes; 5a is a standard IWYU
-annotation; internal-swappable is restructured, not suppressed.
+The only item here that hides a *real* finding is #4 (2 NOLINTs, ABI-forced).
+#1-3 are measurement fixes; 5a is a standard IWYU annotation; 5b is now a structural
+pattern rather than an engine filter; internal-swappable is restructured, not suppressed.
 
 - [ ] #4 is exactly 2 NOLINTs on extern-C exports, each justified, and does NOT leak to
       the 8 internal helpers (those are restructured).
 - [ ] 5a uses `// IWYU pragma: keep` (resolves the FP) - confirm jb version honors it.
-- [ ] 5b: if the corroboration filter is chosen, it is focused and fail-closed:
-      `jb/CppClangTidy*` only, standalone clang-tidy actually ran successfully, the
-      affected file/TU was analyzed, canonical rule ids match, same file+line matches
-      dedupe normally, and jb is kept whenever clang-tidy is missing/skipped/failed or
-      did not analyze the file. Native ReSharper rules are never filtered. If per-case
-      disables are chosen instead, each cites the header.
+- [x] 5b engine filter reverted; use `docs/cpp-component-pattern.md` for oversized
+      cohesive C++ modules instead of suppressing uncorroborated jb clang-tidy mirrors.
 - [ ] No engine carve-out is reachable by a project that hasn't opted into the C++ lint
       path - default-off preserved.
 - [ ] Every suppression has a hand-verified justification, not a category hunch.
