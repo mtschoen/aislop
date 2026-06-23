@@ -85,6 +85,10 @@ const CI_FLAGS = [
 	"--format <format>",
 ];
 
+const SCAFFOLD_COMPONENT_FLAGS = ["--dir <path>", "--fragment <fragment>"];
+
+const CPP_SYNC_INTERNAL_FLAGS = ["--dir <path>"];
+
 const HOOK_INSTALL_FLAGS = [
 	"--agent <names>",
 	"-g, --global",
@@ -222,6 +226,16 @@ export const COMMAND_REFERENCE: CommandReference[] = [
 		flags: ["--strict"],
 	},
 	{ command: "aislop doctor [directory]", summary: "Check installed engines and project coverage" },
+	{
+		command: "aislop scaffold component <name>",
+		summary: "Generate a C++ component-as-translation-unit scaffold",
+		flags: SCAFFOLD_COMPONENT_FLAGS,
+	},
+	{
+		command: "aislop cpp sync-internal <component>",
+		summary: "Regenerate editor-only declarations for C++ component fragments",
+		flags: CPP_SYNC_INTERNAL_FLAGS,
+	},
 	{
 		command: "aislop rules [directory]",
 		summary: "Explain rule IDs, severity, fixability, and meaning",

@@ -32,6 +32,8 @@ npx aislop@latest scan
 | `aislop agent stop [session]` | Stop a running background session |
 | `aislop ci [directory]` | Run the CI quality gate with thresholded exit codes |
 | `aislop init [directory]` | Create `.aislop/config.yml`, `.aislop/rules.yml`, and optional workflow |
+| `aislop scaffold component <name>` | Generate a C++ component-as-translation-unit scaffold |
+| `aislop cpp sync-internal <component>` | Regenerate editor-only declarations for C++ component fragments |
 | `aislop doctor [directory]` | Check installed engines and project coverage |
 | `aislop rules [directory]` | Explain rule IDs, severity, fixability, score impact, and meaning |
 | `aislop hook` | Manage per-edit coding-agent hooks |
@@ -209,6 +211,8 @@ Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--
 |---|---|
 | `aislop ci` | `--changes`, `--staged`, `--base <ref>`, `--human`, `--sarif`, `--format <format>` |
 | `aislop init` | `--strict` |
+| `aislop scaffold component <name>` | `--dir <path>`, `--fragment <fragment>` |
+| `aislop cpp sync-internal <component>` | `--dir <path>` |
 | `aislop rules` | `--search` |
 | `aislop badge` | `--owner <owner>`, `--repo <repo>`, `--json` |
 | `aislop trend` | `--limit <n>` |

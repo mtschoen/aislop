@@ -10,6 +10,7 @@ import { initCommand } from "./commands/init.js";
 import { interactiveCommand } from "./commands/interactive.js";
 import { rulesCommand } from "./commands/rules.js";
 import { scanCommand } from "./commands/scan.js";
+import { cppSyncInternalCommand, scaffoldComponentCommand } from "./commands/scaffold.js";
 import { trendCommand } from "./commands/trend.js";
 import { updateCommand } from "./commands/update.js";
 import { loadConfig } from "./config/index.js";
@@ -57,6 +58,11 @@ const commaSeparatedParser = (value: string, previous: string[] = []): string[] 
 		.filter(Boolean);
 	return [...previous, ...parts];
 };
+
+const repeatableValueParser = (value: string, previous: string[] = []): string[] => [
+	...previous,
+	value,
+];
 
 const wantsSarif = (flags: ScanFlags): boolean => Boolean(flags.sarif) || flags.format === "sarif";
 
@@ -238,6 +244,29 @@ program
 				return { exitCode: 0 };
 			},
 		);
+	});
+
+program
+	.command("scaffold")
+	.description("Generate source scaffolds")
+	.command("component <name>")
+	.description("Generate a C++ component-as-translation-unit scaffold")
+	.option("--dir <path>", "directory to write component files", ".")
+	.option("--fragment <fragment>", "fragment name to generate", repeatableValueParser, [])
+	.action((name: string, _flags, command) => {
+		const flags = command.optsWithGlobals() as { dir?: string; fragment?: string[] };
+		scaffoldComponentCommand(name, { directory: flags.dir, fragments: flags.fragment });
+	});
+
+program
+	.command("cpp")
+	.description("C++ helper commands")
+	.command("sync-internal <component>")
+	.description("Regenerate a component .internal.h for standalone fragment editing")
+	.option("--dir <path>", "project directory", ".")
+	.action((component: string, _flags, command) => {
+		const flags = command.optsWithGlobals() as { dir?: string };
+		cppSyncInternalCommand(component, { directory: flags.dir });
 	});
 
 program
