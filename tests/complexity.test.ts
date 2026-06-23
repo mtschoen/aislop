@@ -581,3 +581,81 @@ describe("checkComplexity — general", () => {
 		expect(fnDiags[0].detail).toContain("processData");
 	});
 });
+
+// C++ false-positive regression: a function-call expression on a `return` statement
+// must NOT be mistaken for a function definition.
+describe("checkComplexity — C++ function-call false positive regression", () => {
+	// Mirrors the exact structure of MFTLibNative/usn/usn_journal.cpp:
+	//   namespace { ... short wrapper ... }
+	//   extern "C" { ... long real code ... }
+	// The bug: `return GetOverlappedResult(...)` on the last line of the short wrapper
+	// was matched as a function definition header, then brace-scanning from that point
+	// consumed the `extern "C" {` block, reporting a ~300-line phantom function.
+	const CPP_NAMESPACE_EXTERN_FIXTURE = [
+		"#include <windows.h>",
+		"",
+		"namespace {",
+		"",
+		"BOOL UsnGetOverlappedResult(HANDLE handle, LPOVERLAPPED overlapped, LPDWORD bytesReturned, BOOL wait) {",
+		"    if (ShouldAbort()) {",
+		"        SetLastError(ERROR_OPERATION_ABORTED);",
+		"        return FALSE;",
+		"    }",
+		"    return GetOverlappedResult(handle, overlapped, bytesReturned, wait);",
+		"}",
+		"",
+		"}  // namespace",
+		"",
+		"extern \"C\" {",
+		...Array(60).fill("    int realWork = doStuff();"),
+		"}",
+	].join("\n");
+
+	it("does NOT report function-too-long for a 6-line C++ wrapper whose last line is a function call", async () => {
+		const filePath = writeFile("usn_journal.cpp", CPP_NAMESPACE_EXTERN_FIXTURE);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFunctionLoc: 80 }));
+		const fnDiags = diagnostics.filter((d) => d.rule === "complexity/function-too-long");
+		// GetOverlappedResult is a CALL, not a definition - must not appear in findings
+		const phantom = fnDiags.find((d) => d.detail?.includes("GetOverlappedResult"));
+		expect(phantom).toBeUndefined();
+	});
+
+	it("does NOT report deep-nesting for the same phantom function", async () => {
+		const filePath = writeFile("usn_journal.cpp", CPP_NAMESPACE_EXTERN_FIXTURE);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFunctionLoc: 80 }));
+		const nestDiags = diagnostics.filter((d) => d.rule === "complexity/deep-nesting");
+		const phantom = nestDiags.find((d) => d.detail?.includes("GetOverlappedResult"));
+		expect(phantom).toBeUndefined();
+	});
+
+	it("still detects a genuinely long C++ function in the same namespace/extern-C pattern", async () => {
+		const longBody = Array(100).fill("    doWork();").join("\n");
+		const content = [
+			"namespace {",
+			`BOOL TrulyLongFunction(HANDLE h, LPOVERLAPPED o) {\n${longBody}\n    return TRUE;\n}`,
+			"}",
+		].join("\n");
+		const filePath = writeFile("long_real.cpp", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFunctionLoc: 80 }));
+		const fnDiags = diagnostics.filter((d) => d.rule === "complexity/function-too-long");
+		expect(fnDiags.length).toBeGreaterThanOrEqual(1);
+		expect(fnDiags[0].detail).toContain("TrulyLongFunction");
+	});
+
+	it("does NOT flag a bare return-call statement in a .cpp file as a function definition", async () => {
+		// Minimal repro: a single return statement whose callee name matches the
+		// C++ function-definition pattern regex.
+		const content = [
+			"namespace {",
+			"BOOL Wrapper(HANDLE h) {",
+			"    return SomeApiCall(h, nullptr, 0);",
+			"}",
+			"}",
+		].join("\n");
+		const filePath = writeFile("wrapper.cpp", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFunctionLoc: 80 }));
+		const fnDiags = diagnostics.filter((d) => d.rule === "complexity/function-too-long");
+		const phantom = fnDiags.find((d) => d.detail?.includes("SomeApiCall"));
+		expect(phantom).toBeUndefined();
+	});
+});

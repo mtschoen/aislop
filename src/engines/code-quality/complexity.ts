@@ -48,7 +48,13 @@ const FUNCTION_PATTERNS: FunctionPattern[] = [
 		langFilter: [".rs"],
 	},
 	{
-		regex: /^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+)(\w+)\s*\(([^)]*)\)/,
+		// The (?:(?!STMT_KW)\w+\s+) part requires that the "return type" token is not a
+		// statement keyword. This prevents a call expression like `return Foo(args)` or
+		// `if (Foo(args))` from matching as a definition: `return` / `if` / etc. would
+		// be parsed as the return type, but the negative lookahead inside the token group
+		// rejects them before \w+ can consume the keyword.
+		regex:
+			/^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:(?!(?:return|if|for|while|switch|do|else|throw|delete|new|break|continue|goto|try|catch)\b)\w+\s+)(\w+)\s*\(([^)]*)\)/,
 		langFilter: [".java", ".cs", ".cpp", ".c", ".php"],
 	},
 ];
