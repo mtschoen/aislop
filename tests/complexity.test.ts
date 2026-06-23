@@ -123,6 +123,31 @@ describe("checkComplexity — file too large", () => {
 		expect(fileDiags).toHaveLength(1);
 		expect(fileDiags[0]).toContain("logic.ts");
 	});
+
+	it("points oversized C++ files at the component-as-translation-unit pattern", async () => {
+		const filePath = writeFile("mft.cpp", makeLines(15, "int x = 1;"));
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
+		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
+		expect(fileDiags).toHaveLength(1);
+		expect(fileDiags[0].help).toContain("aislop scaffold component");
+		expect(fileDiags[0].help).toContain("docs/cpp-component-pattern.md");
+	});
+
+	it("applies the C++ component hint to ambiguous .h headers in a C++ tree", async () => {
+		const header = writeFile("mft.h", makeLines(15, "int x = 1;"));
+		const diagnostics = await checkComplexity(makeContext([header], { maxFileLoc: 10 }));
+		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
+		expect(fileDiags).toHaveLength(1);
+		expect(fileDiags[0].help).toContain("aislop scaffold component");
+	});
+
+	it("keeps the generic split hint for non-C++ files", async () => {
+		const filePath = writeFile("logic.ts", makeLines(15, "const x = 1;"));
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
+		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
+		expect(fileDiags).toHaveLength(1);
+		expect(fileDiags[0].help).toBe("Consider splitting this file into smaller modules");
+	});
 });
 
 describe("checkComplexity — function too long", () => {

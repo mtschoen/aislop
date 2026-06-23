@@ -91,6 +91,20 @@ The `#error` guard is the backstop if a fragment accidentally enters the build.
 
 ### aislop
 
+Generate a new component scaffold with:
+
+```bash
+aislop scaffold component mft --fragment records --fragment parse_core --fragment parse
+```
+
+Regenerate editor-only cross-fragment declarations after moving helper definitions with:
+
+```bash
+aislop cpp sync-internal mft
+```
+
+When `complexity/file-too-large` fires on a C/C++ source file, its fix hint points back to this pattern (and the `aislop scaffold component` command) rather than the generic "split into smaller modules" advice.
+
 - `clang-tidy` and JetBrains inspectcode should run through the compile database or project build model, so they lint the owner translation unit and report findings at fragment paths when appropriate.
 - `cppcheck`, formatting, complexity, security, and AI-pattern checks may still scan fragments as text files. That is expected.
 - Do not suppress internal-linkage findings globally. The component structure is the fix.
