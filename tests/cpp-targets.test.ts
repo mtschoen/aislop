@@ -52,6 +52,27 @@ describe("cpp-targets", () => {
 		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(lintDir);
 	});
 
+	it("finds compile_commands.json three levels deep in build trees", () => {
+		const nestedDir = path.join(tmpDir, "build", "out", "Debug", "x64");
+		fs.mkdirSync(nestedDir, { recursive: true });
+		fs.writeFileSync(path.join(nestedDir, "compile_commands.json"), "[]\n");
+		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(nestedDir);
+	});
+
+	it("finds compile_commands.json nested deeper under build-like trees", () => {
+		const nestedDir = path.join(tmpDir, "build", "out", "Debug");
+		fs.mkdirSync(nestedDir, { recursive: true });
+		fs.writeFileSync(path.join(nestedDir, "compile_commands.json"), "[]\n");
+		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(nestedDir);
+	});
+
+	it("finds compile_commands.json in nested cmake-build-style layouts", () => {
+		const nestedDir = path.join(tmpDir, "cmake-build-debug", "RelWithDebInfo");
+		fs.mkdirSync(nestedDir, { recursive: true });
+		fs.writeFileSync(path.join(nestedDir, "compile_commands.json"), "[]\n");
+		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(nestedDir);
+	});
+
 	it("detects a C++ tree from C++-only extensions and not from pure C", () => {
 		expect(hasCppOnlySources(["/p/a.c", "/p/a.h"])).toBe(false);
 		expect(hasCppOnlySources(["/p/a.c", "/p/b.cpp"])).toBe(true);

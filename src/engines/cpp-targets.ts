@@ -19,7 +19,7 @@ export const CPP_IMPL_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cxx"]);
 
 // Extensions that only appear in C++ (never plain C). Their presence means the
 // tree is C++, so headers (.h is ambiguous) should be analyzed as C++ too.
-export const CPP_ONLY_EXTENSIONS = new Set([".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"]);
+const CPP_ONLY_EXTENSIONS = new Set([".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"]);
 
 const isCppExtension = (filePath: string): boolean =>
 	CPP_SOURCE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
@@ -43,36 +43,73 @@ const canonicalPath = (filePath: string): string => {
 	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 };
 
+const BUILD_ROOT_MAX_DEPTH = 3;
+
+const isBuildLikeDirName = (name: string): boolean =>
+	name === "build" || name === "out" || name.startsWith("cmake-build");
+
+const hasCompileCommands = (dir: string): boolean => fs.existsSync(path.join(dir, "compile_commands.json"));
+
 // Directories CMake commonly writes compile_commands.json into. We never run a
 // build ourselves; we only consume a database the project already produced. CMake
-// multi-config and out-of-tree layouts nest it a level down (build/lint,
-// build/Debug), so scan one level under each build-like directory too.
+// multi-config and out-of-tree layouts nest it under build-like directories, so
+// scan their subtrees to a bounded depth.
+const collectBuildLikeDirs = (root: string): string[] => {
+	const dirs: string[] = [];
+	try {
+		for (const dirent of fs.readdirSync(root, { withFileTypes: true })) {
+			if (dirent.isDirectory() && isBuildLikeDirName(dirent.name)) dirs.push(path.join(root, dirent.name));
+		}
+	} catch {
+		return [];
+	}
+
+	// Always check for `build` because many projects create it late or via symlink.
+	const explicitBuildDir = path.join(root, "build");
+	if (!dirs.includes(explicitBuildDir)) dirs.push(explicitBuildDir);
+	return dirs;
+};
+
+const scanBuildDirForCompileCommands = (root: string): string | null => {
+	const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+	const visited = new Set<string>([root]);
+
+	while (queue.length > 0) {
+		const current = queue.shift();
+		if (!current) break;
+		if (hasCompileCommands(current.dir)) return current.dir;
+		if (current.depth >= BUILD_ROOT_MAX_DEPTH) continue;
+
+		let entries: fs.Dirent[] = [];
+		try {
+			entries = fs.readdirSync(current.dir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+			const childDir = path.join(current.dir, entry.name);
+			if (visited.has(childDir)) continue;
+			visited.add(childDir);
+			queue.push({ dir: childDir, depth: current.depth + 1 });
+		}
+	}
+
+	return null;
+};
+
 export const findCompileCommandsDir = (
 	context: Pick<EngineContext, "rootDirectory">,
 ): string | null => {
 	const root = context.rootDirectory;
-	const buildLikeDirs: string[] = [];
-	try {
-		for (const name of fs.readdirSync(root)) {
-			if (name === "build" || name === "out" || name.startsWith("cmake-build")) {
-				buildLikeDirs.push(path.join(root, name));
-			}
-		}
-	} catch {
-		// Unreadable root: fall through to the fixed candidates.
+	if (hasCompileCommands(root)) {
+		return root;
 	}
-	const candidates = new Set<string>([root, path.join(root, "build"), ...buildLikeDirs]);
-	for (const dir of buildLikeDirs) {
-		try {
-			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-				if (entry.isDirectory()) candidates.add(path.join(dir, entry.name));
-			}
-		} catch {
-			// Unreadable build dir: skip its children.
-		}
-	}
-	for (const dir of candidates) {
-		if (fs.existsSync(path.join(dir, "compile_commands.json"))) return dir;
+
+	for (const buildDir of collectBuildLikeDirs(root)) {
+		const found = scanBuildDirForCompileCommands(buildDir);
+		if (found) return found;
 	}
 	return null;
 };
