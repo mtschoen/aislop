@@ -73,6 +73,24 @@ describe("cpp-targets", () => {
 		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(nestedDir);
 	});
 
+	it("prefers the build-root database over one buried in a pruned CMakeFiles tree", () => {
+		const rootDatabase = path.join(tmpDir, "build");
+		const prunedDir = path.join(tmpDir, "build", "CMakeFiles", "Debug");
+		fs.mkdirSync(prunedDir, { recursive: true });
+		fs.writeFileSync(path.join(prunedDir, "compile_commands.json"), "[]\n");
+		fs.writeFileSync(path.join(rootDatabase, "compile_commands.json"), "[]\n");
+		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBe(rootDatabase);
+	});
+
+	it("does not descend into pruned build-internal directories (CMakeFiles, _deps)", () => {
+		for (const pruned of ["CMakeFiles", "_deps"]) {
+			const buriedDir = path.join(tmpDir, "build", pruned, "nested");
+			fs.mkdirSync(buriedDir, { recursive: true });
+			fs.writeFileSync(path.join(buriedDir, "compile_commands.json"), "[]\n");
+		}
+		expect(findCompileCommandsDir({ rootDirectory: tmpDir })).toBeNull();
+	});
+
 	it("detects a C++ tree from C++-only extensions and not from pure C", () => {
 		expect(hasCppOnlySources(["/p/a.c", "/p/a.h"])).toBe(false);
 		expect(hasCppOnlySources(["/p/a.c", "/p/b.cpp"])).toBe(true);
