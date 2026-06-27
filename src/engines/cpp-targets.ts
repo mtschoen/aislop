@@ -45,6 +45,22 @@ const canonicalPath = (filePath: string): string => {
 
 const BUILD_ROOT_MAX_DEPTH = 3;
 
+// Hard cap on directories examined per build root. A pathological tree (deeply
+// generated output, symlink fan-out) can never turn discovery into a full-tree
+// walk. The traversal is breadth-first, so a database near the top is still
+// found before the cap bites.
+const BUILD_ROOT_MAX_DIRECTORIES = 512;
+
+// Build-internal directories that never hold the canonical (build-root)
+// compile_commands.json yet account for the overwhelming majority of a build
+// tree's subdirectories: CMakeFiles holds per-target intermediates and _deps
+// holds fetched dependency trees. Pruning them (plus any dot-directory) keeps
+// the negative case - no database present - from walking thousands of dirs.
+const PRUNED_BUILD_SUBDIRS = new Set(["CMakeFiles", "_deps", "Testing"]);
+
+const isPrunedBuildSubdir = (name: string): boolean =>
+	name.startsWith(".") || PRUNED_BUILD_SUBDIRS.has(name);
+
 const isBuildLikeDirName = (name: string): boolean =>
 	name === "build" || name === "out" || name.startsWith("cmake-build");
 
@@ -74,7 +90,7 @@ const scanBuildDirForCompileCommands = (root: string): string | null => {
 	const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
 	const visited = new Set<string>([root]);
 
-	while (queue.length > 0) {
+	while (queue.length > 0 && visited.size <= BUILD_ROOT_MAX_DIRECTORIES) {
 		const current = queue.shift();
 		if (!current) break;
 		if (hasCompileCommands(current.dir)) return current.dir;
@@ -88,7 +104,7 @@ const scanBuildDirForCompileCommands = (root: string): string | null => {
 		}
 
 		for (const entry of entries) {
-			if (!entry.isDirectory()) continue;
+			if (!entry.isDirectory() || isPrunedBuildSubdir(entry.name)) continue;
 			const childDir = path.join(current.dir, entry.name);
 			if (visited.has(childDir)) continue;
 			visited.add(childDir);
