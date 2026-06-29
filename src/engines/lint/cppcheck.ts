@@ -1,4 +1,5 @@
 import path from "node:path";
+import { toPosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { findCppSources, hasCppOnlySources } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
@@ -98,7 +99,7 @@ export const parseCppcheckXml = (xml: string, rootDirectory: string): Diagnostic
 		const file = attr(loc, "file");
 		if (!file) continue;
 		out.push({
-			filePath: path.isAbsolute(file) ? path.relative(rootDirectory, file) : file,
+			filePath: toPosix(path.isAbsolute(file) ? path.relative(rootDirectory, file) : file),
 			engine: "lint",
 			rule: `cppcheck/${attr(open, "id")}`,
 			severity,

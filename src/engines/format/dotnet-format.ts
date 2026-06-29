@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { toPosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { findDotnetTargets } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
@@ -46,7 +47,7 @@ export const parseDotnetFormatReport = (json: string, rootDirectory: string): Di
 		if (!file.FileChanges || file.FileChanges.length === 0) continue;
 		const raw = file.FilePath ?? file.FileName;
 		if (!raw) continue;
-		const filePath = path.isAbsolute(raw) ? path.relative(rootDirectory, raw) : raw;
+		const filePath = toPosix(path.isAbsolute(raw) ? path.relative(rootDirectory, raw) : raw);
 		if (seen.has(filePath)) continue;
 		seen.add(filePath);
 		diagnostics.push({

@@ -24,7 +24,8 @@ describe("parseDotnetFormatReport", () => {
 		expect(diagnostics).toHaveLength(1);
 		expect(diagnostics[0].rule).toBe("csharp-formatting");
 		expect(diagnostics[0].engine).toBe("format");
-		expect(diagnostics[0].filePath).toBe(path.join("src", "Foo.cs"));
+		// POSIX separators on every OS (relativePosix); guards the Windows backslash regression.
+		expect(diagnostics[0].filePath).toBe("src/Foo.cs");
 		expect(diagnostics[0].fixable).toBe(true);
 		// One finding per file, not one per whitespace change.
 		expect(diagnostics).toHaveLength(1);

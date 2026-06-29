@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { dropGitIgnoredPaths } from "../../utils/git-ignore.js";
+import { relativePosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
@@ -93,7 +94,7 @@ export const runTypecheck = async (context: EngineContext): Promise<Diagnostic[]
 			if (!match) continue;
 			const [, filePath, lineStr, colStr, severity, code, message] = match;
 			const absolute = path.resolve(projectDir, filePath);
-			const relative = path.relative(context.rootDirectory, absolute);
+			const relative = relativePosix(context.rootDirectory, absolute);
 			const key = `${relative}:${lineStr}:${colStr}:TS${code}`;
 			if (seen.has(key)) continue;
 			seen.add(key);

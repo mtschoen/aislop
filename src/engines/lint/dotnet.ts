@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { toPosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
 import { findDotnetTargets } from "../dotnet-targets.js";
@@ -69,7 +70,9 @@ export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnost
 	return parsed
 		.filter((d) => RELEVANT_IDS.has(d.id))
 		.map((d) => ({
-			filePath: path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+			filePath: toPosix(
+				path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
+			),
 			engine: "lint" as const,
 			rule: `dotnet/${d.id}`,
 			severity: "warning" as const,

@@ -68,7 +68,8 @@ describe("parseRoslynatorXml", () => {
 		const diags = parseRoslynatorXml(xml, "/repo");
 		expect(diags).toHaveLength(1);
 		expect(diags[0].rule).toBe("dotnet/IDISP001");
-		expect(diags[0].filePath).toBe(path.join("src", "Leak.cs"));
+		// POSIX separators on every OS (relativePosix); guards the Windows backslash regression.
+		expect(diags[0].filePath).toBe("src/Leak.cs");
 		expect(diags[0].line).toBe(5);
 	});
 
