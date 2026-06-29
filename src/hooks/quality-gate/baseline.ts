@@ -25,6 +25,12 @@ const fingerprintDiagnostic = (d: Diagnostic, rootDirectory: string): string => 
 	return `${rel}:${d.line}:${d.rule}`;
 };
 
+// Baselines captured on Windows before fingerprints were POSIX-normalized stored
+// backslash paths. Convert them to forward slashes on read so they still match the
+// fingerprints we now produce, instead of every prior finding looking new after upgrade.
+// Rule ids and line numbers never contain a backslash, so this only touches the path.
+const normalizeLegacyFingerprint = (fingerprint: string): string => fingerprint.replace(/\\/g, "/");
+
 const BASELINE_REL = path.join(".aislop", "baseline.json");
 
 export const baselinePath = (cwd: string): string => path.join(cwd, BASELINE_REL);
@@ -46,7 +52,7 @@ export const readBaseline = (cwd: string): Baseline | null => {
 			byEngine: parsed.byEngine ?? {},
 			fileCount: parsed.fileCount ?? 0,
 			commit: parsed.commit,
-			findingFingerprints: parsed.findingFingerprints ?? [],
+			findingFingerprints: (parsed.findingFingerprints ?? []).map(normalizeLegacyFingerprint),
 		};
 	} catch {
 		return null;
