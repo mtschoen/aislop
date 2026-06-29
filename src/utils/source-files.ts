@@ -81,58 +81,18 @@ const EXCLUDED_DIRS = [
 	".bundle",
 ];
 
-const FIND_PRUNE_DIRS = [
-	"node_modules",
-	"dist",
-	"build",
-	".git",
-	".agents",
-	".pnpm-store",
-	".yarn",
-	"bower",
-	"bower_components",
-	"jspm_packages",
-	"schemaspy",
-	"generated",
-	"__generated__",
-	"auto-generated",
-	"vendor",
-	"vendors",
-	"_vendor",
-	"vendored",
-	"third_party",
-	"third-party",
-	"3rdparty",
-	"examples",
-	"example",
-	"demos",
-	"demo",
-	"bench",
-	"benches",
-	"benchmarks",
-	"fixtures",
-	"fixture",
-	"stories",
-	"story",
-	"storybook",
-	"__stories__",
-	"samples",
-	"sample",
-	"tutorials",
-	"tutorial",
-	"code_samples",
-	"code-samples",
-	"notebooks",
-	"testdata",
-	"e2e",
-	".next",
-	".nuxt",
-	".wasp",
-	"coverage",
-	".turbo",
-	"test-outputs",
-	".bundle",
-];
+// Prune set for the walk: EXCLUDED_DIRS minus the test dirs we still descend into (so test
+// files get listed, then filtered by isTestFile rather than skipped wholesale).
+const NON_PRUNED_TEST_DIRS = new Set([
+	"tests",
+	"test",
+	"__tests__",
+	"__test__",
+	"spec",
+	"__mocks__",
+	"test_data",
+]);
+const FIND_PRUNE_DIRS = EXCLUDED_DIRS.filter((dir) => !NON_PRUNED_TEST_DIRS.has(dir));
 
 const GENERATED_ARTIFACT_FILE_PATTERNS = [
 	/\.min\.(?:js|css|mjs|cjs)$/i,
@@ -223,6 +183,31 @@ const getIgnoredPaths = (rootDirectory: string, files: string[]): Set<string> =>
 	);
 };
 
+// Portable fallback when `git ls-files` is unavailable (non-git dir): a Node walk, not Unix
+// `find` (on Windows `find` is System32 find.exe, a string search). POSIX-relative like git.
+const walkProjectFilesFallback = (rootDirectory: string): string[] => {
+	const prune = new Set(FIND_PRUNE_DIRS);
+	const out: string[] = [];
+	const walk = (dir: string): void => {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (!prune.has(entry.name)) walk(full);
+			} else if (entry.isFile()) {
+				out.push(path.relative(rootDirectory, full).split(path.sep).join("/"));
+			}
+		}
+	};
+	walk(rootDirectory);
+	return out;
+};
+
 export const listProjectFiles = (rootDirectory: string): string[] => {
 	const result = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
 		cwd: rootDirectory,
@@ -237,31 +222,7 @@ export const listProjectFiles = (rootDirectory: string): string[] => {
 			.filter((file) => fs.existsSync(path.resolve(rootDirectory, file)));
 	}
 
-	const findArgs = [
-		".",
-		"(",
-		...FIND_PRUNE_DIRS.flatMap((dir, index) =>
-			index === 0 ? ["-name", dir] : ["-o", "-name", dir],
-		),
-		")",
-		"-prune",
-		"-o",
-		"-type",
-		"f",
-		"-print",
-	];
-	const findResult = spawnSync("find", findArgs, {
-		cwd: rootDirectory,
-		encoding: "utf-8",
-		maxBuffer: MAX_BUFFER,
-	});
-
-	if (findResult.error || findResult.status !== 0) return [];
-
-	return findResult.stdout
-		.split("\n")
-		.filter((file) => file.length > 0)
-		.map((file) => file.replace(/^\.\//, ""));
+	return walkProjectFilesFallback(rootDirectory);
 };
 
 export const readAislopIgnorePatterns = (rootDirectory: string): string[] => {
