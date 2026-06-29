@@ -33,12 +33,89 @@ interface MaskHandler {
 	nextI: number;
 }
 
+const WORD_CHAR_RE = /[A-Za-z0-9_$]/;
+// A `/` opens a regex literal (not division) when it follows one of these operators
+// or openers ...
+const REGEX_PRECEDER_CHARS = new Set([
+	"(",
+	"{",
+	"}",
+	"[",
+	",",
+	";",
+	":",
+	"?",
+	"=",
+	"!",
+	"&",
+	"|",
+	"^",
+	"~",
+	"<",
+	">",
+	"+",
+	"-",
+	"*",
+	"%",
+]);
+// ... or one of these keywords (`return /re/`, `typeof /re/`, ...).
+const REGEX_PRECEDER_WORDS = new Set([
+	"return",
+	"typeof",
+	"instanceof",
+	"in",
+	"of",
+	"new",
+	"delete",
+	"void",
+	"throw",
+	"yield",
+	"case",
+	"do",
+	"else",
+	"await",
+]);
+
+// Decide whether a `/` starts a regex literal (vs a division operator) from the
+// preceding significant token: regex after an operator/opener/keyword, division
+// after a value (identifier, number, `)`, `]`, string, regex).
+const regexAllowedAfter = (lastSig: string, lastWord: string): boolean => {
+	if (lastSig === "") return true;
+	if (WORD_CHAR_RE.test(lastSig)) return REGEX_PRECEDER_WORDS.has(lastWord);
+	return REGEX_PRECEDER_CHARS.has(lastSig);
+};
+
+// Consume a regex literal from its opening `/`. Returns the index just past the
+// closing `/`, or -1 if it isn't a single-line regex (hits a newline first), in
+// which case the `/` was division after all. Handles `\` escapes and `[...]`
+// character classes (where `/` is literal).
+const consumeRegexLiteral = (content: string, start: number): number => {
+	const len = content.length;
+	let i = start + 1;
+	let inClass = false;
+	while (i < len) {
+		const c = content[i];
+		if (c === "\n") return -1;
+		if (c === "\\" && i + 1 < len) {
+			i += 2;
+			continue;
+		}
+		if (c === "[") inClass = true;
+		else if (c === "]") inClass = false;
+		else if (c === "/" && !inClass) return i + 1;
+		i++;
+	}
+	return -1;
+};
+
 const handleQuotesAndComments = (
 	content: string,
 	i: number,
 	tplStack: number[],
 	mask: (start: number, end: number) => void,
 	maskStrings: boolean,
+	lastSig: string,
+	lastWord: string,
 ): MaskHandler => {
 	const len = content.length;
 	const c = content[i];
@@ -70,6 +147,15 @@ const handleQuotesAndComments = (
 		mask(strStart, k);
 		return { handled: true, nextI: k };
 	}
+	// Regex literal: recognised so its contents (which routinely include quotes,
+	// backticks and comment markers — e.g. /(?:`|["'])/) don't desync the scanner.
+	if (c === "/" && regexAllowedAfter(lastSig, lastWord)) {
+		const end = consumeRegexLiteral(content, i);
+		if (end !== -1) {
+			if (maskStrings) mask(i + 1, end - 1);
+			return { handled: true, nextI: end };
+		}
+	}
 	return { handled: false, nextI: i };
 };
 
@@ -78,6 +164,10 @@ const maskJs = (content: string, maskStrings: boolean): string => {
 	const len = content.length;
 	const tplStack: number[] = [];
 	let i = 0;
+	// Last significant (non-whitespace) code char and the identifier ending at it;
+	// used to disambiguate regex literals from division.
+	let lastSig = "";
+	let lastWord = "";
 
 	const mask = (start: number, end: number) => {
 		for (let k = start; k < end; k++) {
@@ -91,6 +181,8 @@ const maskJs = (content: string, maskStrings: boolean): string => {
 		if (tplStack.length > 0) {
 			if (c === "{") {
 				tplStack[tplStack.length - 1]++;
+				lastSig = "{";
+				lastWord = "";
 				i++;
 				continue;
 			}
@@ -101,21 +193,44 @@ const maskJs = (content: string, maskStrings: boolean): string => {
 					const scan = consumeTemplateString(content, i + 1);
 					if (maskStrings) mask(i + 1, scan.maskEnd);
 					if (scan.openedInterp) tplStack.push(0);
+					lastSig = "`";
+					lastWord = "";
 					i = scan.resumeAt;
 					continue;
 				}
 				tplStack[tplStack.length - 1]--;
+				lastSig = "}";
+				lastWord = "";
 				i++;
 				continue;
 			}
 		}
 
-		const handled = handleQuotesAndComments(content, i, tplStack, mask, maskStrings);
+		const handled = handleQuotesAndComments(
+			content,
+			i,
+			tplStack,
+			mask,
+			maskStrings,
+			lastSig,
+			lastWord,
+		);
 		if (handled.handled) {
+			// A comment is whitespace-like (leave lastSig alone); a string/template/regex
+			// is a value, so a following `/` reads as division.
+			const isComment = c === "/" && (content[i + 1] === "/" || content[i + 1] === "*");
+			if (!isComment) {
+				lastSig = c === "`" ? "`" : c === "/" ? "/" : '"';
+				lastWord = "";
+			}
 			i = handled.nextI;
 			continue;
 		}
 
+		if (!/\s/.test(c)) {
+			lastSig = c;
+			lastWord = WORD_CHAR_RE.test(c) ? lastWord + c : "";
+		}
 		i++;
 	}
 
