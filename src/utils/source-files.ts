@@ -212,6 +212,33 @@ export const isExcludedFromScan = (relativePath: string): boolean =>
 const isTestFile = (filePath: string): boolean =>
 	TEST_FILE_PATTERNS.some((pattern) => pattern.test(filePath));
 
+// Portable fallback for when `git ls-files` is unavailable (non-git directory). A Node walk
+// instead of spawning Unix `find`: on Windows `find` resolves to System32 find.exe (a string
+// search), which silently returns nothing and leaves every detector with an empty file list.
+// Returns forward-slash relative paths to match git ls-files output on every OS.
+const walkProjectFilesFallback = (rootDirectory: string): string[] => {
+	const prune = new Set(FIND_PRUNE_DIRS);
+	const out: string[] = [];
+	const walk = (dir: string): void => {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (!prune.has(entry.name)) walk(full);
+			} else if (entry.isFile()) {
+				out.push(path.relative(rootDirectory, full).split(path.sep).join("/"));
+			}
+		}
+	};
+	walk(rootDirectory);
+	return out;
+};
+
 export const listProjectFiles = (rootDirectory: string): string[] => {
 	const result = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
 		cwd: rootDirectory,
@@ -226,31 +253,7 @@ export const listProjectFiles = (rootDirectory: string): string[] => {
 			.filter((file) => fs.existsSync(path.resolve(rootDirectory, file)));
 	}
 
-	const findArgs = [
-		".",
-		"(",
-		...FIND_PRUNE_DIRS.flatMap((dir, index) =>
-			index === 0 ? ["-name", dir] : ["-o", "-name", dir],
-		),
-		")",
-		"-prune",
-		"-o",
-		"-type",
-		"f",
-		"-print",
-	];
-	const findResult = spawnSync("find", findArgs, {
-		cwd: rootDirectory,
-		encoding: "utf-8",
-		maxBuffer: MAX_BUFFER,
-	});
-
-	if (findResult.error || findResult.status !== 0) return [];
-
-	return findResult.stdout
-		.split("\n")
-		.filter((file) => file.length > 0)
-		.map((file) => file.replace(/^\.\//, ""));
+	return walkProjectFilesFallback(rootDirectory);
 };
 
 export const readAislopIgnorePatterns = (rootDirectory: string): string[] => {
