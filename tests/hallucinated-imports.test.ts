@@ -697,7 +697,8 @@ dependencies = ["pydantic[email] >= 2.0.0"]
 		const diagnostics = await detectHallucinatedImports(buildContext());
 
 		expect(diagnostics).toHaveLength(1);
-		expect(diagnostics[0].filePath).toBe(path.join("src", "root.py"));
+		// Diagnostics report POSIX-relative paths on every OS (see utils/paths relativePosix).
+		expect(diagnostics[0].filePath).toBe("src/root.py");
 		expect(diagnostics[0].message).toContain("pydantic");
 	});
 
