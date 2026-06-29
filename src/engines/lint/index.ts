@@ -11,8 +11,7 @@ import { runRuffLint } from "./ruff.js";
 // same finding appears twice at the same site. De-dup by (file, line, bare id),
 // keeping the first pass's copy.
 
-/** Exported for unit tests. */
-export const bareRuleId = (rule: string): string => {
+const bareRuleId = (rule: string): string => {
 	const slash = rule.indexOf("/");
 	return slash === -1 ? rule : rule.slice(slash + 1);
 };

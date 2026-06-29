@@ -208,7 +208,9 @@ export const detectHardcodedConfigLiterals = async (
 			continue;
 		}
 
-		const relativePath = path.relative(context.rootDirectory, filePath);
+		// Normalize to forward slashes so path-based exclusions (e.g. scripts/,
+		// non-production paths) match on Windows, where path.relative yields backslashes.
+		const relativePath = path.relative(context.rootDirectory, filePath).replace(/\\/g, "/");
 		const ext = path.extname(filePath);
 		diagnostics.push(...scanFileForConfigLiterals(maskComments(content, ext), relativePath, ext));
 	}

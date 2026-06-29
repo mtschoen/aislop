@@ -6,9 +6,9 @@ import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling
 import { findJbTargets } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 
-export type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
+type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 
-export interface JbParseOptions {
+interface JbParseOptions {
 	excludeTypes: Set<string>;
 	severityFloor: JbSeverity;
 }
@@ -91,7 +91,7 @@ export const parseJbXml = (
 	}
 };
 
-export interface CsharpLintConfig {
+interface CsharpLintConfig {
 	jb: boolean;
 	roslynator: boolean;
 	jbSeverityFloor: JbSeverity;
