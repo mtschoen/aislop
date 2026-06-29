@@ -24,9 +24,22 @@ describe("resolveToolBinary", () => {
 		// editions; the project's installed ruff (what CI gates on) must win.
 		const systemRuff = path.join(tempDir, exeName("ruff"));
 		fs.writeFileSync(systemRuff, "");
+		if (process.platform !== "win32") fs.chmodSync(systemRuff, 0o755);
 		process.env.PATH = tempDir;
 
 		expect(resolveToolBinary("ruff")).toBe(systemRuff);
+	});
+
+	it("ignores a non-executable PATH entry and falls back to the vendored/bare name", () => {
+		// existsSync would match a directory (or, on POSIX, a non-executable file) named
+		// like the tool, but spawning it fails - so it must not shadow the bundled copy.
+		const shadow = path.join(tempDir, exeName("ruff"));
+		fs.mkdirSync(shadow); // a directory wearing the executable's name
+		process.env.PATH = tempDir;
+
+		const resolved = resolveToolBinary("ruff");
+		expect(resolved).not.toBe(shadow);
+		expect(resolved === "ruff" || resolved.includes(path.join("tools", "bin"))).toBe(true);
 	});
 
 	it("falls back to the vendored binary or bare name when a bundled tool is absent from PATH", () => {
