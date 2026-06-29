@@ -86,7 +86,7 @@ import { magic } from "totally-made-up-package"
 		expect(diag.rule).toBe("ai-slop/hallucinated-import");
 		expect(diag.severity).toBe("error");
 		expect(diag.fixable).toBe(false);
-		expect(diag.filePath).toBe(path.join("src", "index.ts"));
+		expect(diag.filePath).toBe("src/index.ts");
 		expect(diag.line).toBe(2);
 		expect(diag.message).toContain("totally-made-up-package");
 	});
@@ -841,7 +841,7 @@ describe("detectHallucinatedImports — guards", () => {
 		const diagnostics = await detectHallucinatedImports(buildContext());
 
 		expect(diagnostics).toHaveLength(1);
-		expect(diagnostics[0].filePath).toBe(path.join("src", "index.ts"));
+		expect(diagnostics[0].filePath).toBe("src/index.ts");
 		expect(diagnostics[0].message).toContain("made-up-js");
 	});
 });
