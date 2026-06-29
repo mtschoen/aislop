@@ -1,9 +1,9 @@
 import type { EngineResult } from "./types.js";
 
 // Comment-shaped ai-slop rules that can legitimately fire on the SAME comment.
-// `narrative-comment` and `meta-comment` both inspect comment blocks, so a single
-// comment ("we used to do X, now we do Y") can satisfy both - which double-counts
-// one underlying issue under two rule IDs and inflates the score impact.
+// `narrative-comment` and `meta-comment` both inspect comment blocks, so one
+// comment can satisfy both - double-counting a single underlying issue under two
+// rule IDs and inflating the score impact.
 const COMMENT_RULES = new Set(["ai-slop/narrative-comment", "ai-slop/meta-comment"]);
 
 // Keep at most one comment-rule finding per file:line. The first finding at a

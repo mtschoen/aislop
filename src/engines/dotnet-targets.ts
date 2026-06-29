@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { dropGitIgnoredPaths } from "../utils/source-files.js";
+import { dropGitIgnoredPaths } from "../utils/git-ignore.js";
 import type { EngineContext } from "./types.js";
 
 // Build-output and vendor directories that never hold first-party project files.

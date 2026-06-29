@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import micromatch from "micromatch";
 import type { EngineContext } from "../engines/types.js";
+import { getIgnoredPaths } from "./git-ignore.js";
 
 const MAX_BUFFER = 50 * 1024 * 1024;
 
@@ -210,41 +211,6 @@ export const isExcludedFromScan = (relativePath: string): boolean =>
 
 const isTestFile = (filePath: string): boolean =>
 	TEST_FILE_PATTERNS.some((pattern) => pattern.test(filePath));
-
-const getIgnoredPaths = (rootDirectory: string, files: string[]): Set<string> => {
-	if (files.length === 0) return new Set<string>();
-
-	const result = spawnSync("git", ["check-ignore", "--stdin"], {
-		cwd: rootDirectory,
-		encoding: "utf-8",
-		input: files.join("\n"),
-		maxBuffer: MAX_BUFFER,
-	});
-
-	if (result.error || (result.status !== 0 && result.status !== 1)) {
-		return new Set<string>();
-	}
-
-	return new Set(
-		result.stdout
-			.split("\n")
-			.map((file) => file.trim())
-			.filter((file) => file.length > 0),
-	);
-};
-
-// Filter absolute paths down to those git does not ignore (working-tree `.gitignore`).
-// The dotnet target discovery walks the raw filesystem, so without this it would pick up
-// projects under ignored directories (e.g. a spike under a gitignored `.claude/`). Keeps
-// every path when the directory is not a git repo (`getIgnoredPaths` returns empty then).
-export const dropGitIgnoredPaths = (rootDirectory: string, absolutePaths: string[]): string[] => {
-	if (absolutePaths.length === 0) return absolutePaths;
-	const relativePaths = absolutePaths.map((absolutePath) =>
-		toProjectPath(rootDirectory, absolutePath),
-	);
-	const ignored = getIgnoredPaths(rootDirectory, relativePaths);
-	return absolutePaths.filter((_, index) => !ignored.has(relativePaths[index]));
-};
 
 export const listProjectFiles = (rootDirectory: string): string[] => {
 	const result = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { dropGitIgnoredPaths } from "../../utils/source-files.js";
+import { dropGitIgnoredPaths } from "../../utils/git-ignore.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 

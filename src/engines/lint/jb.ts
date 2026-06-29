@@ -14,7 +14,7 @@ interface JbLanguageOptions {
 	severityFloor: JbSeverity;
 }
 
-export interface JbParseOptions {
+interface JbParseOptions {
 	csharp: JbLanguageOptions;
 	cpp: JbLanguageOptions;
 }
@@ -100,7 +100,7 @@ export const parseJbXml = (
 	}
 };
 
-export interface CsharpLintConfig {
+interface CsharpLintConfig {
 	jb: boolean;
 	roslynator: boolean;
 	jbSeverityFloor: JbSeverity;

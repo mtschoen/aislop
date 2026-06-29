@@ -243,6 +243,12 @@ export const runFormattingStep = async (deps: PipelineDeps): Promise<void> => {
 		log.warn("PHP detected but php-cs-fixer is not installed; skipping PHP formatting fixes.");
 	}
 
+	await runNativeFormattingSteps(deps);
+};
+
+// C#/C++ formatting fixes — split out of runFormattingStep so the per-language
+// formatter cascade stays under the function-length budget.
+const runNativeFormattingSteps = async (deps: PipelineDeps): Promise<void> => {
 	if (deps.projectInfo.languages.includes("csharp") && deps.projectInfo.installedTools.dotnet) {
 		await deps.runStep(
 			"Formatting (csharp)",
