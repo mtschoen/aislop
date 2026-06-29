@@ -18,11 +18,12 @@ permissions:
 jobs:
   check:
     name: Build & test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node-version: [22, 24]
 
     steps:
