@@ -90,9 +90,11 @@ const readGitState = async (cwd: string): Promise<GitState> => {
 		runSubprocess("git", ["rev-parse", "--git-common-dir"], { cwd: gitRoot }),
 	]);
 	const commonDir = gitCommonDir.stdout.trim();
-	// `git rev-parse --show-toplevel` reports forward slashes even on Windows; canonicalize
-	// to the OS-native real path so downstream path.relative/join and display stay consistent.
-	const nativeRoot = fs.realpathSync(gitRoot);
+	// `git rev-parse --show-toplevel` reports forward slashes even on Windows; canonicalize to
+	// the OS-native real path. .native() (GetFinalPathNameByHandle) also expands 8.3 short names
+	// to their long form, so the root matches regardless of whether cwd/TEMP arrived short
+	// (e.g. CI runners whose TEMP is C:\Users\RUNNER~1\...).
+	const nativeRoot = fs.realpathSync.native(gitRoot);
 	return {
 		root: nativeRoot,
 		gitCommonDir: path.isAbsolute(commonDir) ? commonDir : path.resolve(nativeRoot, commonDir),

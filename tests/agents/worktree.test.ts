@@ -83,7 +83,9 @@ describe("agent worktrees", () => {
 		const excludePath = path.join(root, ".git", "info", "exclude");
 		const before = existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "";
 
-		await expect(readAgentRoot(root)).resolves.toEqual({ root: realpathSync(root) });
+		// .native() to match readAgentRoot's canonicalization: it expands 8.3 short names, so a
+		// short-form TEMP (e.g. CI's C:\Users\RUNNER~1\...) resolves to the same long path.
+		await expect(readAgentRoot(root)).resolves.toEqual({ root: realpathSync.native(root) });
 
 		const after = existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "";
 		expect(after).toBe(before);
