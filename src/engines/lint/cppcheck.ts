@@ -4,7 +4,7 @@ import { findCppSources, hasCppOnlySources } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 import type { JbSeverity } from "./jb.js";
 
-export interface CppLintConfig {
+interface CppLintConfig {
 	cppcheck: boolean;
 	clangTidy: boolean;
 	cppcheckEnable: string;
