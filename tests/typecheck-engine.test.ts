@@ -76,7 +76,8 @@ describe("runTypecheck", () => {
 		expect(diag.rule).toBe("typescript/TS2322");
 		expect(diag.severity).toBe("error");
 		expect(diag.fixable).toBe(false);
-		expect(diag.filePath).toBe(path.join("src", "bug.ts"));
+		// POSIX separators on every OS (relativePosix); guards the Windows backslash regression.
+		expect(diag.filePath).toBe("src/bug.ts");
 		expect(diag.line).toBe(1);
 		expect(diag.column).toBeGreaterThan(0);
 	}, 30_000);
