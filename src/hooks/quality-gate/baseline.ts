@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { toPosix } from "../../utils/paths.js";
 import { loadConfig } from "../../config/index.js";
 import { runEngines } from "../../engines/orchestrator.js";
 import type { Diagnostic, EngineContext, EngineName } from "../../engines/types.js";
 import { calculateScore } from "../../scoring/index.js";
 import { discoverProject } from "../../utils/discover.js";
+import { toPosix } from "../../utils/paths.js";
 import { atomicWrite, readIfExists } from "../io/atomic-write.js";
 
 interface Baseline {
@@ -24,6 +24,12 @@ const fingerprintDiagnostic = (d: Diagnostic, rootDirectory: string): string => 
 	);
 	return `${rel}:${d.line}:${d.rule}`;
 };
+
+// Baselines captured on Windows before fingerprints were POSIX-normalized stored
+// backslash paths. Convert them to forward slashes on read so they still match the
+// fingerprints we now produce, instead of every prior finding looking new after upgrade.
+// Rule ids and line numbers never contain a backslash, so this only touches the path.
+const normalizeLegacyFingerprint = (fingerprint: string): string => fingerprint.replace(/\\/g, "/");
 
 const BASELINE_REL = path.join(".aislop", "baseline.json");
 
@@ -46,7 +52,7 @@ export const readBaseline = (cwd: string): Baseline | null => {
 			byEngine: parsed.byEngine ?? {},
 			fileCount: parsed.fileCount ?? 0,
 			commit: parsed.commit,
-			findingFingerprints: parsed.findingFingerprints ?? [],
+			findingFingerprints: (parsed.findingFingerprints ?? []).map(normalizeLegacyFingerprint),
 		};
 	} catch {
 		return null;

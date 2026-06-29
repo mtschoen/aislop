@@ -37,6 +37,26 @@ describe("baseline read/write", () => {
 		expect(baselinePath(cwd)).toBe(path.join(cwd, ".aislop", "baseline.json"));
 	});
 
+	it("normalises legacy backslash fingerprints from a pre-POSIX Windows baseline", () => {
+		// Before fingerprints were POSIX-normalized, a Windows capture stored backslash
+		// paths. On read they must convert to forward slashes so they match the
+		// fingerprints produced now, otherwise every prior finding looks new after upgrade.
+		fs.mkdirSync(path.join(cwd, ".aislop"));
+		fs.writeFileSync(
+			path.join(cwd, ".aislop", "baseline.json"),
+			JSON.stringify({
+				schema: "aislop.baseline.v2",
+				updatedAt: "2026-03-01T00:00:00Z",
+				score: 80,
+				byEngine: { lint: 90 },
+				fileCount: 30,
+				findingFingerprints: ["src\\utils\\x.ts:10:ai-slop/foo"],
+			}),
+		);
+		const read = readBaseline(cwd);
+		expect(read?.findingFingerprints).toEqual(["src/utils/x.ts:10:ai-slop/foo"]);
+	});
+
 	it("reads a legacy v1 baseline and normalises to v2 with empty fingerprints", () => {
 		fs.mkdirSync(path.join(cwd, ".aislop"));
 		fs.writeFileSync(

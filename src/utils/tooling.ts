@@ -48,6 +48,23 @@ const getBundledToolPath = (toolName: string): string | null => {
 	return fs.existsSync(candidate) ? candidate : null;
 };
 
+// A real executable, not just any entry that exists: a directory or a stale
+// non-executable file named like the tool would pass existsSync but fail at spawn,
+// silently shadowing the bundled tool. On Windows the .exe extension (the only name
+// we look for) implies executability and ACL checks are not reliably observable via
+// fs; on POSIX we require an execute bit.
+const isExecutableFile = (candidate: string): boolean => {
+	let stats: fs.Stats;
+	try {
+		stats = fs.statSync(candidate);
+	} catch {
+		return false;
+	}
+	if (!stats.isFile()) return false;
+	if (process.platform === "win32") return true;
+	return (stats.mode & 0o111) !== 0;
+};
+
 // Synchronous PATH lookup for a bundled tool's system install. We check for the
 // platform executable name in each PATH entry rather than shelling out to
 // `which` so resolveToolBinary can stay synchronous. (.exe on Windows covers the
@@ -58,7 +75,7 @@ const findToolOnPath = (toolName: string): string | null => {
 	for (const directory of pathValue.split(path.delimiter)) {
 		if (!directory) continue;
 		const candidate = path.join(directory, executable);
-		if (fs.existsSync(candidate)) return candidate;
+		if (isExecutableFile(candidate)) return candidate;
 	}
 	return null;
 };
