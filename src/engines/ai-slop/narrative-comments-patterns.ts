@@ -131,7 +131,6 @@ export const JAVA_DECL_START =
 export const JAVA_DECL_START_FALLBACK = /^\s*(class|interface|enum|record|@interface)\s+/;
 export const CSHARP_DECL_START =
 	/^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|async|sealed|abstract|virtual|override|partial|readonly|extern|unsafe|file|new)\s+)+(?:class|interface|struct|record|enum|[\w<>[\],.?]+\s+\w+)/;
-export const CSHARP_DECL_START_FALLBACK =
-	/^\s*(class|interface|struct|record|enum|namespace)\s+/;
+export const CSHARP_DECL_START_FALLBACK = /^\s*(class|interface|struct|record|enum|namespace)\s+/;
 export const PHP_DECL_START =
 	/^\s*(?:(?:public|private|protected|static|final|abstract|readonly)\s+)*(function|class|interface|trait|enum|const)\s+/;

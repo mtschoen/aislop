@@ -218,7 +218,11 @@ const STRING_CONCAT_RE = /(\w+)\s*\+=\s*[^;]*"/;
 // `s += "..."` inside a loop rebuilds the entire string each iteration (O(n^2)).
 // Loop bodies are tracked by brace depth (strings/comments stripped first); the
 // `{` may sit on the loop-header line or the next line, both handled.
-export const flagStringConcatInLoop = (lines: string[], relPath: string, out: Diagnostic[]): void => {
+export const flagStringConcatInLoop = (
+	lines: string[],
+	relPath: string,
+	out: Diagnostic[],
+): void => {
 	let braceDepth = 0;
 	const loopBodyDepths: number[] = [];
 	let pendingLoop = false;

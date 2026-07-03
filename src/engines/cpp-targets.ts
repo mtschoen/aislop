@@ -64,7 +64,8 @@ const isPrunedBuildSubdir = (name: string): boolean =>
 const isBuildLikeDirName = (name: string): boolean =>
 	name === "build" || name === "out" || name.startsWith("cmake-build");
 
-const hasCompileCommands = (dir: string): boolean => fs.existsSync(path.join(dir, "compile_commands.json"));
+const hasCompileCommands = (dir: string): boolean =>
+	fs.existsSync(path.join(dir, "compile_commands.json"));
 
 // Directories CMake commonly writes compile_commands.json into. We never run a
 // build ourselves; we only consume a database the project already produced. CMake
@@ -74,7 +75,8 @@ const collectBuildLikeDirs = (root: string): string[] => {
 	const dirs: string[] = [];
 	try {
 		for (const dirent of fs.readdirSync(root, { withFileTypes: true })) {
-			if (dirent.isDirectory() && isBuildLikeDirName(dirent.name)) dirs.push(path.join(root, dirent.name));
+			if (dirent.isDirectory() && isBuildLikeDirName(dirent.name))
+				dirs.push(path.join(root, dirent.name));
 		}
 	} catch {
 		return [];

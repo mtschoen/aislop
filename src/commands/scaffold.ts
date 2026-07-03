@@ -58,7 +58,10 @@ const renderInternalHeader = (componentName: string): string => `#pragma once
 //   aislop cpp sync-internal ${componentName}
 `;
 
-const renderFragment = (componentName: string, fragment: string): string => `// Part of the ${componentName} component. Included by ${componentName}.cpp; do not compile directly.
+const renderFragment = (
+	componentName: string,
+	fragment: string,
+): string => `// Part of the ${componentName} component. Included by ${componentName}.cpp; do not compile directly.
 #ifndef ${FRAGMENT_MARKER}
 #error "${componentName}.${fragment}.cpp is a fragment included by ${componentName}.cpp; do not compile it directly"
 #endif
@@ -71,8 +74,13 @@ namespace {
 `;
 
 const renderOwner = (componentName: string, fragments: string[]): string => {
-	const includes = fragments.map((fragment) => `#include "${componentName}.${fragment}.cpp"`).join("\n");
-	const fragmentBlock = fragments.length > 0 ? `\n#define ${FRAGMENT_MARKER}\n${includes}\n#undef ${FRAGMENT_MARKER}\n` : "";
+	const includes = fragments
+		.map((fragment) => `#include "${componentName}.${fragment}.cpp"`)
+		.join("\n");
+	const fragmentBlock =
+		fragments.length > 0
+			? `\n#define ${FRAGMENT_MARKER}\n${includes}\n#undef ${FRAGMENT_MARKER}\n`
+			: "";
 	return `#include "${componentName}.h"\n${fragmentBlock}\n// Public API definitions for the ${componentName} component.\n`;
 };
 
@@ -80,7 +88,8 @@ const mergeClangd = (rootDirectory: string): void => {
 	const clangdPath = path.join(rootDirectory, ".clangd");
 	const existing = fs.existsSync(clangdPath) ? fs.readFileSync(clangdPath, "utf-8") : "";
 	const parsed = existing.trim().length > 0 ? YAML.parse(existing) : {};
-	const document = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+	const document =
+		typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
 	const compileFlags =
 		typeof document.CompileFlags === "object" && document.CompileFlags !== null
 			? (document.CompileFlags as Record<string, unknown>)
@@ -108,7 +117,10 @@ export const scaffoldComponentCommand = (
 	ensureNewFile(path.join(rootDirectory, `${name}.h`), renderPublicHeader(name));
 	ensureNewFile(path.join(rootDirectory, `${name}.internal.h`), renderInternalHeader(name));
 	for (const fragment of fragments) {
-		ensureNewFile(path.join(rootDirectory, `${name}.${fragment}.cpp`), renderFragment(name, fragment));
+		ensureNewFile(
+			path.join(rootDirectory, `${name}.${fragment}.cpp`),
+			renderFragment(name, fragment),
+		);
 	}
 	ensureNewFile(path.join(rootDirectory, `${name}.cpp`), renderOwner(name, fragments));
 	mergeClangd(rootDirectory);
@@ -119,10 +131,11 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 const listFragments = (componentDirectory: string, componentName: string): string[] =>
 	fs
 		.readdirSync(componentDirectory)
-		.filter((entry) =>
-			entry.startsWith(`${componentName}.`) &&
-			entry.endsWith(".cpp") &&
-			entry !== `${componentName}.cpp`,
+		.filter(
+			(entry) =>
+				entry.startsWith(`${componentName}.`) &&
+				entry.endsWith(".cpp") &&
+				entry !== `${componentName}.cpp`,
 		)
 		.sort();
 
@@ -144,7 +157,8 @@ const findMatchingBrace = (contents: string, openIndex: number): number => {
 
 const extractDefinitions = (fragment: string, contents: string): FunctionDefinition[] => {
 	const definitions: FunctionDefinition[] = [];
-	const pattern = /(^|\n)([A-Za-z_][\w:\s*&<>~,.]+?\s+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:const\s*)?)\{/g;
+	const pattern =
+		/(^|\n)([A-Za-z_][\w:\s*&<>~,.]+?\s+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:const\s*)?)\{/g;
 	let match: RegExpExecArray | null;
 	while ((match = pattern.exec(contents)) !== null) {
 		const name = match[3] ?? "";
@@ -161,10 +175,7 @@ const extractDefinitions = (fragment: string, contents: string): FunctionDefinit
 const referencesName = (contents: string, name: string): boolean =>
 	new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(contents);
 
-const renderSyncedInternalHeader = (
-	componentName: string,
-	declarations: string[],
-): string => {
+const renderSyncedInternalHeader = (componentName: string, declarations: string[]): string => {
 	const body = declarations.length > 0 ? `${declarations.join("\n")}\n` : "";
 	return `#pragma once
 
@@ -174,10 +185,7 @@ const renderSyncedInternalHeader = (
 ${body}`;
 };
 
-export const cppSyncInternalCommand = (
-	component: string,
-	options: CppSyncOptions = {},
-): void => {
+export const cppSyncInternalCommand = (component: string, options: CppSyncOptions = {}): void => {
 	const parsedComponent = path.parse(component);
 	const componentName = parsedComponent.name;
 	requireComponentName(componentName);
@@ -192,8 +200,10 @@ export const cppSyncInternalCommand = (
 	);
 	const declarations = definitions
 		.filter((definition) =>
-			fragments.some((fragment) =>
-				fragment !== definition.fragment && referencesName(fragmentContents.get(fragment) ?? "", definition.name),
+			fragments.some(
+				(fragment) =>
+					fragment !== definition.fragment &&
+					referencesName(fragmentContents.get(fragment) ?? "", definition.name),
 			),
 		)
 		.map((definition) => definition.declaration)
