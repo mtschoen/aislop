@@ -29,6 +29,13 @@ const findBraceFunctionEnd = (
 
 		for (let ci = 0; ci < l.length; ci++) {
 			const ch = l[ci];
+			if (ch === ";" && !started) {
+				// A `;` reached before the body's opening `{` means this signature is
+				// a declaration/prototype (`void foo(int x);`) or a call/init statement
+				// the pattern matched by shape, not a definition. Common in C/C++
+				// headers. Stop rather than latch onto a later function's braces.
+				return { endLine: startIndex, maxNesting: 0 };
+			}
 			if (ch === "{") {
 				depth++;
 				if (!started && depth === 1) {

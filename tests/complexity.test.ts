@@ -675,7 +675,7 @@ describe("checkComplexity — C++ function-call false positive regression", () =
 		"",
 		"}  // namespace",
 		"",
-		"extern \"C\" {",
+		'extern "C" {',
 		...Array(60).fill("    int realWork = doStuff();"),
 		"}",
 	].join("\n");
@@ -726,5 +726,64 @@ describe("checkComplexity — C++ function-call false positive regression", () =
 		const fnDiags = diagnostics.filter((d) => d.rule === "complexity/function-too-long");
 		const phantom = fnDiags.find((d) => d.detail?.includes("SomeApiCall"));
 		expect(phantom).toBeUndefined();
+	});
+});
+
+// Header coverage: inline / class-member function bodies in C++ headers must be
+// nesting-checked, while declaration prototypes in the same headers must not be
+// mistaken for definitions (they carry no body).
+describe("checkComplexity — C++ header nesting coverage", () => {
+	const DEEP_INLINE_BODY = [
+		"    if (a) {",
+		"        if (b) {",
+		"            if (c) {",
+		"                if (d) {",
+		"                    doWork();",
+		"                }",
+		"            }",
+		"        }",
+		"    }",
+	].join("\n");
+
+	for (const ext of [".hpp", ".h", ".hh", ".hxx", ".cc", ".cxx"]) {
+		it(`detects deep nesting in an inline function body in a ${ext} file`, async () => {
+			const content = [
+				"struct Widget {",
+				`    void render() {\n${DEEP_INLINE_BODY}\n    }`,
+				"};",
+			].join("\n");
+			const filePath = writeFile(`widget${ext}`, content);
+			const diagnostics = await checkComplexity(makeContext([filePath], { maxNesting: 2 }));
+			const nestDiags = diagnostics.filter((d) => d.rule === "complexity/deep-nesting");
+			const hit = nestDiags.find((d) => d.detail?.includes("render"));
+			expect(hit).toBeDefined();
+		});
+	}
+
+	it("does NOT treat a declaration prototype in a header as a function definition", async () => {
+		// The prototype's `;` arrives before any `{`, and the deeply-nested inline
+		// definition that follows would be mis-attributed to it without the guard.
+		const content = [
+			"struct Widget {",
+			"    void declaredOnly(int x);",
+			`    void inlineDefined() {\n${DEEP_INLINE_BODY}\n    }`,
+			"};",
+		].join("\n");
+		const filePath = writeFile("widget.hpp", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxNesting: 2 }));
+		const nestDiags = diagnostics.filter((d) => d.rule === "complexity/deep-nesting");
+		expect(nestDiags.find((d) => d.detail?.includes("declaredOnly"))).toBeUndefined();
+		expect(nestDiags.find((d) => d.detail?.includes("inlineDefined"))).toBeDefined();
+	});
+
+	it("does NOT flag a typedef'd function pointer in a header as a definition", async () => {
+		const content = [
+			"typedef void (*Callback)(int code);",
+			"typedef int (*Reducer)(int a, int b);",
+		].join("\n");
+		const filePath = writeFile("callbacks.h", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxNesting: 2 }));
+		const nestDiags = diagnostics.filter((d) => d.rule === "complexity/deep-nesting");
+		expect(nestDiags).toHaveLength(0);
 	});
 });

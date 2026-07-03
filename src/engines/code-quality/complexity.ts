@@ -57,7 +57,11 @@ const FUNCTION_PATTERNS: FunctionPattern[] = [
 		// rejects them before \w+ can consume the keyword.
 		regex:
 			/^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:(?!(?:return|if|for|while|switch|do|else|throw|delete|new|break|continue|goto|try|catch)\b)\w+\s+)(\w+)\s*\(([^)]*)\)/,
-		langFilter: [".java", ".cs", ".cpp", ".c", ".php"],
+		// The full C++ source set (.c/.cc/.cpp/.cxx and the .h/.hh/.hpp/.hxx
+		// headers where inline and class-member bodies live) plus Java and PHP.
+		// Header coverage relies on findBraceFunctionEnd's declaration guard to
+		// skip prototypes (`void foo(int x);`) that carry no body.
+		langFilter: [".java", ".php", ...CPP_SOURCE_EXTENSIONS],
 	},
 ];
 
