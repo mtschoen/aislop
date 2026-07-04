@@ -293,6 +293,9 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/cpp-c-style-cast",
 			"ai-slop/cpp-manual-delete",
 			"ai-slop/cpp-iostream-leftover",
+			"ai-slop/cpp-null-literal",
+			"ai-slop/cpp-define-constant",
+			"ai-slop/cpp-endl-in-stream",
 		],
 	},
 	{

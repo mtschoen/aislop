@@ -68,6 +68,31 @@ const LINE_RULES: LineRule[] = [
 		scope: "all",
 		skipInMain: true,
 	},
+	{
+		rule: "ai-slop/cpp-null-literal",
+		regex: /\bNULL\b/,
+		message: "NULL used in C++; prefer nullptr",
+		help: "nullptr is type-safe and cannot be mistaken for the integer 0 in overload resolution",
+		scope: "cppOnly",
+	},
+	{
+		// Object-like macro whose body is a literal value: a `#define` name followed
+		// by whitespace then a number/string/char/paren/sign. Function-like macros
+		// (`#define F(x)`, no space before `(`) and valueless flags/header guards
+		// (`#define FOO_H`) are not matched.
+		rule: "ai-slop/cpp-define-constant",
+		regex: /^\s*#\s*define\s+[A-Z_]\w*\s+[-'"0-9(]/,
+		message: "#define constant in C++; prefer constexpr / const",
+		help: "A constexpr or const has a type, respects scope, and is visible to the debugger",
+		scope: "cppOnly",
+	},
+	{
+		rule: "ai-slop/cpp-endl-in-stream",
+		regex: /<<\s*std::endl\b/,
+		message: "std::endl flushes the stream on every call; prefer '\\n'",
+		help: "Use '\\n' and flush explicitly (std::flush) only where a flush is actually required",
+		scope: "cppOnly",
+	},
 ];
 
 const pushFinding = (

@@ -72,4 +72,34 @@ describe("detectCppPatterns", () => {
 			await rulesFor({ "src/main.cpp": "int main(){ std::cout << 1; return 0; }\n" }),
 		).not.toContain("ai-slop/cpp-iostream-leftover");
 	});
+
+	it("flags NULL in C++ but not in a .c file", async () => {
+		expect(await rulesFor({ "src/a.cpp": "int* p = NULL;\n" })).toContain(
+			"ai-slop/cpp-null-literal",
+		);
+		expect(await rulesFor({ "src/a.c": "int* p = NULL;\n" })).not.toContain(
+			"ai-slop/cpp-null-literal",
+		);
+	});
+
+	it("flags an object-like #define constant but not function-like macros or header guards", async () => {
+		expect(await rulesFor({ "src/a.cpp": "#define MAX_SIZE 1024\n" })).toContain(
+			"ai-slop/cpp-define-constant",
+		);
+		expect(await rulesFor({ "src/a.cpp": '#define VERSION "1.0"\n' })).toContain(
+			"ai-slop/cpp-define-constant",
+		);
+		expect(await rulesFor({ "src/a.cpp": "#define SQUARE(x) ((x) * (x))\n" })).not.toContain(
+			"ai-slop/cpp-define-constant",
+		);
+		expect(await rulesFor({ "src/a.hpp": "#define MY_HEADER_H\n" })).not.toContain(
+			"ai-slop/cpp-define-constant",
+		);
+	});
+
+	it("flags << std::endl in a stream", async () => {
+		expect(await rulesFor({ "src/lib.cpp": 'void f(){ log << "x" << std::endl; }\n' })).toContain(
+			"ai-slop/cpp-endl-in-stream",
+		);
+	});
 });

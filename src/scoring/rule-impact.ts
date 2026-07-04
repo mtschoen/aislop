@@ -244,6 +244,15 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"ai-slop/cpp-iostream-leftover": style(
 		"Leftover std::cout/std::cerr in library code is visible cleanup unless it leaks data.",
 	),
+	"ai-slop/cpp-null-literal": style(
+		"NULL versus nullptr is a modernization/style finding; nullptr avoids integer-overload pitfalls.",
+	),
+	"ai-slop/cpp-define-constant": style(
+		"A macro constant instead of constexpr is a style/hygiene finding, not a behavior bug.",
+	),
+	"ai-slop/cpp-endl-in-stream": style(
+		"std::endl versus '\\n' is a minor performance/style finding from redundant flushes.",
+	),
 
 	"security/hardcoded-secret": strict("Secret-looking source literals are high-risk."),
 	"security/vulnerable-dependency": strict(

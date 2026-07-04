@@ -240,6 +240,9 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/cpp-c-style-cast` | warning | C-style cast in C++ code; prefer `static_cast` / `reinterpret_cast` for explicitness |
 | `ai-slop/cpp-manual-delete` | warning | Manual `delete` / `delete[]`; prefer `std::unique_ptr` or RAII containers |
 | `ai-slop/cpp-iostream-leftover` | warning | `std::cout` / `std::cerr` left in library code (files without a `main`) |
+| `ai-slop/cpp-null-literal` | warning | `NULL` used in C++ (`.cc`/`.cpp`/`.cxx`/`.hh`/`.hpp`/`.hxx`); prefer `nullptr` |
+| `ai-slop/cpp-define-constant` | warning | Object-like `#define` constant in C++; prefer `constexpr` / `const` |
+| `ai-slop/cpp-endl-in-stream` | warning | `<< std::endl` flushes the stream on every call; prefer `'\n'` |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
 
