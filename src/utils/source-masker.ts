@@ -1,15 +1,19 @@
-type LangFamily = "js" | "py" | "rb" | "php" | "none";
+type LangFamily = "js" | "py" | "rb" | "php" | "c" | "none";
 
 const JS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const PY_EXTS = new Set([".py"]);
 const RB_EXTS = new Set([".rb"]);
 const PHP_EXTS = new Set([".php"]);
+// C-family: C#, C, and C++ (including headers). They share C-style `"..."` /
+// `'...'` literals and `//` + `/* */` comments, so maskSimple handles them.
+const C_EXTS = new Set([".cs", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"]);
 
 const familyForExt = (ext: string): LangFamily => {
 	if (JS_EXTS.has(ext)) return "js";
 	if (PY_EXTS.has(ext)) return "py";
 	if (RB_EXTS.has(ext)) return "rb";
 	if (PHP_EXTS.has(ext)) return "php";
+	if (C_EXTS.has(ext)) return "c";
 	return "none";
 };
 
@@ -320,14 +324,14 @@ const maskSimple = (content: string, family: LangFamily, maskStrings: boolean): 
 			continue;
 		}
 
-		if (family === "php" && c === "/" && next === "/") {
+		if ((family === "php" || family === "c") && c === "/" && next === "/") {
 			const strStart = i;
 			while (i < len && content[i] !== "\n") i++;
 			mask(strStart, i);
 			continue;
 		}
 
-		if (family === "php" && c === "/" && next === "*") {
+		if ((family === "php" || family === "c") && c === "/" && next === "*") {
 			const strStart = i;
 			i += 2;
 			while (i < len - 1 && !(content[i] === "*" && content[i + 1] === "/")) i++;

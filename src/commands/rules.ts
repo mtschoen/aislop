@@ -305,6 +305,8 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"security/dangerously-set-innerhtml",
 			"security/sql-injection",
 			"security/shell-injection",
+			"security/unsafe-deserialization",
+			"security/unsafe-c-call",
 			"security/dependency-audit-skipped",
 		],
 	},

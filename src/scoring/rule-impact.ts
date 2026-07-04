@@ -254,6 +254,12 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"security/dangerously-set-innerhtml": strict("React raw HTML escape hatches can become XSS."),
 	"security/sql-injection": strict("Interpolated SQL can become data exfiltration or mutation."),
 	"security/shell-injection": strict("Interpolated shell commands can become command execution."),
+	"security/unsafe-deserialization": strict(
+		"Deserializing untrusted data with a legacy .NET formatter can become remote code execution.",
+	),
+	"security/unsafe-c-call": strict(
+		"Unbounded C string and process calls can become buffer overflows or command execution.",
+	),
 	"security/dependency-audit-skipped": advisory(
 		"An unavailable audit is visibility loss, not evidence of a vulnerability.",
 	),
