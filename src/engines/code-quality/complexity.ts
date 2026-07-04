@@ -57,13 +57,68 @@ const FUNCTION_PATTERNS: FunctionPattern[] = [
 		// rejects them before \w+ can consume the keyword.
 		regex:
 			/^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:(?!(?:return|if|for|while|switch|do|else|throw|delete|new|break|continue|goto|try|catch)\b)\w+\s+)(\w+)\s*\(([^)]*)\)/,
-		// The full C++ source set (.c/.cc/.cpp/.cxx and the .h/.hh/.hpp/.hxx
-		// headers where inline and class-member bodies live) plus Java and PHP.
-		// Header coverage relies on findBraceFunctionEnd's declaration guard to
-		// skip prototypes (`void foo(int x);`) that carry no body.
-		langFilter: [".java", ".php", ...CPP_SOURCE_EXTENSIONS],
+		// C# (.cs), the full C++ source set (.c/.cc/.cpp/.cxx and the
+		// .h/.hh/.hpp/.hxx headers where inline and class-member bodies live),
+		// plus Java and PHP. Header coverage relies on findBraceFunctionEnd's
+		// declaration guard to skip prototypes (`void foo(int x);`) with no body.
+		langFilter: [".java", ".php", ".cs", ...CPP_SOURCE_EXTENSIONS],
+	},
+	{
+		// C# methods and constructors the single-token pattern above misses: any
+		// run of access/async/etc. modifiers, then an arbitrary return type (which
+		// may be generic/array/qualified/nullable, or absent for a constructor),
+		// then the member name. A modifier is required so bare `Type name(...)`
+		// calls/declarations are not matched. `[^()=;{]` stops the lazy return-type
+		// run before a body brace, an expression-body `=>`, or a field initializer.
+		regex:
+			/^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|async|virtual|override|sealed|abstract|extern|unsafe|new|partial|readonly)\s+)+[^()=;{]*?(\w+)\s*\(([^)]*)\)/,
+		langFilter: [".cs"],
+	},
+	{
+		// C++ out-of-line definitions: `Class::member(...)`, constructors
+		// `Class::Class(...)`, and destructors `Class::~Class(...)`. The `::`
+		// disambiguates from a plain call; a static-call statement that matches
+		// is dropped by findBraceFunctionEnd's `;`-before-`{` declaration guard.
+		regex: /^\s*(?:[\w:<>,*&[\]]+\s+)*?(\w+::~?\w+)\s*\(([^)]*)\)/,
+		langFilter: [...CPP_SOURCE_EXTENSIONS],
 	},
 ];
+
+// Extensions whose function signatures may wrap across multiple physical lines
+// and so need logical-signature joining before the patterns are applied. Scoped
+// to C#/C++ so Java/PHP detection stays byte-identical to the single-line path.
+const MULTILINE_SIGNATURE_EXTS = new Set([".cs", ...CPP_SOURCE_EXTENSIONS]);
+
+// A brace-language signature can span lines (wrapped parameter lists). When the
+// line at `startIndex` opens more parens than it closes, join following lines
+// (up to a small cap, stopping at a statement `;`) so the single-line
+// FUNCTION_PATTERNS can see the whole `name(...)` on one logical line. Newlines
+// become spaces; the reported start line stays `startIndex`.
+const logicalSignatureLine = (lines: string[], startIndex: number): string => {
+	const first = lines[startIndex];
+	let depth = 0;
+	let sawOpen = false;
+	for (const ch of first) {
+		if (ch === "(") {
+			depth++;
+			sawOpen = true;
+		} else if (ch === ")") depth--;
+	}
+	if (!sawOpen || depth <= 0) return first;
+
+	let joined = first;
+	for (let j = startIndex + 1; j < lines.length && j < startIndex + 12; j++) {
+		const line = lines[j];
+		joined += ` ${line}`;
+		for (const ch of line) {
+			if (ch === "(") depth++;
+			else if (ch === ")") depth--;
+		}
+		if (depth <= 0) break;
+		if (line.includes(";")) break;
+	}
+	return joined;
+};
 
 const countParams = (p: string): number => (p.trim() ? p.split(",").length : 0);
 
@@ -117,7 +172,12 @@ export const analyzeFunctions = (content: string, ext: string): FunctionInfo[] =
 	const functions: FunctionInfo[] = [];
 
 	for (let i = 0; i < lines.length; i++) {
-		const fnMatch = matchFunctionOnLine(lines[i], ext);
+		// For C#/C++ match against the masked (string/comment-blanked) source so a
+		// wrapped signature is joined on balanced parens and literals never skew it.
+		const matchLine = MULTILINE_SIGNATURE_EXTS.has(ext)
+			? logicalSignatureLine(maskedLines, i)
+			: lines[i];
+		const fnMatch = matchFunctionOnLine(matchLine, ext);
 		if (!fnMatch) continue;
 
 		const isPython = fnMatch.patternIndex === 2;
@@ -127,6 +187,9 @@ export const analyzeFunctions = (content: string, ext: string): FunctionInfo[] =
 		}
 
 		const { endLine, maxNesting } = findFunctionEnd(lines, maskedLines, i, isPython);
+		// endLine < 0 marks a non-definition (prototype, static-call statement) that
+		// matched a pattern by shape but has no body — skip it entirely.
+		if (endLine < 0) continue;
 		let templateLines: number;
 		let paramCount: number;
 		if (isPython) {

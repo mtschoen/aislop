@@ -787,3 +787,89 @@ describe("checkComplexity — C++ header nesting coverage", () => {
 		expect(nestDiags).toHaveLength(0);
 	});
 });
+
+// C#/C++ function detection: constructors, multi-modifier/complex-return methods,
+// out-of-line (scoped) definitions, and multi-line signatures - plus adversarial
+// cases (calls, control flow, prototypes) that must NOT be counted as functions.
+describe("analyzeFunctions — C#/C++ constructor & multi-line signature detection", () => {
+	const names = (src: string, ext: string) => analyzeFunctions(src, ext).map((f) => f.name);
+
+	it("detects a C# constructor (no return type)", () => {
+		const src = "class C {\n  public C(int a, int b) {\n    if (a) { work(); }\n  }\n}";
+		const fns = analyzeFunctions(src, ".cs");
+		const ctor = fns.find((f) => f.name === "C");
+		expect(ctor).toBeDefined();
+		expect(ctor?.paramCount).toBe(2);
+	});
+
+	it("detects a C# method with multiple modifiers and a generic return type", () => {
+		const src =
+			"class C {\n  public async Task<int> DoAsync(int a) {\n    if (a) { return a; }\n    return 0;\n  }\n}";
+		expect(names(src, ".cs")).toContain("DoAsync");
+	});
+
+	it("detects a C# method with a multi-line (wrapped) signature", () => {
+		const src = "class C {\n  public int Foo(\n    int a,\n    int b) {\n    return a;\n  }\n}";
+		const foo = analyzeFunctions(src, ".cs").find((f) => f.name === "Foo");
+		expect(foo).toBeDefined();
+		expect(foo?.paramCount).toBe(2);
+	});
+
+	it("counts deep nesting inside a C# method (regression: .cs must be detected)", async () => {
+		const body = ["if (a) {", "if (b) {", "if (c) {", "work();", "}", "}", "}"]
+			.map((l) => `      ${l}`)
+			.join("\n");
+		const src = `class C {\n  public void Deep(int a, int b, int c) {\n${body}\n  }\n}`;
+		const filePath = writeFile("Deep.cs", src);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxNesting: 2 }));
+		const nest = diagnostics.filter((d) => d.rule === "complexity/deep-nesting");
+		expect(nest.find((d) => d.detail?.includes("Deep"))).toBeDefined();
+	});
+
+	it("detects a C# too-many-params method", async () => {
+		const src =
+			"class C {\n  public void Many(int a, int b, int c, int d, int e, int f, int g) {\n    work();\n  }\n}";
+		const filePath = writeFile("Many.cs", src);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const params = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(params.find((d) => d.detail?.includes("Many"))).toBeDefined();
+	});
+
+	it("detects C++ out-of-line scoped method, constructor, and destructor", () => {
+		expect(names("void Widget::doThing(int a) {\n  work();\n}", ".cpp")).toContain(
+			"Widget::doThing",
+		);
+		expect(names("Widget::Widget(int a) {\n  init();\n}", ".cpp")).toContain("Widget::Widget");
+		expect(names("Widget::~Widget() {\n  cleanup();\n}", ".cpp")).toContain("Widget::~Widget");
+	});
+
+	it("detects a C++ method with a multi-line (wrapped) signature", () => {
+		const src =
+			"int compute(\n    int a,\n    int b) {\n  if (a) { if (b) { return a; } }\n  return 0;\n}";
+		const compute = analyzeFunctions(src, ".cpp").find((f) => f.name === "compute");
+		expect(compute).toBeDefined();
+		expect(compute?.maxNesting).toBe(2);
+		expect(compute?.paramCount).toBe(2);
+	});
+
+	it("does NOT count C# method calls or control-flow as functions", () => {
+		const src =
+			"class C {\n  void M() {\n    Console.WriteLine(x);\n    DoThing(a, b);\n    if (a) { }\n    foreach (var x in y) { }\n  }\n}";
+		expect(names(src, ".cs")).toEqual(["M"]);
+	});
+
+	it("does NOT count a C# field initializer or property as a function", () => {
+		const src =
+			"class C {\n  public static readonly int[] V = Build(x);\n  public int Count { get; set; }\n}";
+		expect(analyzeFunctions(src, ".cs")).toHaveLength(0);
+	});
+
+	it("does NOT count a C++ static-call statement as a function", () => {
+		const src = "void M() {\n  Foo::Bar(a, b, c, d, e, f, g);\n}";
+		expect(names(src, ".cpp")).toEqual(["M"]);
+	});
+
+	it("does NOT count a C++ prototype in a header as a function", () => {
+		expect(analyzeFunctions("class C {\n  void declaredOnly(int x);\n};", ".hpp")).toHaveLength(0);
+	});
+});
