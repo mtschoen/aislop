@@ -100,7 +100,15 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 1. Pick the right file in `src/engines/ai-slop/` (or create a new one)
 2. Write a detector function returning `Diagnostic[]`
 3. Use string concatenation to avoid self-detection (see above)
-4. Register the rule in `src/commands/rules.ts` (`BUILTIN_RULES` array)
+4. Register the new rule id in **every** place the consistency-gate tests
+   check, or `pnpm vitest run` will fail (this applies to any new rule id in
+   any engine, not just ai-slop):
+   - `src/commands/rules.ts` (`BUILTIN_RULES` array)
+   - `src/output/rule-labels.ts` - **two** maps: the short label map and the
+     longer description map
+   - `src/scoring/rule-impact.ts` - a score-impact classification
+     (`strict` / `standard` / `maintainability` / `style` / `advisory`)
+   - `docs/rules.md` - a table row (the catalog test asserts this)
 5. Write tests in `tests/`
 6. Validate: `pnpm typecheck && pnpm vitest run && pnpm scan`
 
