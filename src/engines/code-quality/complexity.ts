@@ -82,6 +82,17 @@ const FUNCTION_PATTERNS: FunctionPattern[] = [
 		regex: /^\s*(?:[\w:<>,*&[\]]+\s+)*?(\w+::~?\w+)\s*\(([^)]*)\)/,
 		langFilter: [...CPP_SOURCE_EXTENSIONS],
 	},
+	{
+		// Bare in-class C++ constructors/destructors (`Widget(int a) {`,
+		// `~Widget() {`), which have no return type or scope to key off. The
+		// negative lookahead rejects control-flow keywords, and the tail must be a
+		// body `{`, a member-init list `:`, a trailing qualifier, or end-of-line -
+		// so call/expression statements (`foo(a);`, `foo(a) + b`) never match.
+		// Restricted to C++-only extensions so C/K&R definitions are not caught.
+		regex:
+			/^\s*(?:explicit\s+|constexpr\s+|inline\s+|virtual\s+)*(?!(?:if|for|while|switch|do|else|catch|return|throw|sizeof|new|delete|typeid|static_assert|decltype|case|goto)\b)(~?\w+)\s*\(([^)]*)\)\s*(?:const\b|noexcept\b|override\b|final\b|\s)*(?::|\{|$)/,
+		langFilter: [".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
+	},
 ];
 
 // Extensions whose function signatures may wrap across multiple physical lines

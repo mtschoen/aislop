@@ -872,4 +872,31 @@ describe("analyzeFunctions — C#/C++ constructor & multi-line signature detecti
 	it("does NOT count a C++ prototype in a header as a function", () => {
 		expect(analyzeFunctions("class C {\n  void declaredOnly(int x);\n};", ".hpp")).toHaveLength(0);
 	});
+
+	it("detects bare in-class C++ constructors and destructors", () => {
+		expect(names("class C {\n  Widget(int a) {\n    init();\n  }\n};", ".cpp")).toContain("Widget");
+		expect(names("class C {\n  ~Widget() {\n    cleanup();\n  }\n};", ".cpp")).toContain("~Widget");
+		expect(names("class C {\n  Widget(int a) : x_(a) {\n    init();\n  }\n};", ".cpp")).toContain(
+			"Widget",
+		);
+	});
+
+	it("counts nesting inside a bare in-class C++ constructor", () => {
+		const src = "class C {\n  Widget(int a) {\n    if (a) { if (a) { if (a) { go(); } } }\n  }\n};";
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget");
+		expect(ctor?.maxNesting).toBe(3);
+	});
+
+	it("does NOT mistake C++ control-flow or calls for bare constructors", () => {
+		expect(names("void M() {\n  if (a) { }\n  while (b) { }\n  switch (c) { }\n}", ".cpp")).toEqual(
+			["M"],
+		);
+		expect(names("void M() {\n  doThing(a, b);\n  int y = foo(a) + bar(b);\n}", ".cpp")).toEqual([
+			"M",
+		]);
+	});
+
+	it("does NOT apply bare-constructor detection to C (.c) files", () => {
+		expect(analyzeFunctions("Widget(a) {\n  init();\n}", ".c")).toHaveLength(0);
+	});
 });
