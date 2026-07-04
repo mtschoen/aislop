@@ -20,6 +20,7 @@ interface PackageManifest {
 	hasPyManifest: boolean;
 	rootHasPyManifest: boolean;
 	pyScopes: PythonDependencyScope[];
+	workspaceDeps: Set<string> | null;
 }
 
 const readJson = (filePath: string): unknown => {
@@ -99,8 +100,17 @@ const collectJsDeps = (rootDir: string, jsDeps: Set<string>): boolean => {
 const loadManifest = (rootDir: string): PackageManifest => {
 	const jsDeps = new Set<string>();
 	const hasJsManifest = collectJsDeps(rootDir, jsDeps);
-	const { pyDeps, hasPyManifest, rootHasPyManifest, scopes } = collectPythonDeps(rootDir);
-	return { jsDeps, pyDeps, hasJsManifest, hasPyManifest, rootHasPyManifest, pyScopes: scopes };
+	const { pyDeps, hasPyManifest, rootHasPyManifest, scopes, workspaceDeps } =
+		collectPythonDeps(rootDir);
+	return {
+		jsDeps,
+		pyDeps,
+		hasJsManifest,
+		hasPyManifest,
+		rootHasPyManifest,
+		pyScopes: scopes,
+		workspaceDeps,
+	};
 };
 
 const isJsRelativeOrAbsolute = (spec: string): boolean =>
@@ -309,7 +319,11 @@ const pythonDepsForFile = (
 		.sort((a, b) => b.directory.length - a.directory.length)[0];
 	if (nestedScope) mergeDeps(deps, nestedScope.pyDeps);
 
-	if (!manifest.rootHasPyManifest && !nestedScope) return null;
+	// uv workspace: a single lockfile/.venv is shared across members, so every
+	// file may import the root-declared deps and any sibling member package.
+	if (manifest.workspaceDeps) mergeDeps(deps, manifest.workspaceDeps);
+
+	if (!manifest.rootHasPyManifest && !nestedScope && !manifest.workspaceDeps) return null;
 	if (deps.size === 0 && manifest.pyDeps.size > 0) return manifest.pyDeps;
 	return deps;
 };
