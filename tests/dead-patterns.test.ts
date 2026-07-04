@@ -664,6 +664,67 @@ describe("dead code patterns", () => {
 		const constant = diagnostics.filter((d) => d.rule === "ai-slop/constant-condition");
 		expect(constant.length).toBe(1);
 	});
+
+	it("detects unreachable code after return in a C# method", async () => {
+		const filePath = writeFile(
+			"Svc.cs",
+			["class C {", "  int F() {", "    return 42;", "    var x = 1;", "  }", "}"].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(1);
+	});
+
+	it("detects unreachable code after throw in a C++ function", async () => {
+		const filePath = writeFile(
+			"a.cpp",
+			["int f() {", '  throw std::runtime_error("x");', "  return 0;", "}"].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(1);
+	});
+
+	it("does not flag a closing brace after return in C++", async () => {
+		const filePath = writeFile("b.cpp", ["int f() {", "  return 0;", "}"].join("\n"));
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(0);
+	});
+
+	it("does not flag a one-line guarded return in C# (early exit)", async () => {
+		const filePath = writeFile(
+			"Guard.cs",
+			[
+				"class C {",
+				"  int F(int k) {",
+				"    if (k == 0) return 1;",
+				"    return Compute(k);",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(0);
+	});
+
+	it("does not flag unreachable code that is only inside a C++ comment", async () => {
+		const filePath = writeFile(
+			"c.cpp",
+			["int f() {", "  return 0;", "  // var x = 1; (explanatory note)", "}"].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(0);
+	});
+
+	it("detects a constant condition in a C++ file", async () => {
+		const filePath = writeFile("d.cpp", "void f() { if (false) { run(); } }");
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const constant = diagnostics.filter((d) => d.rule === "ai-slop/constant-condition");
+		expect(constant.length).toBe(1);
+	});
 });
 
 // ─── Unsafe Type Assertions ──────────────────────────────────────────────────
