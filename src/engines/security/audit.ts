@@ -27,9 +27,9 @@ export const shouldRunDependencyAudit = (context: EngineContext): boolean => {
 // Dependency metadata that makes pip-audit meaningful for this project (mirrors the
 // PYTHON_SIGNALS used for language detection). A bare `pip-audit` invocation audits the
 // ambient Python environment aislop runs under, not the repo, so when none of these is
-// present - e.g. a source-only tree detected as Python - the dependency audit must stay
-// off rather than report environment vulnerabilities against a requirements.txt that does
-// not exist.
+// present - e.g. a source-only tree now detected as Python, or an unscoped run with no
+// `context.files` - the dependency audit must stay off rather than report environment
+// vulnerabilities against a requirements.txt that does not exist.
 const PYTHON_DEPENDENCY_MANIFESTS = [
 	"requirements.txt",
 	"pyproject.toml",
