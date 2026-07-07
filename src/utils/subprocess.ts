@@ -6,6 +6,59 @@ interface SubprocessResult {
 	exitCode: number | null;
 }
 
+// Windows caps a process's total command line around 32767 characters; other
+// platforms are more permissive but a conservative shared limit keeps one code
+// path for every OS. Chunking by file count too keeps a single invocation from
+// paying for an unbounded amount of a tool's own per-file startup/parse work.
+const DEFAULT_CHUNK_MAX_FILES = 200;
+const DEFAULT_CHUNK_MAX_CHARS = 25000;
+
+// Group file paths into batches that each fit a single subprocess invocation,
+// respecting both a character budget (command line length) and a file-count
+// cap. A lone file longer than the character budget still gets its own chunk
+// rather than being dropped or split.
+export const chunkFilePaths = (
+	filePaths: string[],
+	maxFiles: number = DEFAULT_CHUNK_MAX_FILES,
+	maxChars: number = DEFAULT_CHUNK_MAX_CHARS,
+): string[][] => {
+	const chunks: string[][] = [];
+	let current: string[] = [];
+	let currentChars = 0;
+	for (const filePath of filePaths) {
+		const addedChars = filePath.length + 1; // +1 for the separating space
+		const overflowsChunk =
+			current.length > 0 && (current.length >= maxFiles || currentChars + addedChars > maxChars);
+		if (overflowsChunk) {
+			chunks.push(current);
+			current = [];
+			currentChars = 0;
+		}
+		current.push(filePath);
+		currentChars += addedChars;
+	}
+	if (current.length > 0) chunks.push(current);
+	return chunks;
+};
+
+// True when a runSubprocess rejection means the tool binary itself could not be
+// found (ENOENT from the underlying spawn). Callers gate on `installedTools`
+// before invoking a tool at all, so this should be rare in practice, but it is
+// the expected-and-silent case: the current UX for a missing optional tool is
+// to say nothing. Anything else - a timeout, an oversized argv, a real spawn
+// error - is a tool that IS present failing to run, which must not be swallowed
+// the same way (see warnSubprocessFailure).
+export const isMissingToolError = (error: unknown): boolean =>
+	error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";
+
+// Surface a real invocation failure (not a missing tool) instead of silently
+// returning no findings. Writes to stderr, never stdout, so it cannot corrupt
+// `--json`/`--sarif` output, which is a single machine-readable blob on stdout.
+export const warnSubprocessFailure = (tool: string, error: unknown): void => {
+	const message = error instanceof Error ? error.message : String(error);
+	console.error(`aislop: ${tool} failed to run and was skipped: ${message}`);
+};
+
 export const runSubprocess = (
 	command: string,
 	args: string[],
@@ -50,8 +103,14 @@ export const runSubprocess = (
 			timer.unref();
 		}
 
-		child.once("error", (error) =>
-			finalize(() => reject(new Error(`Failed to run ${command}: ${error.message}`))),
+		child.once("error", (error: NodeJS.ErrnoException) =>
+			finalize(() => {
+				const wrapped: NodeJS.ErrnoException = new Error(
+					`Failed to run ${command}: ${error.message}`,
+				);
+				if (error.code) wrapped.code = error.code;
+				reject(wrapped);
+			}),
 		);
 		child.once("close", (code) => {
 			finalize(() =>

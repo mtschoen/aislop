@@ -1,9 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { relativePosix } from "../../utils/paths.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import { chunkFilePaths, runSubprocess } from "../../utils/subprocess.js";
 import { findCppSources, findCppSourcesForRoot } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
+
+// Re-exported from utils/subprocess.js, which is the shared home for chunking
+// (command-line construction); cppcheck.ts and clang-tidy.ts import it directly
+// from there, this re-export just keeps existing imports/tests in this file working.
+export { chunkFilePaths };
 
 const CONFIG_NAMES = [".clang-format", "_clang-format"];
 
@@ -26,41 +31,6 @@ const formattingDiagnostic = (relativeFilePath: string): Diagnostic => ({
 	category: "Format",
 	fixable: true,
 });
-
-// Windows caps a process's total command line around 32767 characters; other
-// platforms are more permissive but a conservative shared limit keeps one code
-// path for every OS. Chunking by file count too keeps a single invocation from
-// paying for an unbounded amount of clang-format's own per-file parse work.
-const CHUNK_MAX_FILES = 200;
-const CHUNK_MAX_CHARS = 25000;
-
-// Group file paths into batches that each fit a single clang-format invocation,
-// respecting both a character budget (command line length) and a file-count
-// cap. A lone file longer than the character budget still gets its own chunk
-// rather than being dropped or split.
-export const chunkFilePaths = (
-	filePaths: string[],
-	maxFiles: number = CHUNK_MAX_FILES,
-	maxChars: number = CHUNK_MAX_CHARS,
-): string[][] => {
-	const chunks: string[][] = [];
-	let current: string[] = [];
-	let currentChars = 0;
-	for (const filePath of filePaths) {
-		const addedChars = filePath.length + 1; // +1 for the separating space
-		const overflowsChunk =
-			current.length > 0 && (current.length >= maxFiles || currentChars + addedChars > maxChars);
-		if (overflowsChunk) {
-			chunks.push(current);
-			current = [];
-			currentChars = 0;
-		}
-		current.push(filePath);
-		currentChars += addedChars;
-	}
-	if (current.length > 0) chunks.push(current);
-	return chunks;
-};
 
 // clang-format's --dry-run --Werror prints one line per formatting violation on
 // stderr: `<file>:<line>:<col>: error: code should be clang-formatted
