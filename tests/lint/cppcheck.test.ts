@@ -1,9 +1,22 @@
-import { describe, expect, it } from "vitest";
-import {
-	buildCppcheckArgs,
-	CPP_LINT_DEFAULTS,
-	parseCppcheckXml,
-} from "../../src/engines/lint/cppcheck.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { EngineContext } from "../../src/engines/types.js";
+
+const { runSubprocess, chunkFilePaths } = vi.hoisted(() => ({
+	runSubprocess: vi.fn(),
+	chunkFilePaths: vi.fn(),
+}));
+
+vi.mock("../../src/utils/subprocess.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../src/utils/subprocess.js")>();
+	return { ...actual, runSubprocess, chunkFilePaths };
+});
+
+const { buildCppcheckArgs, CPP_LINT_DEFAULTS, parseCppcheckXml, runCppcheck } = await import(
+	"../../src/engines/lint/cppcheck.js"
+);
 
 describe("buildCppcheckArgs", () => {
 	it("passes --language=c++ for a C++ tree and suppresses parse-context diagnostics", () => {
@@ -21,6 +34,13 @@ describe("buildCppcheckArgs", () => {
 		expect(args).not.toContain("--language=c++");
 		// parse-context suppressions still apply regardless of language.
 		expect(args).toContain("--suppress=syntaxError");
+	});
+
+	it("honors an explicit isCppTree flag instead of re-deriving it from a chunk", () => {
+		// A chunk containing only .c files must still get --language=c++ when the
+		// caller already determined (from the whole source set) that the tree is C++.
+		const args = buildCppcheckArgs(["/p/a.c"], CPP_LINT_DEFAULTS, true);
+		expect(args).toContain("--language=c++");
 	});
 });
 
@@ -61,5 +81,86 @@ describe("parseCppcheckXml", () => {
 	it("returns [] on empty or junk input", () => {
 		expect(parseCppcheckXml("", "/repo")).toEqual([]);
 		expect(parseCppcheckXml("not xml", "/repo")).toEqual([]);
+	});
+});
+
+const makeContext = (rootDirectory: string, files: string[]): EngineContext =>
+	({
+		rootDirectory,
+		files,
+		config: { lint: {} },
+	}) as unknown as EngineContext;
+
+describe("runCppcheck - chunked invocation", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		runSubprocess.mockReset();
+		chunkFilePaths.mockReset();
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-cppcheck-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("runs one cppcheck invocation per chunk and merges diagnostics across them", async () => {
+		const fileA = path.join(dir, "a.cpp");
+		const fileB = path.join(dir, "b.cpp");
+		fs.writeFileSync(fileA, "int a;\n");
+		fs.writeFileSync(fileB, "int b;\n");
+
+		// Force two chunks (one file each) regardless of the real file-count/char
+		// thresholds, so the merge logic is exercised without hundreds of real files.
+		chunkFilePaths.mockImplementation((sources: string[]) => sources.map((source) => [source]));
+
+		runSubprocess
+			.mockResolvedValueOnce({
+				stdout: "",
+				stderr:
+					'<results><errors><error id="nullPointer" severity="error" msg="bad a"><location file="a.cpp" line="1" column="1"/></error></errors></results>',
+				exitCode: 1,
+			})
+			.mockResolvedValueOnce({
+				stdout: "",
+				stderr:
+					'<results><errors><error id="nullPointer" severity="error" msg="bad b"><location file="b.cpp" line="1" column="1"/></error></errors></results>',
+				exitCode: 1,
+			});
+
+		const diagnostics = await runCppcheck(makeContext(dir, [fileA, fileB]));
+
+		expect(runSubprocess).toHaveBeenCalledTimes(2);
+		expect(diagnostics.map((d) => d.message).sort()).toEqual(["bad a", "bad b"]);
+	});
+
+	it("logs a warning and returns [] for a chunk when cppcheck is present but the invocation fails", async () => {
+		const fileA = path.join(dir, "a.cpp");
+		fs.writeFileSync(fileA, "int a;\n");
+		chunkFilePaths.mockImplementation((sources: string[]) => [sources]);
+		runSubprocess.mockRejectedValueOnce(new Error("Command timed out after 180000ms: cppcheck"));
+		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const diagnostics = await runCppcheck(makeContext(dir, [fileA]));
+
+		expect(diagnostics).toEqual([]);
+		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy.mock.calls[0][0]).toContain("cppcheck");
+		warnSpy.mockRestore();
+	});
+
+	it("stays silent when cppcheck itself is missing (ENOENT)", async () => {
+		const fileA = path.join(dir, "a.cpp");
+		fs.writeFileSync(fileA, "int a;\n");
+		chunkFilePaths.mockImplementation((sources: string[]) => [sources]);
+		const enoent = Object.assign(new Error("spawn cppcheck ENOENT"), { code: "ENOENT" });
+		runSubprocess.mockRejectedValueOnce(enoent);
+		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const diagnostics = await runCppcheck(makeContext(dir, [fileA]));
+
+		expect(diagnostics).toEqual([]);
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
 	});
 });

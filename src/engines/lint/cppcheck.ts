@@ -1,9 +1,19 @@
 import path from "node:path";
 import { toPosix } from "../../utils/paths.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import {
+	chunkFilePaths,
+	isMissingToolError,
+	runSubprocess,
+	warnSubprocessFailure,
+} from "../../utils/subprocess.js";
 import { findCppSources, hasCppOnlySources } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 import type { JbSeverity } from "./jb.js";
+
+// cppcheck's own per-invocation overhead (loading suppressions, enabling check
+// groups) is higher than clang-format's, so allow more files per chunk before
+// the character budget - unchanged from the shared default - becomes binding.
+const CPPCHECK_CHUNK_MAX_FILES = 500;
 
 interface CppLintConfig {
 	cppcheck: boolean;
@@ -65,9 +75,17 @@ const PARSE_CONTEXT_SUPPRESSIONS = [
 
 // Build the cppcheck argv. Pass --language=c++ for C++ trees so cppcheck stops
 // treating ambiguous `.h` headers as C and rejecting C++ constructs in them.
-export const buildCppcheckArgs = (sources: string[], config: CppLintConfig): string[] => {
+// `isCppTree` defaults to inferring from `sources` (the historical, unchunked
+// behavior); a chunked caller passes the flag decided once from the *whole*
+// source set instead, so the language flag stays consistent across chunks
+// regardless of how a chunk boundary happens to split C++-only extensions.
+export const buildCppcheckArgs = (
+	sources: string[],
+	config: CppLintConfig,
+	isCppTree: boolean = hasCppOnlySources(sources),
+): string[] => {
 	const args = [`--enable=${config.cppcheckEnable}`, "--inline-suppr", "--quiet"];
-	if (hasCppOnlySources(sources)) args.push("--language=c++");
+	if (isCppTree) args.push("--language=c++");
 	for (const id of PARSE_CONTEXT_SUPPRESSIONS) args.push(`--suppress=${id}`);
 	args.push("--xml", "--xml-version=2", ...sources);
 	return args;
@@ -114,18 +132,33 @@ export const parseCppcheckXml = (xml: string, rootDirectory: string): Diagnostic
 	return out;
 };
 
+// One cppcheck invocation per chunk of sources (see chunkFilePaths): passing every
+// discovered C/C++ file to a single invocation can exceed the OS command-line
+// length limit on a large enough tree, which fails the spawn outright. Findings
+// merge across chunks; chunks are disjoint file sets, and downstream
+// dedupeCppDiagnostics already collapses the same (file, line, rule) reported more
+// than once - which can happen even within one unchunked invocation, when a shared
+// header's issue surfaces once per translation unit that includes it - so chunking
+// introduces no new duplication concern.
 export const runCppcheck = async (context: EngineContext): Promise<Diagnostic[]> => {
 	const sources = findCppSources(context);
 	if (sources.length === 0) return [];
 	const config = resolveCppLintConfig(context);
-	try {
-		// cppcheck writes its XML report to STDERR.
-		const result = await runSubprocess("cppcheck", buildCppcheckArgs(sources, config), {
-			cwd: context.rootDirectory,
-			timeout: 180000,
-		});
-		return parseCppcheckXml(result.stderr, context.rootDirectory);
-	} catch {
-		return [];
+	const isCppTree = hasCppOnlySources(sources);
+	const diagnostics: Diagnostic[] = [];
+	for (const chunk of chunkFilePaths(sources, CPPCHECK_CHUNK_MAX_FILES)) {
+		try {
+			// cppcheck writes its XML report to STDERR.
+			const result = await runSubprocess("cppcheck", buildCppcheckArgs(chunk, config, isCppTree), {
+				cwd: context.rootDirectory,
+				timeout: 180000,
+			});
+			diagnostics.push(...parseCppcheckXml(result.stderr, context.rootDirectory));
+		} catch (error) {
+			// A missing binary is gated out before this ever runs (installedTools.cppcheck);
+			// anything else is cppcheck present but failing, which must not go silent.
+			if (!isMissingToolError(error)) warnSubprocessFailure("cppcheck", error);
+		}
 	}
+	return diagnostics;
 };
