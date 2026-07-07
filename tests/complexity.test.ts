@@ -834,6 +834,41 @@ describe("analyzeFunctions — C#/C++ constructor & multi-line signature detecti
 		expect(names(src, ".cs")).toContain("DoAsync");
 	});
 
+	// Regression (MFTLib dogfood): a statement-position multi-line awaited call
+	// (`await WriteFrameAsync(...)` with a `.ConfigureAwait(false);` continuation)
+	// was once shape-matched as a function definition, and brace-scanning from it
+	// swallowed the rest of the enclosing method - misreporting the real method as
+	// too long. The call must not register as a function, and the enclosing
+	// method's length must stay correct.
+	it("does not treat a multi-line awaited call as a C# function definition", () => {
+		const src = [
+			"class C",
+			"{",
+			"    public async Task StopAsync()",
+			"    {",
+			"        try",
+			"        {",
+			"            await WriteFrameAsync(BrokerProtocol.WriteEndWatch, CancellationToken.None)",
+			"                .ConfigureAwait(false);",
+			"        }",
+			"        catch (Exception exception) when (exception is not OperationCanceledException)",
+			"        {",
+			"            _ = exception;",
+			"        }",
+			"    }",
+			"",
+			"    public int After()",
+			"    {",
+			"        return 1;",
+			"    }",
+			"}",
+		].join("\n");
+		const fns = analyzeFunctions(src, ".cs");
+		expect(fns.map((f) => f.name)).toEqual(["StopAsync", "After"]);
+		const stop = fns.find((f) => f.name === "StopAsync");
+		expect(stop?.lineCount).toBe(12);
+	});
+
 	it("detects a C# method with a multi-line (wrapped) signature", () => {
 		const src = "class C {\n  public int Foo(\n    int a,\n    int b) {\n    return a;\n  }\n}";
 		const foo = analyzeFunctions(src, ".cs").find((f) => f.name === "Foo");
