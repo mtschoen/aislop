@@ -284,7 +284,11 @@ const collectNestedScopes = (rootDir: string): PythonDependencyScope[] => {
 
 		for (const entry of entries) {
 			if (!entry.isDirectory()) continue;
-			if (entry.name.startsWith(".") || SKIP_MANIFEST_DIRS.has(entry.name)) continue;
+			// Dot-directories are not blanket-skipped here: CI tooling commonly lives
+			// under .ci, .github, .circleci, etc. with its own requirements.txt, and
+			// files under it need that scope. Known noise directories (.git, .venv,
+			// caches, ...) are excluded explicitly via SKIP_MANIFEST_DIRS instead.
+			if (SKIP_MANIFEST_DIRS.has(entry.name)) continue;
 			walk(path.join(dir, entry.name), depth + 1);
 		}
 	};
