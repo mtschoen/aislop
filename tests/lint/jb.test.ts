@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { lintEngine } from "../../src/engines/lint/index.js";
 import {
 	buildJbProjectScope,
@@ -123,6 +124,31 @@ describe("runJbLint gating", () => {
 		expect(
 			await runJbLint(ctx("/nonexistent-xyz"), { includeCsharp: true, includeCpp: false }),
 		).toEqual([]);
+	});
+});
+
+describe("runJbLint restore-evidence gating", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-jb-gate-"));
+		fs.writeFileSync(path.join(tmpDir, "Cold.csproj"), "");
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("emits the skip notice instead of inspecting a cold project", async () => {
+		const diags = await runJbLint(ctx(tmpDir), { includeCsharp: true, includeCpp: false });
+		expect(diags).toHaveLength(1);
+		expect(diags[0].rule).toBe("dotnet/projects-skipped");
+		expect(diags[0].severity).toBe("info");
+	});
+
+	it("stays silent about C# projects when only C++ inspection was requested", async () => {
+		const diags = await runJbLint(ctx(tmpDir), { includeCsharp: false, includeCpp: true });
+		expect(diags).toEqual([]);
 	});
 });
 

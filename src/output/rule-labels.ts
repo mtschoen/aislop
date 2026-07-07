@@ -83,6 +83,7 @@ const RULE_LABELS: Record<string, string> = {
 	"security/shell-injection": "Possible shell injection",
 	"security/unsafe-deserialization": "Unsafe deserialization",
 	"security/unsafe-c-call": "Memory-unsafe C call",
+	"dotnet/projects-skipped": "C# projects skipped by build-backed lint",
 	"eslint/no-undef": "Undefined identifier",
 	"eslint/no-unused-vars": "Unused variable",
 	"eslint/no-unassigned-vars": "Variable never assigned",
@@ -170,6 +171,8 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"security/shell-injection": "Shell command is built from unsanitized input.",
 	"security/unsafe-deserialization": "Legacy .NET formatter can deserialize arbitrary types (RCE).",
 	"security/unsafe-c-call": "Unbounded C string/exec function with buffer-overflow or shell risk.",
+	"dotnet/projects-skipped":
+		"Build-backed C# lint only ran on restored projects; the rest were skipped.",
 	"oxlint/*": "JavaScript/TypeScript lint finding from oxlint.",
 	"ruff/*": "Python lint finding from ruff.",
 	"go/*": "Go lint finding from bundled checks.",

@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseRoslynatorXml } from "../../src/engines/lint/dotnet.js";
 import { lintEngine } from "../../src/engines/lint/index.js";
 import type { EngineContext } from "../../src/engines/types.js";
@@ -87,5 +88,33 @@ describe("lintEngine dotnet gating", () => {
 	it("returns [] when roslynator is installed but no .csproj/.sln target exists", async () => {
 		const result = await lintEngine.run(csharpContext("/nonexistent", { roslynator: true }));
 		expect(result.diagnostics).toEqual([]);
+	});
+});
+
+describe("lintEngine restore-evidence gating", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-dotnet-gate-"));
+		fs.mkdirSync(path.join(tmpDir, "src"));
+		fs.writeFileSync(path.join(tmpDir, "src", "Cold.csproj"), "");
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("emits one info notice instead of analyzing a cold project", async () => {
+		const result = await lintEngine.run(csharpContext(tmpDir, { roslynator: true }));
+		const notices = result.diagnostics.filter((d) => d.rule === "dotnet/projects-skipped");
+		expect(notices).toHaveLength(1);
+		expect(notices[0].severity).toBe("info");
+		expect(result.diagnostics).toEqual(notices);
+	});
+
+	it("dedupes the notice when both roslynator and jb lint the same cold project", async () => {
+		const result = await lintEngine.run(csharpContext(tmpDir, { roslynator: true, jb: true }));
+		const notices = result.diagnostics.filter((d) => d.rule === "dotnet/projects-skipped");
+		expect(notices).toHaveLength(1);
 	});
 });

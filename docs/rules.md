@@ -40,6 +40,8 @@ The C# lint pass is a **hybrid of two independently togglable tools** that both 
 
 Both tools run by default when available: each runs only when it is enabled (both default to on) AND its CLI is installed AND a `.csproj`/`.sln` is present. Missing tooling is silently skipped.
 
+**Restore-evidence gate.** With a solution file at the repo root, the whole solution is analyzed in one pass. Without one, both tools fan out per `.csproj` - and every project costs a full MSBuild workspace load, so aislop only analyzes projects with restore evidence (`obj/project.assets.json`, written by `dotnet restore` or a build), capped at 32 projects per scan. Skipped projects are reported once per scan as an advisory `dotnet/projects-skipped` info diagnostic rather than silently dropped. This is the C# analogue of clang-tidy gating on `compile_commands.json`: on a cold checkout the build-backed passes step aside instead of serially burning their timeouts, and the text-tier C# rules still run. `dotnet format` applies the same gate silently.
+
 #### jb inspectcode (`jb/*`)
 
 Rules are named `jb/<ReSharper-inspection-id>`, e.g. `jb/RedundantUsingDirective`. jb inspectcode produces ReSharper-native inspections across the full solution.
@@ -71,6 +73,7 @@ Shells out to the [`roslynator`](https://github.com/dotnet/roslynator) CLI and r
 | `dotnet/MA0040` / `MA0042` / `MA0045` | Meziantou async/`Task` best practices (cancellation tokens, blocking calls) |
 | `dotnet/CS0219` / `CS0162` | Unused variable / unreachable code (compiler diagnostics) |
 | `dotnet/IDISP001` | An `IDisposable` is created but never disposed (resource leak; from IDisposableAnalyzers) |
+| `dotnet/projects-skipped` | Advisory notice: projects without restore evidence (or beyond the 32-project cap) were not analyzed by the build-backed passes |
 
 **Install:**
 

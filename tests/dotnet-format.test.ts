@@ -1,6 +1,18 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { parseDotnetFormatReport } from "../src/engines/format/dotnet-format.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	parseDotnetFormatReport,
+	runDotnetFormat,
+} from "../src/engines/format/dotnet-format.js";
+import type { EngineContext } from "../src/engines/types.js";
+
+const { runSubprocessMock } = vi.hoisted(() => ({ runSubprocessMock: vi.fn() }));
+vi.mock("../src/utils/subprocess.js", async (importOriginal) => {
+	const original = await importOriginal<typeof import("../src/utils/subprocess.js")>();
+	return { ...original, runSubprocess: runSubprocessMock };
+});
 
 const ROOT = path.join(path.sep, "repo");
 
@@ -60,5 +72,47 @@ describe("parseDotnetFormatReport", () => {
 		expect(parseDotnetFormatReport("", ROOT)).toEqual([]);
 		expect(parseDotnetFormatReport("not json", ROOT)).toEqual([]);
 		expect(parseDotnetFormatReport(JSON.stringify({ projects: [] }), ROOT)).toEqual([]);
+	});
+});
+
+describe("runDotnetFormat restore-evidence gating", () => {
+	let tmpDir: string;
+
+	const formatContext = (rootDirectory: string): EngineContext => ({
+		rootDirectory,
+		languages: ["csharp"],
+		frameworks: [],
+		installedTools: { dotnet: true },
+		config: {
+			quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
+			security: { audit: false, auditTimeout: 0 },
+			lint: { typecheck: false },
+		},
+	});
+
+	beforeEach(() => {
+		runSubprocessMock.mockReset();
+		runSubprocessMock.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-format-gate-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("formats only projects with restore evidence, silently skipping cold ones", async () => {
+		const warmDir = path.join(tmpDir, "Warm");
+		fs.mkdirSync(path.join(warmDir, "obj"), { recursive: true });
+		const warm = path.join(warmDir, "Warm.csproj");
+		fs.writeFileSync(warm, "");
+		fs.writeFileSync(path.join(warmDir, "obj", "project.assets.json"), "{}");
+		fs.mkdirSync(path.join(tmpDir, "Cold"));
+		fs.writeFileSync(path.join(tmpDir, "Cold", "Cold.csproj"), "");
+
+		const diagnostics = await runDotnetFormat(formatContext(tmpDir));
+
+		expect(diagnostics).toEqual([]);
+		expect(runSubprocessMock).toHaveBeenCalledTimes(1);
+		expect(runSubprocessMock.mock.calls[0][1]).toContain(warm);
 	});
 });
