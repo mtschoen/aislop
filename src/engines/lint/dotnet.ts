@@ -3,7 +3,7 @@ import path from "node:path";
 import { toPosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
-import { findDotnetTargets } from "../dotnet-targets.js";
+import { findDotnetTargets, projectsSkippedNotice } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
 // Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
@@ -125,15 +125,16 @@ const analyzeTarget = async (
 };
 
 export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[]> => {
-	const targets = findDotnetTargets(context);
-	if (targets.length === 0) return [];
+	const selection = findDotnetTargets(context);
+	const notice = projectsSkippedNotice(selection, context.rootDirectory);
+	if (selection.targets.length === 0) return notice;
 	const roslynator = resolveToolBinary("roslynator");
 	// Bundled analyzers extend coverage to projects that don't reference them;
 	// when none are bundled, roslynator still runs the project's own analyzers.
 	const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
 	const diagnostics: Diagnostic[] = [];
-	for (const target of targets) {
+	for (const target of selection.targets) {
 		diagnostics.push(...(await analyzeTarget(context, roslynator, analyzerAssemblies, target)));
 	}
-	return diagnostics;
+	return [...diagnostics, ...notice];
 };

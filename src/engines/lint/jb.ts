@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
-import { findJbTargets } from "../dotnet-targets.js";
+import { findJbTargets, projectsSkippedNotice } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
 
@@ -195,8 +195,13 @@ export const runJbLint = async (
 	context: EngineContext,
 	options: { includeCsharp: boolean; includeCpp: boolean },
 ): Promise<Diagnostic[]> => {
-	const targets = findJbTargets(context);
-	if (targets.length === 0) return [];
+	const selection = findJbTargets(context);
+	// Only the C# side owns the notice: a C++-only inspection has no stake in
+	// skipped .csproj projects (and would misattribute them to C++ lint).
+	const notice = options.includeCsharp
+		? projectsSkippedNotice(selection, context.rootDirectory)
+		: [];
+	if (selection.targets.length === 0) return notice;
 	const csharp = resolveCsharpLintConfig(context);
 	const cpp = resolveCppLintConfig(context);
 	const jbBinary = resolveToolBinary("jb"); // not bundled -> resolves to "jb" on PATH
@@ -222,7 +227,7 @@ export const runJbLint = async (
 	};
 
 	const diagnostics: Diagnostic[] = [];
-	for (const target of targets) {
+	for (const target of selection.targets) {
 		diagnostics.push(
 			...(await analyzeJbTarget(
 				context,
@@ -236,5 +241,5 @@ export const runJbLint = async (
 			)),
 		);
 	}
-	return diagnostics;
+	return [...diagnostics, ...notice];
 };

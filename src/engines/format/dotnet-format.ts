@@ -94,7 +94,9 @@ const checkTarget = async (context: EngineContext, target: string): Promise<Diag
 };
 
 export const runDotnetFormat = async (context: EngineContext): Promise<Diagnostic[]> => {
-	const targets = findDotnetTargets(context);
+	// Silent restore-evidence gate (matching clang-tidy): the skip notice is the
+	// lint pass's job, and format-only skips have no scoring impact to explain.
+	const { targets } = findDotnetTargets(context);
 	if (targets.length === 0) return [];
 	const diagnostics: Diagnostic[] = [];
 	const seen = new Set<string>();
@@ -110,7 +112,7 @@ export const runDotnetFormat = async (context: EngineContext): Promise<Diagnosti
 };
 
 export const fixDotnetFormat = async (rootDirectory: string): Promise<void> => {
-	const targets = findDotnetTargets({ rootDirectory });
+	const { targets } = findDotnetTargets({ rootDirectory });
 	for (const target of targets) {
 		const result = await runSubprocess("dotnet", ["format", "whitespace", target], {
 			cwd: rootDirectory,

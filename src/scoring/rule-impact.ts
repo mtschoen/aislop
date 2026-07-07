@@ -278,6 +278,9 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"security/dependency-audit-skipped": advisory(
 		"An unavailable audit is visibility loss, not evidence of a vulnerability.",
 	),
+	"dotnet/projects-skipped": advisory(
+		"Skipping unrestored C# projects is visibility loss, not evidence of a defect.",
+	),
 
 	"eslint/no-undef": strict("Undefined identifiers are high-confidence runtime failures."),
 	"eslint/no-unused-vars": mechanical("Unused variables are mechanical cleanup."),
