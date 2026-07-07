@@ -11,6 +11,7 @@ import {
 } from "./hallucinated-imports-manifest.js";
 import { collectTsPathAliases } from "./js-import-aliases.js";
 import { collectWorkspaceDirs } from "./js-workspaces.js";
+import { relativePosix } from "../../utils/paths.js";
 import { isNonProductionPath } from "./non-production-paths.js";
 import { PYTHON_IMPORT_TO_PIP, PYTHON_STDLIB } from "./python-data.js";
 
@@ -117,7 +118,7 @@ export const detectHallucinatedImports = async (context: EngineContext): Promise
 		} catch {
 			continue;
 		}
-		const relPath = path.relative(context.rootDirectory, filePath);
+		const relPath = relativePosix(context.rootDirectory, filePath);
 		if (isNonProductionPath(relPath)) continue;
 
 		const jsDeps = isJs ? jsDepsForFile(manifest, filePath, context.rootDirectory) : null;

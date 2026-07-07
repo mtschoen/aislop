@@ -86,7 +86,7 @@ import { magic } from "totally-made-up-package"
 		expect(diag.rule).toBe("ai-slop/hallucinated-import");
 		expect(diag.severity).toBe("error");
 		expect(diag.fixable).toBe(false);
-		expect(diag.filePath).toBe(path.join("src", "index.ts"));
+		expect(diag.filePath).toBe("src/index.ts");
 		expect(diag.line).toBe(2);
 		expect(diag.message).toContain("totally-made-up-package");
 	});
@@ -929,7 +929,7 @@ dependencies = ["pydantic[email] >= 2.0.0"]
 		const diagnostics = await detectHallucinatedImports(buildContext());
 
 		expect(diagnostics).toHaveLength(1);
-		expect(diagnostics[0].filePath).toBe(path.join("src", "root.py"));
+		expect(diagnostics[0].filePath).toBe("src/root.py");
 		expect(diagnostics[0].message).toContain("pydantic");
 	});
 
@@ -1240,7 +1240,7 @@ dependencies = ["sqlalchemy>=2.0"]
 
 		expect(diagnostics).toHaveLength(1);
 		expect(diagnostics[0].message).toContain("fastapi");
-		expect(diagnostics[0].filePath).toBe(path.join("packages", "seeds", "src", "seeds", "load.py"));
+		expect(diagnostics[0].filePath).toBe("packages/seeds/src/seeds/load.py");
 	});
 
 	it("applies ancestor workspace deps when scanning a member subdirectory", async () => {
@@ -1362,7 +1362,7 @@ describe("detectHallucinatedImports — guards", () => {
 		const diagnostics = await detectHallucinatedImports(buildContext());
 
 		expect(diagnostics).toHaveLength(1);
-		expect(diagnostics[0].filePath).toBe(path.join("src", "index.ts"));
+		expect(diagnostics[0].filePath).toBe("src/index.ts");
 		expect(diagnostics[0].message).toContain("made-up-js");
 	});
 });
