@@ -57,19 +57,32 @@ const solutionSelection = (root: string, solutionName: string): DotnetTargetSele
 	targets: dropGitIgnoredPaths(root, [path.join(root, solutionName)]),
 });
 
-// obj/project.assets.json is written by a successful `dotnet restore`, so its
+// project.assets.json is written by a successful `dotnet restore`, so its
 // presence means the developer or CI already built the project and an MSBuild
 // workspace load will be fast and useful. Without it, every build-backed pass
 // serially burns its full restore-plus-analyze timeout on the project - the C#
-// analogue of clang-tidy gating on compile_commands.json.
-export const hasRestoreEvidence = (csprojPath: string): boolean =>
-	fs.existsSync(path.join(path.dirname(csprojPath), "obj", "project.assets.json"));
+// analogue of clang-tidy gating on compile_commands.json. Two layouts: the SDK
+// default (obj/ beside the .csproj) and the arcade-style central layout
+// (dotnet/runtime, roslyn, aspnetcore), where Directory.Build.props redirects
+// intermediates to <root>/artifacts/obj/<ProjectName>/.
+export const hasRestoreEvidence = (csprojPath: string, rootDirectory: string): boolean => {
+	if (fs.existsSync(path.join(path.dirname(csprojPath), "obj", "project.assets.json"))) {
+		return true;
+	}
+	const projectName = path.basename(csprojPath, ".csproj");
+	return fs.existsSync(
+		path.join(rootDirectory, "artifacts", "obj", projectName, "project.assets.json"),
+	);
+};
 
-const selectRestoredProjects = (csprojFiles: string[]): DotnetTargetSelection => {
+const selectRestoredProjects = (
+	csprojFiles: string[],
+	rootDirectory: string,
+): DotnetTargetSelection => {
 	const restored: string[] = [];
 	const coldProjects: string[] = [];
 	for (const csproj of csprojFiles) {
-		(hasRestoreEvidence(csproj) ? restored : coldProjects).push(csproj);
+		(hasRestoreEvidence(csproj, rootDirectory) ? restored : coldProjects).push(csproj);
 	}
 	return {
 		targets: restored.slice(0, MAXIMUM_PROJECT_TARGETS),
@@ -96,7 +109,7 @@ export const findDotnetTargets = (
 	}
 	const solution = entries.find((name) => name.endsWith(".sln"));
 	if (solution) return solutionSelection(root, solution);
-	return selectRestoredProjects(findCsprojFiles(root));
+	return selectRestoredProjects(findCsprojFiles(root), root);
 };
 
 // Targets for the jb (ReSharper CLT) lint pass. Unlike roslynator, jb inspectcode
@@ -118,7 +131,7 @@ export const findJbTargets = (
 	const solution =
 		entries.find((name) => name.endsWith(".sln")) ?? entries.find((name) => name.endsWith(".slnx"));
 	if (solution) return solutionSelection(root, solution);
-	return selectRestoredProjects(findCsprojFiles(root));
+	return selectRestoredProjects(findCsprojFiles(root), root);
 };
 
 // One advisory notice per lint pass - never one per project - telling the user
@@ -134,7 +147,7 @@ export const projectsSkippedNotice = (
 	const reasons: string[] = [];
 	if (selection.coldProjects.length > 0) {
 		reasons.push(
-			`${selection.coldProjects.length} with no restore evidence (obj/project.assets.json)`,
+			`${selection.coldProjects.length} with no restore evidence (project.assets.json)`,
 		);
 	}
 	if (selection.overCapProjects.length > 0) {
