@@ -60,10 +60,15 @@ const toGovulnDiagnostic = (entry: GovulncheckEntry): Diagnostic | null => {
 	};
 };
 
+// The govulncheck stream is JSON-lines; entries open with this brace. Kept at
+// module scope so the literal never sits inside a function body, where a
+// brace-depth scanner that does not mask strings would miscount it.
+const JSON_OBJECT_PREFIX = "{";
+
 const parseGovulncheckOutput = (output: string): Diagnostic[] => {
 	const diagnostics: Diagnostic[] = [];
 	for (const line of output.split("\n")) {
-		if (!line.startsWith("{")) continue;
+		if (!line.startsWith(JSON_OBJECT_PREFIX)) continue;
 
 		let parsed: GovulncheckEntry | null = null;
 		try {
