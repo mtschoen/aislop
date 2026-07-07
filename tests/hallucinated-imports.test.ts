@@ -86,7 +86,7 @@ import { magic } from "totally-made-up-package"
 		expect(diag.rule).toBe("ai-slop/hallucinated-import");
 		expect(diag.severity).toBe("error");
 		expect(diag.fixable).toBe(false);
-		expect(diag.filePath).toBe("src/index.ts");
+		expect(diag.filePath).toBe(path.join("src", "index.ts"));
 		expect(diag.line).toBe(2);
 		expect(diag.message).toContain("totally-made-up-package");
 	});
@@ -929,8 +929,7 @@ dependencies = ["pydantic[email] >= 2.0.0"]
 		const diagnostics = await detectHallucinatedImports(buildContext());
 
 		expect(diagnostics).toHaveLength(1);
-		// Diagnostics report POSIX-relative paths on every OS (see utils/paths relativePosix).
-		expect(diagnostics[0].filePath).toBe("src/root.py");
+		expect(diagnostics[0].filePath).toBe(path.join("src", "root.py"));
 		expect(diagnostics[0].message).toContain("pydantic");
 	});
 
@@ -1206,6 +1205,67 @@ dependencies = ["sqlalchemy>=2.0"]
 		expect(diagnostics[0].message).toContain("sqlalchemy");
 	});
 
+	it("does not apply workspace deps to files inside an excluded project", async () => {
+		// The flip side of `exclude`: a file under the excluded directory is not
+		// installed into the shared .venv either, so it may not lean on deps that
+		// only real members declare - it is checked against its own manifest.
+		writeFile(
+			"pyproject.toml",
+			`[tool.uv.workspace]
+members = ["packages/*"]
+exclude = ["packages/seeds"]
+`,
+		);
+		writeFile(
+			"packages/app/pyproject.toml",
+			`[project]
+name = "app"
+dependencies = ["fastapi>=0.115"]
+`,
+		);
+		writeFile("packages/app/src/app/__init__.py", "");
+		writeFile(
+			"packages/seeds/pyproject.toml",
+			`[project]
+name = "seeds"
+dependencies = ["sqlalchemy>=2.0"]
+`,
+		);
+		writeFile("packages/seeds/src/seeds/__init__.py", "");
+		// fastapi is declared only by the included member; the excluded project
+		// does not share its .venv, so uv would not resolve this import.
+		writeFile("packages/seeds/src/seeds/load.py", `import sqlalchemy\nimport fastapi\n`);
+
+		const diagnostics = await detectHallucinatedImports(buildContext());
+
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0].message).toContain("fastapi");
+		expect(diagnostics[0].filePath).toBe(path.join("packages", "seeds", "src", "seeds", "load.py"));
+	});
+
+	it("applies ancestor workspace deps when scanning a member subdirectory", async () => {
+		// `aislop scan packages/web_common/src` finds no manifest under the scan
+		// root; the ancestor [tool.uv.workspace] must still enable the rule and
+		// supply the shared dependency set.
+		writeUvWorkspace();
+		writeFile(
+			"packages/web_common/src/web_common/render.py",
+			`from fastapi import FastAPI
+import uvicorn
+import totally_made_up_workspace_pkg
+`,
+		);
+		const context = {
+			...buildContext(),
+			rootDirectory: path.join(tmpDir, "packages", "web_common", "src"),
+		};
+
+		const diagnostics = await detectHallucinatedImports(context);
+
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0].message).toContain("totally_made_up_workspace_pkg");
+	});
+
 	it("leaves non-workspace nested-manifest isolation unchanged (no [tool.uv.workspace])", async () => {
 		// Same layout minus the workspace table: a plain repo with a nested
 		// package. Cross-package imports must STILL be flagged (regression guard).
@@ -1302,7 +1362,7 @@ describe("detectHallucinatedImports — guards", () => {
 		const diagnostics = await detectHallucinatedImports(buildContext());
 
 		expect(diagnostics).toHaveLength(1);
-		expect(diagnostics[0].filePath).toBe("src/index.ts");
+		expect(diagnostics[0].filePath).toBe(path.join("src", "index.ts"));
 		expect(diagnostics[0].message).toContain("made-up-js");
 	});
 });
