@@ -56,12 +56,35 @@ describe("hasRestoreEvidence", () => {
 
 	it("is true when obj/project.assets.json exists beside the project", () => {
 		const csproj = writeRestoredProject(tmpDir, "App.csproj");
-		expect(hasRestoreEvidence(csproj)).toBe(true);
+		expect(hasRestoreEvidence(csproj, tmpDir)).toBe(true);
 	});
 
 	it("is false for a cold project", () => {
 		const csproj = writeColdProject(tmpDir, "App.csproj");
-		expect(hasRestoreEvidence(csproj)).toBe(false);
+		expect(hasRestoreEvidence(csproj, tmpDir)).toBe(false);
+	});
+
+	it("is true for a central artifacts/obj layout (arcade-style repos)", () => {
+		// dotnet/runtime, roslyn, aspnetcore, etc. redirect intermediates via
+		// Directory.Build.props to <root>/artifacts/obj/<ProjectName>/, so restore
+		// evidence never appears beside the .csproj.
+		const csproj = writeColdProject(path.join(tmpDir, "src", "App"), "App.csproj");
+		fs.mkdirSync(path.join(tmpDir, "artifacts", "obj", "App"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tmpDir, "artifacts", "obj", "App", "project.assets.json"),
+			"{}",
+		);
+		expect(hasRestoreEvidence(csproj, tmpDir)).toBe(true);
+	});
+
+	it("does not credit another project's central artifacts entry", () => {
+		const csproj = writeColdProject(path.join(tmpDir, "src", "App"), "App.csproj");
+		fs.mkdirSync(path.join(tmpDir, "artifacts", "obj", "Other"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tmpDir, "artifacts", "obj", "Other", "project.assets.json"),
+			"{}",
+		);
+		expect(hasRestoreEvidence(csproj, tmpDir)).toBe(false);
 	});
 });
 
@@ -114,6 +137,18 @@ describe("findDotnetTargets", () => {
 		expect(findDotnetTargets(context(tmpDir)).targets).toEqual([
 			path.join(tmpDir, "App.csproj"),
 		]);
+	});
+
+	it("selects a project restored into a central artifacts/obj layout", () => {
+		const csproj = writeColdProject(path.join(tmpDir, "src", "Central"), "Central.csproj");
+		fs.mkdirSync(path.join(tmpDir, "artifacts", "obj", "Central"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tmpDir, "artifacts", "obj", "Central", "project.assets.json"),
+			"{}",
+		);
+		const selection = findDotnetTargets(context(tmpDir));
+		expect(selection.targets).toEqual([csproj]);
+		expect(selection.coldProjects).toEqual([]);
 	});
 
 	it("routes cold projects to coldProjects instead of targets", () => {
