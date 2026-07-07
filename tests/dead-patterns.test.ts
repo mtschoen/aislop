@@ -725,6 +725,75 @@ describe("dead code patterns", () => {
 		const constant = diagnostics.filter((d) => d.rule === "ai-slop/constant-condition");
 		expect(constant.length).toBe(1);
 	});
+
+	it("does not flag a return before #else as unreachable in C#", async () => {
+		const filePath = writeFile(
+			"Debug.cs",
+			[
+				"class C {",
+				"  string Name() {",
+				"#if DEBUG",
+				'    return "Debug";',
+				"#else",
+				'    return "Release";',
+				"#endif",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(0);
+	});
+
+	it("does not flag statements after #else following a return in C#", async () => {
+		const filePath = writeFile(
+			"ResolveCommand.cs",
+			[
+				"class C {",
+				"  int Run() {",
+				"#if WINDOWS",
+				"    return 0;",
+				"#else",
+				'    Console.Error.WriteLine("not supported");',
+				"    return 1;",
+				"#endif",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(0);
+	});
+
+	it("does not flag a return before #else as unreachable in C++", async () => {
+		const filePath = writeFile(
+			"platform.cpp",
+			[
+				"int f() {",
+				"#ifdef _WIN32",
+				"  return 1;",
+				"#else",
+				"  return 2;",
+				"#endif",
+				"}",
+			].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(0);
+	});
+
+	it("still flags plain unreachable code after return in C# with no preprocessor", async () => {
+		const filePath = writeFile(
+			"Plain.cs",
+			["class C {", "  void F() {", "    return;", "    DoThing();", "  }", "}"].join("\n"),
+		);
+		const diagnostics = await detectDeadPatterns(makeContext([filePath]));
+		const unreachable = diagnostics.filter((d) => d.rule === "ai-slop/unreachable-code");
+		expect(unreachable).toHaveLength(1);
+	});
 });
 
 // ─── Unsafe Type Assertions ──────────────────────────────────────────────────

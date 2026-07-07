@@ -24,6 +24,24 @@ const BRACE_EXTENSIONS = new Set([
 	".hxx",
 ]);
 
+// Brace languages that also carry a C-family preprocessor. A conditional
+// directive here marks the start of a different compilation branch, so it
+// must not be treated as ordinary code following a return/throw. Excludes
+// JS_EXTENSIONS: JS/TS have no preprocessor, and `#` there is a legal prefix
+// for private class fields (e.g. `#else` could be a member name).
+const PREPROCESSOR_EXTENSIONS = new Set([
+	".cs",
+	".c",
+	".cc",
+	".cpp",
+	".cxx",
+	".h",
+	".hh",
+	".hpp",
+	".hxx",
+]);
+const PREPROCESSOR_DIRECTIVE_PATTERN = /^#\s*(?:if|ifdef|ifndef|elif|else|endif)\b/;
+
 const CONSOLE_CALL_PATTERN = /\bconsole\.(log|debug|info|trace|dir|table)\s*\(/;
 
 const slop = (
@@ -123,6 +141,9 @@ const isBlockCloserAfterReturn = (line: string): boolean =>
 	line.startsWith("],") ||
 	line.startsWith("]);");
 
+const isPreprocessorAlternativeBranch = (nextLine: string, ext: string): boolean =>
+	PREPROCESSOR_EXTENSIONS.has(ext) && PREPROCESSOR_DIRECTIVE_PATTERN.test(nextLine);
+
 const isGuardedSingleLineExit = (lines: string[], lineIndex: number): boolean => {
 	const contextLines: string[] = [];
 	for (let i = lineIndex - 1; i >= 0 && contextLines.length < 16; i--) {
@@ -198,6 +219,7 @@ const detectDeadCodePatterns = (
 			nextLine.length > 0 &&
 			!isGuardedSingleLineExit(lines, i) &&
 			!isBlockCloserAfterReturn(nextLine) &&
+			!isPreprocessorAlternativeBranch(nextLine, ext) &&
 			!nextLine.startsWith("//") &&
 			!nextLine.startsWith("/*") &&
 			!nextLine.startsWith("case ") &&
