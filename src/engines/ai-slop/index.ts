@@ -10,11 +10,13 @@ import { detectSwallowedExceptions } from "./exceptions.js";
 import { detectGoPatterns } from "./go-patterns.js";
 import { detectHallucinatedImports } from "./hallucinated-imports.js";
 import { detectHardcodedConfigLiterals } from "./hardcoded-config.js";
+import { detectHiddenFallbacks } from "./hidden-fallback.js";
 import { detectMetaComments } from "./meta-comment.js";
 import { detectNarrativeComments } from "./narrative-comments.js";
 import { detectPythonPatterns } from "./python-patterns.js";
 import { detectRustPatterns } from "./rust-patterns.js";
 import { detectSilentRecovery } from "./silent-recovery.js";
+import { detectUnusedCss } from "./unused-css.js";
 import { detectUnusedImports } from "./unused-imports.js";
 
 export const aiSlopEngine: Engine = {
@@ -33,6 +35,7 @@ export const aiSlopEngine: Engine = {
 			detectNarrativeComments(context),
 			detectDuplicateImports(context),
 			detectHardcodedConfigLiterals(context),
+			detectHiddenFallbacks(context),
 			detectPythonPatterns(context),
 			detectGoPatterns(context),
 			detectRustPatterns(context),
@@ -41,6 +44,7 @@ export const aiSlopEngine: Engine = {
 			detectMetaComments(context),
 			detectCSharpPatterns(context),
 			detectCppPatterns(context),
+			detectUnusedCss(context),
 		]);
 
 		for (const result of results) {

@@ -16,6 +16,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - **clang-format** (`cpp-formatting` rule) runs only when the repo ships a `.clang-format` file. clang-format is a system tool, not bundled.
   - **AI slop rules** (`ai-slop/cpp-*`): not-implemented stubs (`std::logic_error("not implemented")` / `assert(false && "not implemented")`), `using namespace std` at header scope, C-style casts, manual `delete`/`delete[]`, and `std::cout`/`std::cerr` left in library code.
 
+## 0.13.1 (2026-06-29)
+
+Patch release: calibrates the new `ai-slop/hidden-fallback` rule so it stops flagging error-message defaults, points Dependabot at the `develop` branch, and pulls in routine dependency and CI-action updates.
+
+### Fixed
+
+- **`ai-slop/hidden-fallback` false positives.** The rule no longer flags error-message string defaults (`err?.message || "Failed to load"`), empty-string normalizers (`?? ""`), or optional env-var defaults (`process.env.X ?? fallback`). A string fallback counts as a masked value only when it is a status/success token (`"ok"`, `"success"`, …); bare string returns from a catch are still flagged ([#251](https://github.com/scanaislop/aislop/pull/251)).
+- **Comment masker no longer mis-reads regex literals.** A regex literal containing `/*` inside a character class (e.g. `/[/*]/`) was treated as a block comment that masked through end-of-file, producing false complexity / function-too-long diagnostics on regex-heavy code. The JS/TS masker now consumes regex literals before comment detection.
+
+### Changed
+
+- **Dependabot targets `develop`.** Dependency PRs now open against the `develop` integration branch instead of `main` ([#252](https://github.com/scanaislop/aislop/pull/252)).
+- **Dependency & CI-action bumps.** `oxlint` 1.51 → 1.71, `@biomejs/biome` 2.4.5 → 2.5.1, `expo-doctor` 1.18.10 → 1.19.10, `tar` 7.5.16 → 7.5.19, and the `actions/checkout`, `actions/setup-node`, and `pnpm/action-setup` GitHub Actions — the last clears the Node 20 deprecation warning in the publish workflow ([#243](https://github.com/scanaislop/aislop/pull/243)–[#249](https://github.com/scanaislop/aislop/pull/249)). The `knip` 5 → 6 bump was reverted: v6 moves unused files to `issues[].files`, which the scanner's parser does not yet read, so it is deferred to a dedicated migration.
+
+### Tests
+
+Full suite green; new coverage for the hidden-fallback message-default and env-default cases, plus the preserved bare-empty-string catch detection.
+
+## 0.13.0 (2026-06-28)
+
+Telemetry now reports how users install aislop (npm, Homebrew, pip, pipx, and more), MCP and lifecycle events flush reliably, and new quality rules catch hidden fallbacks while framework-specific scans ship as optional adapter entrypoints.
+
+### Added
+
+- **Install channel telemetry.** The `package_manager` property now distinguishes `homebrew`, `pip`, `pipx`, and `direct` global installs in addition to `npm` / `pnpm` / `yarn` / `bun` / `npx`. Python and other shims can set `AISLOP_INSTALL_CHANNEL` before invoking the Node CLI. See `docs/telemetry.md`.
+- **`ai-slop/hidden-fallback` rule.** Flags JS/TS fallback logic that turns missing counts, failed diagnostics, or impossible states into safe-looking values without surfacing the failure ([#226](https://github.com/scanaislop/aislop/pull/226)).
+- **Framework adapter entrypoints.** Optional `@aislop/adapters/*` exports for Astro, Expo, Nuxt, SvelteKit, and Vite so monorepos can scope scans to framework-owned trees without hand-maintaining exclude lists ([#224](https://github.com/scanaislop/aislop/pull/224)).
+
+### Fixed
+
+- **Telemetry delivery.** `mcp_tool_called` and `cli_command_started` now flush before the process exits, so short-lived MCP and hook invocations reach PostHog instead of being dropped on the floor.
+- **npx install detection.** Telemetry recognizes `_npx` cache paths and `npm_command=npx`, not only classic `npx-cli.js` exec paths.
+- **Scanner calibration.** Fewer false positives on hallucinated imports, secret detection, unused CSS, Azure namespace imports, and Bun audit flows ([#227](https://github.com/scanaislop/aislop/pull/227), [#236](https://github.com/scanaislop/aislop/pull/236)).
+- **Source and config resolution.** JSONC reads, Python target discovery, and non-production path heuristics handle more real-world repo layouts without widening scan scope.
+
+### Changed
+
+- **Python launcher telemetry.** The PyPI package sets `AISLOP_INSTALL_CHANNEL` (`pip` or `pipx`) before delegating to the npm CLI, so Python installs are counted separately from raw `npx` traffic.
+
+### Tests
+
+Full suite at 1357 passing. New coverage locks install-channel detection, telemetry flush paths, hidden-fallback cases, and framework adapter wiring.
+
 ## 0.12.3 (2026-06-21)
 
 ### Fixed

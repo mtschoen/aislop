@@ -1,12 +1,4 @@
-import { detectInvocation } from "../../ui/invocation.js";
-
-export type JsAuditSource = "npm audit" | "pnpm audit";
-
-export const withFixHint = (rest: string): string => {
-	const invocation = detectInvocation();
-	const suffix = rest ? ` — ${rest}` : "";
-	return `Run \`${invocation} fix -f\` to apply this fix${suffix}`;
-};
+export type JsAuditSource = "npm audit" | "pnpm audit" | "bun audit";
 
 export const SEVERITY_RANK: Record<string, number> = {
 	critical: 4,

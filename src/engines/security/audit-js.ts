@@ -4,6 +4,25 @@ import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic } from "../types.js";
 import { type JsAuditSource, SEVERITY_RANK, toSeverity } from "./audit-shared.js";
 
+export const hasBunLockfile = (rootDir: string): boolean =>
+	fs.existsSync(path.join(rootDir, "bun.lock")) || fs.existsSync(path.join(rootDir, "bun.lockb"));
+
+const errorMessageOf = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+
+const auditSkippedDiagnostic = (source: JsAuditSource, help: string): Diagnostic => ({
+	filePath: "package.json",
+	engine: "security",
+	rule: "security/dependency-audit-skipped",
+	severity: "info",
+	message: `Dependency audit did not complete (${source})`,
+	help,
+	line: 0,
+	column: 0,
+	category: "Security",
+	fixable: false,
+});
+
 export const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
 	try {
 		const result = await runSubprocess("npm", ["audit", "--json"], {
@@ -11,8 +30,33 @@ export const runNpmAudit = async (rootDir: string, timeout: number): Promise<Dia
 			timeout,
 		});
 		return parseJsAudit(result.stdout, "npm audit");
-	} catch {
-		return [];
+	} catch (error) {
+		return [
+			auditSkippedDiagnostic("npm audit", `Failed to run npm audit: ${errorMessageOf(error)}`),
+		];
+	}
+};
+
+export const runBunAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
+	try {
+		const result = await runSubprocess("bun", ["audit", "--json"], {
+			cwd: rootDir,
+			timeout,
+		});
+		if (result.stdout) {
+			return parseBunAudit(result.stdout);
+		}
+		if (result.exitCode === 0) return [];
+		return [
+			auditSkippedDiagnostic(
+				"bun audit",
+				`Failed to run bun audit: ${result.stderr || "unknown error"}`,
+			),
+		];
+	} catch (error) {
+		return [
+			auditSkippedDiagnostic("bun audit", `Failed to run bun audit: ${errorMessageOf(error)}`),
+		];
 	}
 };
 
@@ -33,15 +77,16 @@ export const runPnpmAuditWithFallback = async (
 			if (canFallbackToNpm) {
 				return runNpmAudit(rootDir, timeout);
 			}
-			// pnpm audit failed due to an infrastructure/tooling issue, not a project problem — suppress.
-			return [];
+			return diagnostics;
 		}
 		return diagnostics;
-	} catch {
+	} catch (error) {
 		if (canFallbackToNpm) {
 			return runNpmAudit(rootDir, timeout);
 		}
-		return [];
+		return [
+			auditSkippedDiagnostic("pnpm audit", `Failed to run pnpm audit: ${errorMessageOf(error)}`),
+		];
 	}
 };
 
@@ -113,8 +158,35 @@ const aggregateToDiagnostic = (agg: VulnAggregate, source: JsAuditSource): Diagn
 		column: 0,
 		category: "Security",
 		fixable: false,
-		detail: source === "npm audit" ? "npm" : "pnpm",
+		detail: source === "npm audit" ? "npm" : source === "pnpm audit" ? "pnpm" : "bun",
 	};
+};
+
+export const parseBunAudit = (output: string): Diagnostic[] => {
+	if (!output.trim()) return [];
+	try {
+		const parsed = JSON.parse(output) as Record<string, unknown>;
+		const bucket = new Map<string, VulnAggregate>();
+
+		for (const [packageName, advisories] of Object.entries(parsed)) {
+			if (!Array.isArray(advisories) || advisories.length === 0) continue;
+			for (const advisory of advisories) {
+				if (!advisory || typeof advisory !== "object") continue;
+				const record = advisory as Record<string, unknown>;
+				const severity = ((record.severity as string) ?? "moderate").toLowerCase();
+				const recommendation =
+					(record.title as string) ??
+					(record.vulnerable_versions as string) ??
+					(record.url as string) ??
+					"";
+				upsertVuln(bucket, packageName, severity, recommendation);
+			}
+		}
+
+		return [...bucket.values()].map((agg) => aggregateToDiagnostic(agg, "bun audit"));
+	} catch {
+		return [];
+	}
 };
 
 const parseLegacyAdvisories = (
