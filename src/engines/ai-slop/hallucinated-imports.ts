@@ -79,13 +79,23 @@ const pyDepSatisfiesImportRoot = (root: string, pyDeps: Set<string>): boolean =>
 	return false;
 };
 
-const checkPyImport = (spec: string, pyDeps: Set<string>): string | null => {
+// Plain script-style Python code (no package/__init__.py needed) commonly
+// imports a sibling file by its bare module name, e.g. `import foo` where
+// `foo.py` sits next to the importing file. That resolves at runtime via
+// sys.path[0] regardless of any dependency manifest, so it is never a
+// hallucination.
+const hasSiblingPythonModule = (fileDir: string, root: string): boolean =>
+	fs.existsSync(path.join(fileDir, `${root}.py`)) ||
+	fs.existsSync(path.join(fileDir, root, "__init__.py"));
+
+const checkPyImport = (spec: string, pyDeps: Set<string>, fileDir: string): string | null => {
 	const root = spec.split(".")[0];
 	if (PYTHON_STDLIB.has(root)) return null;
 	if (pyDepSatisfiesImportRoot(root, pyDeps)) return null;
 	const normalized = normalizePyName(root);
 	const distributions = PYTHON_IMPORT_TO_PIP[root] ?? PYTHON_IMPORT_TO_PIP[normalized];
 	if (distributions?.some((dist) => pyDeps.has(normalizePyName(dist)))) return null;
+	if (hasSiblingPythonModule(fileDir, root)) return null;
 	return root;
 };
 
@@ -132,7 +142,7 @@ export const detectHallucinatedImports = async (context: EngineContext): Promise
 						filePath,
 						context.rootDirectory,
 					)
-				: checkPyImport(spec, pyDeps ?? manifest.pyDeps);
+				: checkPyImport(spec, pyDeps ?? manifest.pyDeps, path.dirname(filePath));
 			if (!hallucinated) continue;
 			const manifestLabel = isJs ? "package.json" : "requirements.txt / pyproject.toml / Pipfile";
 			diagnostics.push({
