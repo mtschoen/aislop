@@ -473,7 +473,7 @@ aislop rules are shaped by public scans and benchmark-derived failure modes, not
 
 ## Docs
 
-[Installation](docs/installation.md) · [Commands](docs/commands.md) · [Rules](docs/rules.md) · [Config](docs/configuration.md) · [Scoring](docs/scoring.md) · [CI/CD](docs/ci.md) · [Telemetry](docs/telemetry.md) · [Research program](docs/research-program.md)
+[Installation](docs/installation.md) · [Commands](docs/commands.md) · [Rules](docs/rules.md) · [Config](docs/configuration.md) · [Scoring](docs/scoring.md) · [CI/CD](docs/ci.md) · [Telemetry](docs/telemetry.md) · [Windows performance](docs/windows-performance.md) · [Research program](docs/research-program.md)
 
 ## Community
 

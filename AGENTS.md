@@ -177,6 +177,12 @@ scripts portable:
   *upstream* checkout still fails ~42 tests on Windows (path/permission
   assumptions), so a red suite there is expected - but on `schoen/main`
   any Windows test failure is a real regression, not environment noise.
+- **Windows Defender slows large scans.** Real-time scanning inspects every
+  file aislop's scanner binaries open. `scripts/setup-windows-defender.ps1`
+  manages opt-in process/path exclusions; see
+  [docs/windows-performance.md](docs/windows-performance.md) for the
+  tradeoffs (including why `node.exe` is deliberately excluded from the
+  managed list).
 
 ## Local deploy (running your build as the global `aislop`)
 
