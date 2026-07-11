@@ -7,6 +7,16 @@ Defender's real-time protection inspects every one of those file opens. On
 large trees this adds up: a stress test against a 20,000-file dotnet-runtime
 checkout showed a measurable slowdown from Defender inspection alone.
 
+One machine's observation from that stress test: a single-threaded cppcheck
+pass took 34m30s, with six chunks hitting a 180-second per-chunk timeout.
+Adding `-j 30` (30 worker threads) only pushed effective CPU utilization to
+roughly 4-5 cores' worth of work, with the rest of the threads mostly
+blocked rather than computing. Parallel workers stalling instead of scaling
+with core count is consistent with Defender's filter driver serializing
+file opens across the process tree, rather than a CPU bottleneck in
+cppcheck itself. Treat these numbers as one data point, not a guaranteed
+multiplier on every tree or machine.
+
 This doc covers what the bundled script does, the tradeoffs between the
 available mitigations, and how to undo them.
 
@@ -101,6 +111,25 @@ that already fit largely in OS file cache.
 
 Removes every process and path exclusion this script added. It does not
 touch exclusions you or another tool added independently.
+
+## App-managed exclusions (possible future direction)
+
+This doc's script is standalone: you run it yourself, separately from
+aislop. A different pattern exists for letting a CLI manage its own
+exclusions: the `git-wizard` project's `GitWizard.WindowsDefender` class
+(`GitWizard/WindowsDefender.cs`) checks whether the current process is
+elevated via `MFTLib.ElevationUtilities`, and if not, either re-launches
+itself with a hidden `--elevated-defender` argument (self-elevation, for
+published single-file builds) or falls back to spawning an elevated
+PowerShell child process (for `dotnet run` and similar cases without a
+self-elevatable executable). Once elevated, it calls `Add-MpPreference`
+directly rather than asking the user to open an elevated shell themselves.
+
+If aislop wanted to self-manage exclusions instead of shipping a standalone
+script, `aislop doctor` is the natural place to detect Defender overhead and
+offer to apply exclusions on the spot, following that same
+detect-elevate-or-relaunch-then-apply shape. That is not part of this
+deliverable; the standalone script is the current scope.
 
 ## References
 
