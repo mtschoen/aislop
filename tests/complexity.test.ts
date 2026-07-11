@@ -399,6 +399,53 @@ describe("checkComplexity — too many parameters", () => {
 		expect(paramDiags).toHaveLength(0);
 	});
 
+	it("exempts a positional record's component list from too-many-params", async () => {
+		// A 9-component `readonly record struct` is a data shape, not a method smell.
+		const content =
+			"public readonly record struct BrokerFrame(\n" +
+			"    BrokerFrameKind Kind,\n" +
+			"    string? Drive,\n" +
+			"    Cursor Cursor,\n" +
+			"    Entry[] Entries,\n" +
+			"    string? MmfName,\n" +
+			"    long RecordCount,\n" +
+			"    long ByteLength,\n" +
+			"    string? Message,\n" +
+			"    string? DrivesSpec)\n" +
+			"{\n" +
+			'    public string RequireDrive() => Drive ?? throw new InvalidDataException("x");\n' +
+			"}\n";
+		const filePath = writeFile("BrokerFrame.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(0);
+	});
+
+	it("exempts a positional record class primary constructor as well", async () => {
+		const content = "public record class Big(int A, int B, int C, int D, int E, int F, int G);\n";
+		const filePath = writeFile("Big.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		expect(diagnostics.filter((d) => d.rule === "complexity/too-many-params")).toHaveLength(0);
+	});
+
+	it("still flags a plain constructor with too many params inside a struct", async () => {
+		// A hand-written constructor is a method param list, not a record component
+		// list - the exemption must NOT stretch to cover it.
+		const content =
+			"public readonly struct UsnJournalEntry {\n" +
+			"    internal UsnJournalEntry(ulong recordNumber, ulong parentRecordNumber,\n" +
+			"        long usn, long fileTimeTimestamp, uint reason, uint fileAttributes, string fileName)\n" +
+			"    {\n" +
+			"        RecordNumber = recordNumber;\n" +
+			"    }\n" +
+			"}\n";
+		const filePath = writeFile("UsnJournalEntry.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(1);
+		expect(paramDiags[0].detail).toContain("UsnJournalEntry · 7 params");
+	});
+
 	it("still counts genuine top-level params past the limit despite generic types", async () => {
 		// Eight real parameters, one of which carries an internal generic comma:
 		// the count must be eight (not nine), and the finding must still fire.
