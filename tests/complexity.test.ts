@@ -358,6 +358,63 @@ describe("checkComplexity — too many parameters", () => {
 		expect(paramDiags.length).toBeGreaterThanOrEqual(1);
 		expect(paramDiags[0].detail).toContain("f");
 	});
+
+	it("does not count commas inside C# generic type arguments as parameter separators", async () => {
+		// Five real parameters whose types each carry an internal comma; a naive
+		// split(",") misreports this as nine and fires a false positive.
+		const content =
+			"class C {\n" +
+			"    public C(\n" +
+			"        IReadOnlyList<Record> records,\n" +
+			"        IReadOnlyDictionary<string, Cursor> armed,\n" +
+			"        IReadOnlyDictionary<string, Cursor> advanced,\n" +
+			"        IReadOnlyDictionary<string, Entry[]> catchUp,\n" +
+			"        IReadOnlyDictionary<string, string> errors)\n" +
+			"    {\n" +
+			"        _r = records;\n" +
+			"    }\n" +
+			"}\n";
+		const filePath = writeFile("Generics.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(0);
+	});
+
+	it("does not count commas inside C# Func and tuple parameter types", async () => {
+		// Four real Func-typed parameters loaded with generic and tuple commas.
+		const content =
+			"class Host {\n" +
+			"    public Host(\n" +
+			"        Func<string, Cursor> queryCursor,\n" +
+			"        Func<string, Record[]> scanDrive,\n" +
+			"        Func<string, Cursor, (Entry[], Cursor)> readJournal,\n" +
+			"        Func<string, Cursor, CancellationToken, IAsyncEnumerable<(Entry[], Cursor)>>? watch = null)\n" +
+			"    {\n" +
+			"        _q = queryCursor;\n" +
+			"    }\n" +
+			"}\n";
+		const filePath = writeFile("Funcs.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(0);
+	});
+
+	it("still counts genuine top-level params past the limit despite generic types", async () => {
+		// Eight real parameters, one of which carries an internal generic comma:
+		// the count must be eight (not nine), and the finding must still fire.
+		const content =
+			"void ParseAllChunks(\n" +
+			"    ReadChunkFn readChunk, void* readContext, std::array<uint8_t*, 2>& buf,\n" +
+			"    unsigned numThreads, const FilterSpec& filter, PathLookup* lookup,\n" +
+			"    uint64_t totalRecords, ParseState& state) {\n" +
+			"    return;\n" +
+			"}\n";
+		const filePath = writeFile("chunks.cpp", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(1);
+		expect(paramDiags[0].detail).toContain("8 params");
+	});
 });
 
 describe("checkComplexity — Python async and wrapped signatures", () => {

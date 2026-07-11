@@ -131,7 +131,29 @@ const logicalSignatureLine = (lines: string[], startIndex: number): string => {
 	return joined;
 };
 
-const countParams = (p: string): number => (p.trim() ? p.split(",").length : 0);
+// Count top-level parameters, ignoring commas nested inside generic type
+// arguments (`IReadOnlyDictionary<string, int>`), tuples (`(int, int)`), arrays,
+// or default initializers. A plain `.split(",")` overcounts C#/C++ signatures
+// whose parameter types carry commas - a 5-parameter constructor of
+// dictionary-typed arguments would be misreported as 9. Bracket depth floors at
+// zero so an unmatched closer (a stray relational `>` in a default expression)
+// cannot drive the depth negative and leak inner commas back to the top level.
+const countParams = (parameterList: string): number => {
+	const trimmed = parameterList.trim();
+	if (!trimmed) return 0;
+	let depth = 0;
+	let count = 1;
+	for (const ch of trimmed) {
+		if (ch === "(" || ch === "[" || ch === "{" || ch === "<") {
+			depth++;
+		} else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") {
+			depth = Math.max(0, depth - 1);
+		} else if (ch === "," && depth === 0) {
+			count++;
+		}
+	}
+	return count;
+};
 
 const matchFunctionOnLine = (
 	line: string,
