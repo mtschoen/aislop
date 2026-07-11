@@ -415,6 +415,62 @@ describe("checkComplexity — too many parameters", () => {
 		expect(paramDiags).toHaveLength(1);
 		expect(paramDiags[0].detail).toContain("8 params");
 	});
+
+	it("counts a positional record's component list toward too-many-params like any parameter list", async () => {
+		// A 9-component `readonly record struct` is still a call-site parameter
+		// list - construction with 9 positionals is a real complexity signal, so
+		// the record form gets no exemption from the rule.
+		const content =
+			"public readonly record struct BrokerFrame(\n" +
+			"    BrokerFrameKind Kind,\n" +
+			"    string? Drive,\n" +
+			"    Cursor Cursor,\n" +
+			"    Entry[] Entries,\n" +
+			"    string? MmfName,\n" +
+			"    long RecordCount,\n" +
+			"    long ByteLength,\n" +
+			"    string? Message,\n" +
+			"    string? DrivesSpec)\n" +
+			"{\n" +
+			'    public string RequireDrive() => Drive ?? throw new InvalidDataException("x");\n' +
+			"}\n";
+		const filePath = writeFile("BrokerFrame.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(1);
+		expect(paramDiags[0].detail).toContain("9 params");
+	});
+
+	it("counts a positional record class primary constructor toward too-many-params as well", async () => {
+		// A bare `;`-terminated record declaration has no body, so the brace-based
+		// function-boundary detection treats it like a prototype and skips it
+		// (same as a C++ declaration) - give it a body so the counting logic is
+		// actually exercised.
+		const content = "public record class Big(int A, int B, int C, int D, int E, int F, int G) { }\n";
+		const filePath = writeFile("Big.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(1);
+		expect(paramDiags[0].detail).toContain("7 params");
+	});
+
+	it("still flags a plain constructor with too many params inside a struct", async () => {
+		// A hand-written constructor is a method param list, not a record component
+		// list - the same counted-not-exempt policy applies to it too.
+		const content =
+			"public readonly struct UsnJournalEntry {\n" +
+			"    internal UsnJournalEntry(ulong recordNumber, ulong parentRecordNumber,\n" +
+			"        long usn, long fileTimeTimestamp, uint reason, uint fileAttributes, string fileName)\n" +
+			"    {\n" +
+			"        RecordNumber = recordNumber;\n" +
+			"    }\n" +
+			"}\n";
+		const filePath = writeFile("UsnJournalEntry.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+		expect(paramDiags).toHaveLength(1);
+		expect(paramDiags[0].detail).toContain("UsnJournalEntry · 7 params");
+	});
 });
 
 describe("checkComplexity — Python async and wrapped signatures", () => {
