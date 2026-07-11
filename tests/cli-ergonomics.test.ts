@@ -168,7 +168,9 @@ describe("cli ergonomics", () => {
 			expect(result.stderr, label).not.toContain("too many arguments");
 			expect(result.stderr, label).not.toContain("unknown command");
 		}
-	}, 60_000);
+		// 44 sequential CLI spawns; windows-latest Node 22 runners have been observed
+		// taking ~1.5s per spawn (65s total), so 60s left no headroom for runner variance.
+	}, 180_000);
 
 	it("keeps existing core command help complete and aligned with registered flags", () => {
 		const scan = runCli(["scan", "--help"]);
