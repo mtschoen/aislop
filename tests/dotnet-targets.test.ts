@@ -130,6 +130,19 @@ describe("findDotnetTargets", () => {
 		expect(findDotnetTargets(context(tmpDir)).targets).toEqual([csproj]);
 	});
 
+	it("drops projects under a user-excluded path from the fallback selection", () => {
+		const kept = writeRestoredProject(path.join(tmpDir, "App"), "App.csproj");
+		writeRestoredProject(path.join(tmpDir, "external", "Vendor"), "Vendor.csproj");
+		const cold = writeColdProject(path.join(tmpDir, "external", "Cold"), "Cold.csproj");
+		const excluded = { ...context(tmpDir), excludePatterns: ["external/**"] };
+		const selection = findDotnetTargets(excluded);
+		// The excluded vendored projects appear in neither the analyzed targets nor
+		// the cold-project accounting, so the skipped-project notice stays silent.
+		expect(selection.targets).toEqual([kept]);
+		expect(selection.coldProjects).not.toContain(cold);
+		expect(projectsSkippedNotice(selection, tmpDir)).toHaveLength(0);
+	});
+
 	it("skips bin/obj/node_modules when enumerating", () => {
 		fs.mkdirSync(path.join(tmpDir, "obj"));
 		fs.writeFileSync(path.join(tmpDir, "obj", "Generated.csproj"), "");

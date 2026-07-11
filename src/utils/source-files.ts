@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import micromatch from "micromatch";
 import type { EngineContext } from "../engines/types.js";
+import { normalizeExcludePatterns } from "./exclude.js";
 import { getIgnoredPaths } from "./git-ignore.js";
 
 const MAX_BUFFER = 50 * 1024 * 1024;
@@ -274,19 +275,6 @@ export const readAislopIgnorePatterns = (rootDirectory: string): string[] => {
 	} catch {
 		return [];
 	}
-};
-
-const normalizeExcludePatterns = (patterns: string[]): string[] => {
-	return patterns.flatMap((pattern) => {
-		const p = pattern.trim();
-		if (p.startsWith(".")) {
-			return [`**/*${p}`];
-		}
-		if (!p.includes("*") && !p.includes(".")) {
-			return [`${p}/**`];
-		}
-		return [p];
-	});
 };
 
 export const filterProjectFiles = (

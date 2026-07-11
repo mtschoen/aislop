@@ -37,6 +37,11 @@ export interface EngineContext {
 	languages: Language[];
 	frameworks: Framework[];
 	files?: string[];
+	// Raw user exclude entries (config `exclude` + `.aislopignore`). The
+	// file-scanning engines already start from the excluded file list; this lets
+	// the build-backed C#/C++ engines - which shell out to tools that scan whole
+	// projects - honor the same excludes via a shared diagnostic post-filter.
+	excludePatterns?: string[];
 	installedTools: Record<string, boolean>;
 	config: EngineConfig;
 }

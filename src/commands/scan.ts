@@ -185,6 +185,7 @@ const runScanBody = async (
 			languages: projectInfo.languages,
 			frameworks: projectInfo.frameworks,
 			files,
+			excludePatterns,
 			installedTools: projectInfo.installedTools,
 			config: engineConfig,
 		},

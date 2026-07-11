@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isPathExcluded, normalizeExcludePatterns } from "../utils/exclude.js";
 import { dropGitIgnoredPaths } from "../utils/git-ignore.js";
 import { toPosix } from "../utils/paths.js";
 import type { Diagnostic, EngineContext } from "./types.js";
@@ -7,8 +8,25 @@ import type { Diagnostic, EngineContext } from "./types.js";
 // Build-output and vendor directories that never hold first-party project files.
 const IGNORED_DIRECTORIES = new Set(["bin", "obj", "node_modules", ".git", ".vs"]);
 
+// Drop project files under a user-excluded path so excluded projects (vendored
+// submodules, `.claude/` scratch) are never restored or analyzed - the diagnostic
+// post-filter would discard their findings anyway, and skipping them here also
+// keeps them out of the projects-skipped notice and off the restore critical path.
+const dropExcludedProjects = (
+	root: string,
+	projects: string[],
+	excludePatterns?: string[],
+): string[] => {
+	if (!excludePatterns || excludePatterns.length === 0) return projects;
+	const normalized = normalizeExcludePatterns(excludePatterns);
+	if (normalized.length === 0) return projects;
+	return projects.filter(
+		(project) => !isPathExcluded(toPosix(path.relative(root, project)), normalized),
+	);
+};
+
 // Recursively collect every .csproj under `root`, skipping the directories above.
-export const findCsprojFiles = (root: string): string[] => {
+export const findCsprojFiles = (root: string, excludePatterns?: string[]): string[] => {
 	const results: string[] = [];
 	const walk = (directory: string): void => {
 		let entries: fs.Dirent[];
@@ -29,7 +47,7 @@ export const findCsprojFiles = (root: string): string[] => {
 	walk(root);
 	// Honor .gitignore: the raw walk would otherwise lint projects under ignored
 	// directories (spikes, scratch checkouts) that the git-aware file discovery skips.
-	return dropGitIgnoredPaths(root, results);
+	return dropExcludedProjects(root, dropGitIgnoredPaths(root, results), excludePatterns);
 };
 
 // Even a restored project costs a full MSBuild workspace load per invocation, so
@@ -98,7 +116,7 @@ const selectRestoredProjects = (
 // notably .NET 10), and projects routinely live in subdirectories rather than at
 // the root.
 export const findDotnetTargets = (
-	context: Pick<EngineContext, "rootDirectory">,
+	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
 ): DotnetTargetSelection => {
 	const root = context.rootDirectory;
 	let entries: string[];
@@ -109,7 +127,7 @@ export const findDotnetTargets = (
 	}
 	const solution = entries.find((name) => name.endsWith(".sln"));
 	if (solution) return solutionSelection(root, solution);
-	return selectRestoredProjects(findCsprojFiles(root), root);
+	return selectRestoredProjects(findCsprojFiles(root, context.excludePatterns), root);
 };
 
 // Targets for the jb (ReSharper CLT) lint pass. Unlike roslynator, jb inspectcode
@@ -119,7 +137,7 @@ export const findDotnetTargets = (
 // ("Cannot resolve symbol", "has no constructors defined"). Fall back to the
 // restored .csproj files only when no solution file exists.
 export const findJbTargets = (
-	context: Pick<EngineContext, "rootDirectory">,
+	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
 ): DotnetTargetSelection => {
 	const root = context.rootDirectory;
 	let entries: string[];
@@ -131,7 +149,7 @@ export const findJbTargets = (
 	const solution =
 		entries.find((name) => name.endsWith(".sln")) ?? entries.find((name) => name.endsWith(".slnx"));
 	if (solution) return solutionSelection(root, solution);
-	return selectRestoredProjects(findCsprojFiles(root), root);
+	return selectRestoredProjects(findCsprojFiles(root, context.excludePatterns), root);
 };
 
 // One advisory notice per lint pass - never one per project - telling the user
@@ -146,9 +164,7 @@ export const projectsSkippedNotice = (
 	if (skipped.length === 0) return [];
 	const reasons: string[] = [];
 	if (selection.coldProjects.length > 0) {
-		reasons.push(
-			`${selection.coldProjects.length} with no restore evidence (project.assets.json)`,
-		);
+		reasons.push(`${selection.coldProjects.length} with no restore evidence (project.assets.json)`);
 	}
 	if (selection.overCapProjects.length > 0) {
 		reasons.push(
