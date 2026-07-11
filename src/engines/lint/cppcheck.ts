@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import { toPosix } from "../../utils/paths.js";
 import {
@@ -14,6 +15,29 @@ import type { JbSeverity } from "./jb.js";
 // groups) is higher than clang-format's, so allow more files per chunk before
 // the character budget - unchanged from the shared default - becomes binding.
 const CPPCHECK_CHUNK_MAX_FILES = 500;
+
+// -j fans a cppcheck invocation out across worker processes instead of running
+// single-threaded on one core. Per the cppcheck manual, -j disables
+// whole-program analysis (e.g. unusedFunction) unless a build directory
+// (--cppcheck-build-dir) is also supplied, because that analysis needs the
+// symbol picture from every translation unit at once. Leave two cores free
+// since aislop runs its own engines concurrently.
+const CPPCHECK_JOB_COUNT = Math.max(1, os.availableParallelism() - 2);
+
+// `--enable` is a free-form, user-configurable comma-separated list (see
+// CppLintSchema.cppcheckEnable), not the fixed default - a user can add
+// `unusedFunction` or the `all` shorthand (which implies it), either of which
+// -j would silently degrade without a build directory (see CPPCHECK_JOB_COUNT
+// above). Gate -j on the *effective* list rather than assuming the default.
+// Token match, not substring, so an unrelated check id that merely contains
+// the text "unusedFunction" cannot false-trigger the gate.
+const WHOLE_PROGRAM_ENABLE_TOKENS = new Set(["all", "unusedFunction"]);
+
+const wantsWholeProgramAnalysis = (enable: string): boolean =>
+	enable
+		.split(",")
+		.map((token) => token.trim())
+		.some((token) => WHOLE_PROGRAM_ENABLE_TOKENS.has(token));
 
 interface CppLintConfig {
 	cppcheck: boolean;
@@ -85,6 +109,8 @@ export const buildCppcheckArgs = (
 	isCppTree: boolean = hasCppOnlySources(sources),
 ): string[] => {
 	const args = [`--enable=${config.cppcheckEnable}`, "--inline-suppr", "--quiet"];
+	if (!wantsWholeProgramAnalysis(config.cppcheckEnable))
+		args.push("-j", String(CPPCHECK_JOB_COUNT));
 	if (isCppTree) args.push("--language=c++");
 	for (const id of PARSE_CONTEXT_SUPPRESSIONS) args.push(`--suppress=${id}`);
 	args.push("--xml", "--xml-version=2", ...sources);

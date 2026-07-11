@@ -42,6 +42,38 @@ describe("buildCppcheckArgs", () => {
 		const args = buildCppcheckArgs(["/p/a.c"], CPP_LINT_DEFAULTS, true);
 		expect(args).toContain("--language=c++");
 	});
+
+	it("passes -j with a positive job count so cppcheck fans out across cores", () => {
+		const args = buildCppcheckArgs(["/p/a.cpp"], CPP_LINT_DEFAULTS);
+		const jobFlagIndex = args.indexOf("-j");
+		expect(jobFlagIndex).toBeGreaterThanOrEqual(0);
+		const jobCount = Number(args[jobFlagIndex + 1]);
+		expect(Number.isInteger(jobCount)).toBe(true);
+		expect(jobCount).toBeGreaterThanOrEqual(1);
+	});
+
+	it("omits -j when the configured enable list turns on unusedFunction (a whole-program check)", () => {
+		const args = buildCppcheckArgs(["/p/a.cpp"], {
+			...CPP_LINT_DEFAULTS,
+			cppcheckEnable: "warning,unusedFunction",
+		});
+		expect(args).not.toContain("-j");
+	});
+
+	it("omits -j when the configured enable list is 'all' (implies unusedFunction)", () => {
+		const args = buildCppcheckArgs(["/p/a.cpp"], { ...CPP_LINT_DEFAULTS, cppcheckEnable: "all" });
+		expect(args).not.toContain("-j");
+	});
+
+	it("keeps -j when the enable list merely contains 'unusedFunction' as a substring, not a token", () => {
+		// Token match, not substring: an enable value that happens to contain the
+		// text "unusedFunction" without being that exact check id must not gate -j.
+		const args = buildCppcheckArgs(["/p/a.cpp"], {
+			...CPP_LINT_DEFAULTS,
+			cppcheckEnable: "warning,notARealUnusedFunctionCheck",
+		});
+		expect(args).toContain("-j");
+	});
 });
 
 const XML = `<?xml version="1.0"?>
