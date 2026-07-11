@@ -22,19 +22,11 @@ interface FunctionInfo {
 	maxNesting: number;
 	paramCount: number;
 	templateLines: number;
-	isPositionalRecord: boolean;
 }
 interface FunctionPattern {
 	regex: RegExp;
 	langFilter: string[];
 }
-
-// A C# positional record declaration (`record Foo(...)`, `record class Foo(...)`,
-// `readonly record struct Foo(...)`). Its parameter list is the record's data
-// shape - the component list - not a method parameter-list smell, so it is exempt
-// from the too-many-params rule. Matches the `record` contextual keyword, an
-// optional `class`/`struct`, the type name, and the opening paren.
-const CSHARP_POSITIONAL_RECORD_RE = /\brecord\b(?:\s+(?:class|struct))?\s+\w+\s*\(/;
 
 const FUNCTION_PATTERNS: FunctionPattern[] = [
 	{
@@ -250,7 +242,6 @@ export const analyzeFunctions = (content: string, ext: string): FunctionInfo[] =
 			maxNesting,
 			paramCount,
 			templateLines,
-			isPositionalRecord: ext === ".cs" && CSHARP_POSITIONAL_RECORD_RE.test(matchLine),
 		});
 	}
 
@@ -376,9 +367,7 @@ const checkFunctionDiagnostics = (
 		});
 	}
 
-	// A positional record's component list is a data shape, not a method
-	// parameter-list smell, so it is exempt from the too-many-params rule.
-	if (fn.paramCount > limits.maxParams && !fn.isPositionalRecord) {
+	if (fn.paramCount > limits.maxParams) {
 		results.push({
 			filePath: relativePath,
 			engine: "code-quality",
