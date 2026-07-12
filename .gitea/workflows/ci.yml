@@ -1,0 +1,208 @@
+# Gitea Actions in-house CI. This directory takes exclusive precedence over
+# .github/workflows on Gitea: when a repo has BOTH .gitea/workflows and
+# .github/workflows, Gitea Actions reads .gitea/workflows only and the
+# .github/workflows directory becomes invisible to it (confirmed via
+# go-gitea/gitea issue #31456, "Query both .gitea and .github for
+# workflows" - filed because Gitea does NOT merge the two directories).
+# GitHub itself only ever reads .github/workflows, so the two forges keep
+# running independently off the same commits; nothing here affects GitHub.
+#
+# Deliberate omissions from .github/workflows, and why:
+#   - codeql.yml: uses github/codeql-action, which uploads SARIF to
+#     GitHub's code-scanning API - a GitHub-only endpoint with no Gitea
+#     equivalent, so every run 404s. No Gitea file is added for it: because
+#     this directory makes Gitea stop reading .github/workflows entirely,
+#     Gitea already never executes codeql.yml, so there is nothing to guard.
+#   - aislop.yml: its action-smoke job exercises the GitHub Marketplace
+#     composite action (`uses: ./`), a GitHub-specific product surface with
+#     no Gitea analogue. Its scan-smoke and quality-gate jobs duplicate the
+#     substance of the quality-gate job below (`node dist/cli.js scan .` /
+#     `ci .`), so nothing is lost by not porting them.
+#   - contributors.yml, sync-develop.yml, release.yml: GitHub-only
+#     automation (github-actions[bot] commits, `gh pr create` / auto-merge
+#     against github.com, npm + GitHub Packages publish using GitHub
+#     secrets). None of these are verification signals, so none are ported.
+#
+# Windows leg: NO actions/setup-node. actions/setup-node@v6 extracts Node's
+# Windows build from a .7z archive via @actions/tool-cache, which shells out
+# to a bundled 7zr.exe that exits 2 on this runner (actions/setup-node#1147)
+# - every windows-latest leg that uses it fails outright, independent of
+# anything in this repo. The llamabox-windows VM has one Node LTS
+# preinstalled (satisfies aislop's engines.node >=20 floor), so the windows
+# job uses that directly and does not run an OS/version matrix (there is
+# only the one host Node to test against). pnpm on that leg comes from
+# Corepack - bundled with Node, activated straight from package.json's
+# "packageManager" pin - instead of pnpm/action-setup, so the whole leg
+# needs no tool-cache archive download at all and avoids the same class of
+# bug on principle, not just by avoidance of the one action that is known
+# to trip it.
+
+name: CI
+
+on:
+  push:
+    branches: [schoen/main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [schoen/main, "feat/**", "fix/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test-ubuntu:
+    name: Build & test (ubuntu-latest, node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm vitest run
+
+  test-windows:
+    name: Build & test (windows-latest, host node)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify host Node satisfies the engines.node floor
+        shell: pwsh
+        run: |
+          node --version
+          $major = [int](node -e "console.log(process.versions.node.split('.')[0])")
+          if ($major -lt 20) {
+            Write-Error "Host Node is < 20 (aislop's package.json engines.node floor); the preinstalled runner Node needs upgrading."
+            exit 1
+          }
+
+      - name: Activate pnpm via Corepack (no tool-cache archive download)
+        shell: pwsh
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          if (-not (Get-Command corepack -ErrorAction SilentlyContinue)) {
+            # Recent Node builds ship without Corepack bundled; fall back to
+            # a plain npm registry install (still no archive extraction).
+            npm install -g corepack
+          }
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        shell: pwsh
+        run: pnpm typecheck
+
+      - name: Build
+        shell: pwsh
+        run: pnpm build
+
+      - name: Test
+        shell: pwsh
+        run: pnpm vitest run
+
+  # Stable gate over both OS legs. always() + an explicit result check is
+  # deliberate: a gate that merely skips when a leg fails would otherwise
+  # report success itself, letting a red matrix look green downstream.
+  check:
+    name: Build & test
+    needs: [test-ubuntu, test-windows]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both legs to pass
+        run: |
+          if [ "${{ needs.test-ubuntu.result }}" != "success" ] || [ "${{ needs.test-windows.result }}" != "success" ]; then
+            echo "test-ubuntu: ${{ needs.test-ubuntu.result }}"
+            echo "test-windows: ${{ needs.test-windows.result }}"
+            exit 1
+          fi
+          echo "All Build & test legs passed."
+
+  quality-gate:
+    name: Quality gate
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: aislop ci
+        run: node dist/cli.js ci .
+
+  dotnet-lint:
+    name: C# lint integration
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install roslynator CLI
+        run: dotnet tool install -g roslynator.dotnet.cli
+
+      - name: Build
+        run: pnpm build
+
+      - name: Scan sample C# project and assert dotnet diagnostics appear
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          node dist/cli.js scan tests/fixtures/dotnet/sample-project --json > scan.json || true
+          cat scan.json
+          grep -q '"dotnet/' scan.json
