@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { hookStateDir } from "./state-dir.js";
 
-const LOCK_DIR = ".aislop";
 const LOCK_FILE = "hook.lock";
 const STALE_MS = 30_000;
 
@@ -10,7 +10,9 @@ interface LockPayload {
 	ts: number;
 }
 
-const lockPath = (cwd: string): string => path.join(cwd, LOCK_DIR, LOCK_FILE);
+// Lives in the per-repo hook state directory, not in the scanned repo (see
+// state-dir.ts). No migration: a stale legacy lock goes stale in 30s anyway.
+const lockPath = (cwd: string): string => path.join(hookStateDir(cwd), LOCK_FILE);
 
 const readLock = (target: string): LockPayload | null => {
 	try {
