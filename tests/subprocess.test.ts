@@ -148,6 +148,56 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 	});
 });
 
+describe("runSubprocess output capture", () => {
+	it("does not block a child writing faster than the parent can drain a starved pipe", async () => {
+		// On Windows, child-side pipe writes are synchronous: once the 64KiB OS
+		// pipe buffer fills, write() blocks until the parent drains it. A
+		// starved parent event loop never drains, so the child stalls at zero
+		// CPU. Capturing output through temp files instead of pipes removes
+		// the parent from that path entirely - the child should finish writing
+		// well before the parent's busy spin ends.
+		const markerFile = path.join(
+			tmpdir(),
+			`aislop-backpressure-${process.pid}-${Date.now()}.marker`,
+		);
+		const childScript = [
+			`const fs = require("node:fs");`,
+			// Built at runtime, not inlined as a literal: embedding a 64KiB
+			// string directly in the -e argument overflows the Windows
+			// command-line length limit before the process even spawns.
+			`const chunk = "x".repeat(65536);`, // 64KiB, matches the OS pipe buffer size
+			// 16 x 64KiB = 1MiB, far past the pipe buffer a starved parent leaves full.
+			`for (let i = 0; i < 16; i++) { process.stdout.write(chunk); }`,
+			`fs.writeFileSync(${JSON.stringify(markerFile)}, String(Date.now()));`,
+		].join("\n");
+
+		try {
+			const promise = runSubprocess(process.execPath, ["-e", childScript], { timeout: 10000 });
+
+			// Hop into a check-phase callback before starving the loop, matching
+			// the other starvation test's phase-ordering discipline.
+			await new Promise((resolve) => setImmediate(resolve));
+
+			// Starve the loop: the child runs and writes its full output during
+			// the spin, independent of whether the parent is draining anything.
+			const spinUntil = Date.now() + 2000;
+			while (Date.now() < spinUntil) {
+				// Busy-wait: simulates a synchronous engine pass starving the loop.
+			}
+			const spinEnd = Date.now();
+
+			const result = await promise;
+
+			expect(result.stdout.length).toBe(1048576);
+
+			const markerTimestamp = Number(readFileSync(markerFile, "utf-8"));
+			expect(markerTimestamp).toBeLessThan(spinEnd - 1500);
+		} finally {
+			rmSync(markerFile, { force: true });
+		}
+	});
+});
+
 describe("warnSubprocessFailure", () => {
 	it("writes a message to console.error naming the tool and the failure", () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});

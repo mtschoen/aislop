@@ -1,4 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 interface SubprocessResult {
 	stdout: string;
@@ -103,6 +106,46 @@ const killProcessTree = (child: ChildProcess): void => {
 	}, 1000).unref();
 };
 
+interface OutputCapture {
+	tempDir: string;
+	stdoutPath: string;
+	stderrPath: string;
+	outFd: number;
+	errFd: number;
+}
+
+// Output goes through temp files instead of pipes: the OS pipe buffer is
+// 64KB, and on Windows a child-side pipe write() is synchronous, blocking
+// once that buffer fills until the parent drains it. A parent stuck in a
+// long synchronous pass (e.g. aislop's per-file engine work) never drains,
+// so the child would stall at zero CPU; a file write needs no parent at all.
+const createOutputCapture = (): OutputCapture => {
+	const tempDir = mkdtempSync(path.join(tmpdir(), "aislop-"));
+	const stdoutPath = path.join(tempDir, "stdout.log");
+	const stderrPath = path.join(tempDir, "stderr.log");
+	let outFd: number | undefined;
+	try {
+		outFd = openSync(stdoutPath, "w");
+		const errFd = openSync(stderrPath, "w");
+		return { tempDir, stdoutPath, stderrPath, outFd, errFd };
+	} catch (error) {
+		if (outFd !== undefined) {
+			try {
+				closeSync(outFd);
+			} catch {
+				// stdout fd may already be unusable if the failure came from
+				// opening stderr; nothing more to release for it either way.
+			}
+		}
+		try {
+			rmSync(tempDir, { recursive: true, force: true });
+		} catch {
+			// Best-effort: leaking an occasional temp dir is acceptable.
+		}
+		throw error;
+	}
+};
+
 export const runSubprocess = (
 	command: string,
 	args: string[],
@@ -113,10 +156,20 @@ export const runSubprocess = (
 	} = {},
 ): Promise<SubprocessResult> => {
 	return new Promise((resolve, reject) => {
+		let capture: OutputCapture;
+		try {
+			capture = createOutputCapture();
+		} catch (error) {
+			reject(
+				new Error(`Failed to prepare output capture for ${command}: ${(error as Error).message}`),
+			);
+			return;
+		}
+
 		const child = spawn(command, args, {
 			cwd: options.cwd,
 			env: { ...process.env, ...options.env },
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: ["ignore", capture.outFd, capture.errFd],
 			windowsHide: true,
 			// Makes the child a process-group leader on POSIX so a timeout can
 			// signal the whole group via a negative pid, not just this process.
@@ -125,11 +178,28 @@ export const runSubprocess = (
 			detached: process.platform !== "win32",
 		});
 
-		const stdoutBuffers: Buffer[] = [];
-		const stderrBuffers: Buffer[] = [];
-
-		child.stdout?.on("data", (buffer: Buffer) => stdoutBuffers.push(buffer));
-		child.stderr?.on("data", (buffer: Buffer) => stderrBuffers.push(buffer));
+		// Runs exactly once, on whichever of 'close'/'error' fires first (a
+		// spawn failure can still emit 'close' afterward). Not gated behind
+		// `settled`: a timeout already rejected before the killed child's
+		// 'close' arrives, but the temp files must still be read and removed.
+		let cleanedUp = false;
+		const cleanup = (): { stdout: string; stderr: string } => {
+			if (cleanedUp) return { stdout: "", stderr: "" };
+			cleanedUp = true;
+			closeSync(capture.outFd);
+			closeSync(capture.errFd);
+			const stdout = readFileSync(capture.stdoutPath, "utf-8").trim();
+			const stderr = readFileSync(capture.stderrPath, "utf-8").trim();
+			// Best-effort: on Windows a just-killed child can still hold the
+			// file handle briefly, so removal can fail here - leaking an
+			// occasional temp file/dir into the OS tmpdir is acceptable.
+			try {
+				rmSync(capture.tempDir, { recursive: true, force: true });
+			} catch {
+				// Best-effort: leaking an occasional temp dir is acceptable.
+			}
+			return { stdout, stderr };
+		};
 
 		let settled = false;
 		let timer: NodeJS.Timeout | undefined;
@@ -167,23 +237,19 @@ export const runSubprocess = (
 			timer.unref();
 		}
 
-		child.once("error", (error: NodeJS.ErrnoException) =>
+		child.once("error", (error: NodeJS.ErrnoException) => {
+			cleanup();
 			finalize(() => {
 				const wrapped: NodeJS.ErrnoException = new Error(
 					`Failed to run ${command}: ${error.message}`,
 				);
 				if (error.code) wrapped.code = error.code;
 				reject(wrapped);
-			}),
-		);
+			});
+		});
 		child.once("close", (code) => {
-			finalize(() =>
-				resolve({
-					stdout: Buffer.concat(stdoutBuffers).toString("utf-8").trim(),
-					stderr: Buffer.concat(stderrBuffers).toString("utf-8").trim(),
-					exitCode: code,
-				}),
-			);
+			const { stdout, stderr } = cleanup();
+			finalize(() => resolve({ stdout, stderr, exitCode: code }));
 		});
 	});
 };
