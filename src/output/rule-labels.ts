@@ -84,6 +84,7 @@ const RULE_LABELS: Record<string, string> = {
 	"security/unsafe-deserialization": "Unsafe deserialization",
 	"security/unsafe-c-call": "Memory-unsafe C call",
 	"dotnet/projects-skipped": "C# projects skipped by build-backed lint",
+	"cppcheck/chunks-skipped": "C/C++ files skipped by cppcheck",
 	"eslint/no-undef": "Undefined identifier",
 	"eslint/no-unused-vars": "Unused variable",
 	"eslint/no-unassigned-vars": "Variable never assigned",
@@ -173,6 +174,8 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"security/unsafe-c-call": "Unbounded C string/exec function with buffer-overflow or shell risk.",
 	"dotnet/projects-skipped":
 		"Build-backed C# lint only ran on restored projects; the rest were skipped.",
+	"cppcheck/chunks-skipped":
+		"A cppcheck invocation timed out or failed on one or more chunks; their files were not analyzed.",
 	"oxlint/*": "JavaScript/TypeScript lint finding from oxlint.",
 	"ruff/*": "Python lint finding from ruff.",
 	"go/*": "Go lint finding from bundled checks.",

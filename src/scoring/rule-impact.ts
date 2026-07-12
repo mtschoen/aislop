@@ -281,6 +281,9 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"dotnet/projects-skipped": advisory(
 		"Skipping unrestored C# projects is visibility loss, not evidence of a defect.",
 	),
+	"cppcheck/chunks-skipped": advisory(
+		"A skipped cppcheck chunk is visibility loss, not evidence that the skipped files have a defect.",
+	),
 
 	"eslint/no-undef": strict("Undefined identifiers are high-confidence runtime failures."),
 	"eslint/no-unused-vars": mechanical("Unused variables are mechanical cleanup."),

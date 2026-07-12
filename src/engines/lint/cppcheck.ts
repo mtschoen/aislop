@@ -128,6 +128,70 @@ const decodeEntities = (value: string): string =>
 const attr = (tag: string, name: string): string =>
 	new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1] ?? "";
 
+// True when a chunk-level runSubprocess rejection was the 180s timeout applied
+// in runCppcheck below, rather than some other spawn/exit failure.
+const isTimeoutError = (error: unknown): boolean =>
+	error instanceof Error && /timed out/i.test(error.message);
+
+const relativizeChunkFile = (file: string, rootDirectory: string): string =>
+	toPosix(path.isAbsolute(file) ? path.relative(rootDirectory, file) : file);
+
+interface ChunkFailure {
+	first: string;
+	last: string;
+	fileCount: number;
+	reason: "timed out" | "failed";
+}
+
+// A compact per-chunk identity ("files first..last (N files)") that lets a
+// terminal user or the chunks-skipped diagnostic below point at which files
+// were dropped, without listing every path in a chunk that can hold hundreds.
+const describeChunk = (chunk: string[], rootDirectory: string): Omit<ChunkFailure, "reason"> => ({
+	first: relativizeChunkFile(chunk[0], rootDirectory),
+	last: relativizeChunkFile(chunk[chunk.length - 1], rootDirectory),
+	fileCount: chunk.length,
+});
+
+const formatChunkRange = ({ first, last, fileCount }: Omit<ChunkFailure, "reason">): string => {
+	const range = first === last ? first : `${first}..${last}`;
+	return `files ${range} (${fileCount} file${fileCount === 1 ? "" : "s"})`;
+};
+
+const MAX_LISTED_CHUNK_RANGES = 3;
+
+// Builds the single advisory `cppcheck/chunks-skipped` diagnostic summarizing
+// every chunk a scan could not analyze, mirroring the dotnet/projects-skipped
+// notice: one visible signal for an otherwise-silent gap instead of dropping
+// the affected findings without a trace.
+const buildChunksSkippedDiagnostic = (
+	failures: ChunkFailure[],
+	totalChunks: number,
+): Diagnostic => {
+	const totalFiles = failures.reduce((sum, failure) => sum + failure.fileCount, 0);
+	const reasons = new Set(failures.map((failure) => failure.reason));
+	const reasonText = reasons.size > 1 ? "some timed out, some failed" : [...reasons][0];
+	const listed = failures
+		.slice(0, MAX_LISTED_CHUNK_RANGES)
+		.map((failure) => formatChunkRange(failure));
+	const remaining = failures.length - listed.length;
+	const rangeText =
+		remaining > 0 ? `${listed.join(", ")}, and ${remaining} more` : listed.join(", ");
+	return {
+		filePath: failures[0].first,
+		engine: "lint",
+		rule: "cppcheck/chunks-skipped",
+		severity: "info",
+		message: `cppcheck skipped ${failures.length} of ${totalChunks} chunk${
+			totalChunks === 1 ? "" : "s"
+		} (${totalFiles} file${totalFiles === 1 ? "" : "s"} total, ${reasonText}): ${rangeText}`,
+		help: "Re-run cppcheck directly on the skipped files, or investigate why the chunk timed out or failed, to recover their findings.",
+		line: 0,
+		column: 0,
+		category: "C++ Lint",
+		fixable: false,
+	};
+};
+
 // Defensive regex parse (no XML dependency), mirroring parseRoslynatorXml. cppcheck
 // emits each finding as <error ...><location .../></error>; entries without a
 // <location> (e.g. whole-program notes) are skipped.
@@ -172,7 +236,9 @@ export const runCppcheck = async (context: EngineContext): Promise<Diagnostic[]>
 	const config = resolveCppLintConfig(context);
 	const isCppTree = hasCppOnlySources(sources);
 	const diagnostics: Diagnostic[] = [];
-	for (const chunk of chunkFilePaths(sources, CPPCHECK_CHUNK_MAX_FILES)) {
+	const chunks = chunkFilePaths(sources, CPPCHECK_CHUNK_MAX_FILES);
+	const failures: ChunkFailure[] = [];
+	for (const chunk of chunks) {
 		try {
 			// cppcheck writes its XML report to STDERR.
 			const result = await runSubprocess("cppcheck", buildCppcheckArgs(chunk, config, isCppTree), {
@@ -182,9 +248,14 @@ export const runCppcheck = async (context: EngineContext): Promise<Diagnostic[]>
 			diagnostics.push(...parseCppcheckXml(result.stderr, context.rootDirectory));
 		} catch (error) {
 			// A missing binary is gated out before this ever runs (installedTools.cppcheck);
-			// anything else is cppcheck present but failing, which must not go silent.
-			if (!isMissingToolError(error)) warnSubprocessFailure("cppcheck", error);
+			// anything else is cppcheck present but failing, which must not go silent - both
+			// the per-chunk stderr warning and the chunks-skipped diagnostic below record it.
+			if (isMissingToolError(error)) continue;
+			const identity = describeChunk(chunk, context.rootDirectory);
+			warnSubprocessFailure(`cppcheck (${formatChunkRange(identity)})`, error);
+			failures.push({ ...identity, reason: isTimeoutError(error) ? "timed out" : "failed" });
 		}
 	}
+	if (failures.length > 0) diagnostics.push(buildChunksSkippedDiagnostic(failures, chunks.length));
 	return diagnostics;
 };

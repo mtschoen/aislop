@@ -166,7 +166,7 @@ describe("runCppcheck - chunked invocation", () => {
 		expect(diagnostics.map((d) => d.message).sort()).toEqual(["bad a", "bad b"]);
 	});
 
-	it("logs a warning and returns [] for a chunk when cppcheck is present but the invocation fails", async () => {
+	it("logs a warning and emits an advisory chunks-skipped diagnostic when a chunk times out", async () => {
 		const fileA = path.join(dir, "a.cpp");
 		fs.writeFileSync(fileA, "int a;\n");
 		chunkFilePaths.mockImplementation((sources: string[]) => [sources]);
@@ -175,9 +175,22 @@ describe("runCppcheck - chunked invocation", () => {
 
 		const diagnostics = await runCppcheck(makeContext(dir, [fileA]));
 
-		expect(diagnostics).toEqual([]);
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0]).toMatchObject({
+			rule: "cppcheck/chunks-skipped",
+			severity: "info",
+			filePath: "a.cpp",
+			category: "C++ Lint",
+			fixable: false,
+		});
+		expect(diagnostics[0].message).toContain("skipped 1 of 1 chunk");
+		expect(diagnostics[0].message).toContain("1 file total");
+		expect(diagnostics[0].message).toContain("timed out");
+		expect(diagnostics[0].message).toContain("files a.cpp (1 file)");
+
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		expect(warnSpy.mock.calls[0][0]).toContain("cppcheck");
+		expect(warnSpy.mock.calls[0][0]).toContain("a.cpp");
 		warnSpy.mockRestore();
 	});
 
@@ -193,6 +206,67 @@ describe("runCppcheck - chunked invocation", () => {
 
 		expect(diagnostics).toEqual([]);
 		expect(warnSpy).not.toHaveBeenCalled();
+		expect(diagnostics.some((d) => d.rule === "cppcheck/chunks-skipped")).toBe(false);
+		warnSpy.mockRestore();
+	});
+
+	it("omits cppcheck/chunks-skipped entirely when every chunk succeeds", async () => {
+		const fileA = path.join(dir, "a.cpp");
+		const fileB = path.join(dir, "b.cpp");
+		fs.writeFileSync(fileA, "int a;\n");
+		fs.writeFileSync(fileB, "int b;\n");
+		chunkFilePaths.mockImplementation((sources: string[]) => sources.map((source) => [source]));
+		runSubprocess.mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 });
+		runSubprocess.mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 });
+
+		const diagnostics = await runCppcheck(makeContext(dir, [fileA, fileB]));
+
+		expect(diagnostics.some((d) => d.rule === "cppcheck/chunks-skipped")).toBe(false);
+	});
+
+	it("keeps findings from chunks that succeed alongside the advisory for chunks that fail", async () => {
+		const fileA = path.join(dir, "a.cpp");
+		const fileB = path.join(dir, "b.cpp");
+		fs.writeFileSync(fileA, "int a;\n");
+		fs.writeFileSync(fileB, "int b;\n");
+		chunkFilePaths.mockImplementation((sources: string[]) => sources.map((source) => [source]));
+		runSubprocess
+			.mockResolvedValueOnce({
+				stdout: "",
+				stderr:
+					'<results><errors><error id="nullPointer" severity="error" msg="bad a"><location file="a.cpp" line="1" column="1"/></error></errors></results>',
+				exitCode: 1,
+			})
+			.mockRejectedValueOnce(new Error("spawn cppcheck EACCES"));
+		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const diagnostics = await runCppcheck(makeContext(dir, [fileA, fileB]));
+
+		expect(diagnostics.find((d) => d.rule === "cppcheck/nullPointer")?.message).toBe("bad a");
+		const skipped = diagnostics.find((d) => d.rule === "cppcheck/chunks-skipped");
+		expect(skipped?.message).toContain("skipped 1 of 2 chunk");
+		expect(skipped?.message).toContain("failed");
+		expect(skipped?.message).not.toContain("timed out");
+		warnSpy.mockRestore();
+	});
+
+	it("caps the listed chunk ranges at 3 and summarizes the rest, mixing failure reasons when they differ", async () => {
+		const files = ["a", "b", "c", "d"].map((name) => path.join(dir, `${name}.cpp`));
+		for (const file of files) fs.writeFileSync(file, "int x;\n");
+		chunkFilePaths.mockImplementation((sources: string[]) => sources.map((source) => [source]));
+		runSubprocess
+			.mockRejectedValueOnce(new Error("Command timed out after 180000ms: cppcheck"))
+			.mockRejectedValueOnce(new Error("spawn cppcheck EACCES"))
+			.mockRejectedValueOnce(new Error("Command timed out after 180000ms: cppcheck"))
+			.mockRejectedValueOnce(new Error("spawn cppcheck EACCES"));
+		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const diagnostics = await runCppcheck(makeContext(dir, files));
+
+		const skipped = diagnostics.find((d) => d.rule === "cppcheck/chunks-skipped");
+		expect(skipped?.message).toContain("skipped 4 of 4 chunks");
+		expect(skipped?.message).toContain("and 1 more");
+		expect(skipped?.message).toMatch(/timed out.*failed|failed.*timed out/);
 		warnSpy.mockRestore();
 	});
 });
