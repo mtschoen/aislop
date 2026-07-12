@@ -67,11 +67,29 @@ describe("isMissingToolError", () => {
 	});
 });
 
+// A zombie still occupies a slot in the process table, so kill(pid, 0)
+// succeeds on it even though it is not really running - it is just waiting
+// for its parent to call wait() and reap it. That reap never happens when
+// the parent has already died and the zombie reparents to a PID 1 that is
+// not an init/reaper (e.g. a bare `node`/`sh` entrypoint in a minimal CI
+// container, as opposed to a desktop OS or an init process like tini). On
+// Linux, cross-check /proc/<pid>/stat: the state field right after the
+// comm's closing paren (comm itself can contain spaces or parens, so split
+// on the LAST ")") is "Z" for a zombie, which this treats as dead.
 const isProcessAlive = (pid: number): boolean => {
 	try {
 		process.kill(pid, 0);
-		return true;
 	} catch {
+		return false;
+	}
+	if (process.platform !== "linux") return true;
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
+		const afterComm = stat.slice(stat.lastIndexOf(")") + 1).trim();
+		const state = afterComm.split(" ")[0];
+		return state !== "Z";
+	} catch {
+		// The process vanished between the kill(pid, 0) check and this read.
 		return false;
 	}
 };
