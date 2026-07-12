@@ -23,7 +23,13 @@ const resolveTsdownBin = (): string => {
 let outputDir: string;
 
 beforeEach(() => {
-	outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-build-"));
+	// tsdown's default clean resolves outDir as an absolute glob pattern (see
+	// cleanOutDir in tsdown/dist/options-*.mjs); a pattern whose casing differs
+	// from the on-disk casing matches nothing on some environments and the
+	// clean silently no-ops. os.tmpdir() can return a case-mangled path (seen
+	// on a self-hosted Windows CI runner where TMP/TEMP is set uppercase), so
+	// canonicalize to the real on-disk casing before handing it to tsdown.
+	outputDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "aislop-build-")));
 });
 
 afterEach(() => {
