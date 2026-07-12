@@ -123,6 +123,11 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 - **Main promotion**: `develop` -> `main` is a maintainer decision. Do not merge it just because checks are green.
 - **Releases**: automated via `.github/workflows/release.yml` on `v*` tags.
 - **CI**: Node 22 + 24 matrix, typecheck + build + test + self-scan.
+- **In-house verification backstop (fork)**: `.gitea/workflows/ci.yml` runs the
+  full matrix (ubuntu node 22/24, windows host-node, quality gate, C# lint) on
+  the self-hosted gitea for every push to `schoen/main`, `feat/**`, `fix/**`.
+  Check it green there before pushing branches to GitHub - saves cloud runner
+  minutes and keeps draft-PR churn quiet.
 - All changes should pass: `pnpm typecheck && pnpm test && pnpm scan`.
 
 ## Agent operation guardrails
