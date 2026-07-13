@@ -12,17 +12,22 @@ import {
 } from "../../src/hooks/quality-gate/baseline.js";
 
 let cwd: string;
+let stateRoot: string;
 
 beforeEach(() => {
 	cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-baseline-"));
+	stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-state-"));
+	process.env.AISLOP_HOOK_STATE_DIR = stateRoot;
 });
 
 afterEach(() => {
+	delete process.env.AISLOP_HOOK_STATE_DIR;
 	fs.rmSync(cwd, { recursive: true, force: true });
+	fs.rmSync(stateRoot, { recursive: true, force: true });
 });
 
 describe("baseline read/write", () => {
-	it("round-trips a v2 baseline (incl. findingFingerprints) to .aislop/baseline.json", () => {
+	it("round-trips a v2 baseline (incl. findingFingerprints) outside the repo", () => {
 		writeBaseline(cwd, {
 			schema: "aislop.baseline.v2",
 			updatedAt: "2026-04-19T00:00:00Z",
@@ -34,7 +39,10 @@ describe("baseline read/write", () => {
 		const read = readBaseline(cwd);
 		expect(read?.score).toBe(87);
 		expect(read?.findingFingerprints).toEqual(["src/x.ts:10:ai-slop/foo"]);
-		expect(baselinePath(cwd)).toBe(path.join(cwd, ".aislop", "baseline.json"));
+		// Hook state must never land inside the scanned repo.
+		expect(baselinePath(cwd).startsWith(stateRoot + path.sep)).toBe(true);
+		expect(baselinePath(cwd).startsWith(cwd + path.sep)).toBe(false);
+		expect(fs.existsSync(path.join(cwd, ".aislop"))).toBe(false);
 	});
 
 	it("normalises legacy backslash fingerprints from a pre-POSIX Windows baseline", () => {
