@@ -190,6 +190,16 @@ const findUvWorkspace = (startDir: string): UvWorkspaceInfo | null => {
 	return null;
 };
 
+// A scope rooted under a dot-directory (.ci, .github, etc.) is walked so
+// files within that subtree get its manifest, but its deps must not leak
+// into the flat aggregate below: pythonDepsForFile falls back to that
+// aggregate for any file whose own scope comes up empty, and a dot-directory
+// commonly holds CI-only tooling deps that do not apply outside it.
+const isUnderDotDirectory = (rootDir: string, scopeDir: string): boolean => {
+	const relative = path.relative(rootDir, scopeDir);
+	return relative.split(path.sep).some((segment) => segment.startsWith("."));
+};
+
 export const collectPythonDeps = (
 	rootDir: string,
 ): {
@@ -219,6 +229,7 @@ export const collectPythonDeps = (
 	}
 	const pyDeps = new Set<string>();
 	for (const scope of scopes) {
+		if (isUnderDotDirectory(rootDir, scope.directory)) continue;
 		for (const dep of scope.pyDeps) pyDeps.add(dep);
 	}
 	return {
