@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { Command } from "commander";
 import { registerAgentCommand } from "./cli/agent-command.js";
+import { registerCppCommand, registerScaffoldCommand } from "./cli/cpp-command.js";
 import { registerHookAliases, registerHookCommand } from "./cli/hook-command.js";
 import { badgeCommand } from "./commands/badge.js";
 import { ciCommand } from "./commands/ci.js";
@@ -247,6 +248,9 @@ program
 			},
 		);
 	});
+
+registerScaffoldCommand(program);
+registerCppCommand(program);
 
 program
 	.command("doctor [directory]")

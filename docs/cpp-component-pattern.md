@@ -95,7 +95,27 @@ The `#error` guard is the backstop if a fragment accidentally enters the build.
 
 When `complexity/file-too-large` fires on a C/C++ source file, its fix hint points back to this pattern rather than the generic "split into smaller modules" advice.
 
-Applying the pattern is a manual restructuring today (see the recipe below). Optional code-generation and maintenance tooling for it is developed separately as an experimental follow-up and does not ship with the C/C++ scanning support.
+The pattern is applicable by hand. Two **experimental** commands automate the mechanical parts of it; both are new, their output is meant to be reviewed rather than trusted blindly, and their interface may change.
+
+Generate a new component scaffold with:
+
+```bash
+aislop scaffold component mft --fragment records --fragment parse_core --fragment parse
+```
+
+By default this refuses to touch files that already exist. To convert an existing translation unit into a component, pass `--adopt`: the public header and any existing sources are kept as they are, missing pieces are created, each adopted fragment gains the `#error` guard, and the owner gets the fragment include block threaded in after its includes. Re-running with more `--fragment` flags folds the new fragments into the existing block.
+
+```bash
+aislop scaffold component mft --adopt --fragment records --fragment parse
+```
+
+Regenerate editor-only cross-fragment declarations after moving helper definitions with:
+
+```bash
+aislop cpp sync-internal mft
+```
+
+`sync-internal` declares only the helpers one fragment defines and another actually calls. It reads the fragments structurally (balanced parameter lists, trailing specifiers, trailing return types, with comments, string literals, and preprocessor lines masked out), so templated return types, brace-initialized default arguments, and definitions nested inside indented namespaces are all picked up. It is still a text-level tool, not a compiler front end: check the generated header before relying on it.
 
 - `clang-tidy` and JetBrains inspectcode should run through the compile database or project build model, so they lint the owner translation unit and report findings at fragment paths when appropriate.
 - `cppcheck`, formatting, complexity, security, and AI-pattern checks may still scan fragments as text files. That is expected.

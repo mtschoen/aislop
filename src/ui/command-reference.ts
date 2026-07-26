@@ -32,6 +32,8 @@ const commandGroupLabel = (command: string): string => {
 	if (command.startsWith("aislop init")) return "Project Setup";
 	if (command.startsWith("aislop doctor")) return "Project Setup";
 	if (command.startsWith("aislop rules")) return "Project Setup";
+	if (command.startsWith("aislop scaffold")) return "Project Setup";
+	if (command.startsWith("aislop cpp")) return "Project Setup";
 	if (command.startsWith("aislop badge")) return "Reporting";
 	if (command.startsWith("aislop trend")) return "Reporting";
 	return "General";
