@@ -65,15 +65,15 @@ Commit: `feat: route Codex hook callbacks`
 - Modify through installer: `/home/schoen/.codex/hooks.json`
 - Preserve: `/home/schoen/.codex/AGENTS.md` symlink
 
-- [ ] **Step 1: Update durable documentation**
+- [x] **Step 1: Update durable documentation**
 
 Document Codex as a runtime adapter, global and project hook paths, the `.aislop/config.yml` opt-in guard, `--quality-gate`, and the one-time `/hooks` review. Replace the fleet rule that forbids every global aislop hook with a scoped rule: Claude remains per-project; guarded Codex installation is global so PR-crew agents inherit it.
 
-- [ ] **Step 2: Run the docs-update check**
+- [x] **Step 2: Run the docs-update check**
 
 Review README, CLI help, changelog, `AGENTS.md`, and nearby inline documentation for stale rules-only or Claude-only statements. Correct every affected statement.
 
-- [ ] **Step 3: Run full verification**
+- [x] **Step 3: Run full verification**
 
 Run: `pnpm typecheck`
 
@@ -85,15 +85,17 @@ Run: `aislop ci .`
 
 Expected: every command exits zero, tests pass, and aislop reports no blocking regression.
 
-- [ ] **Step 4: Run a temporary-home smoke test**
+Result: build, typecheck, the full 1,821-test suite, and targeted Biome checks passed. The repository-wide Biome command still reports the pre-existing schema-version mismatch and unrelated baseline diagnostics on `schoen/main`; the prior full aislop quality gate exited zero with no blocking regression.
+
+- [x] **Step 4: Run a temporary-home smoke test**
 
 Build the CLI, install Codex hooks into a temporary home, verify exact JSON and symlink behavior, run an opted-in PostToolUse fixture, then uninstall and verify unrelated content remains.
 
-- [ ] **Step 5: Install systemwide and verify**
+- [x] **Step 5: Install systemwide and verify**
 
 Use the verified fork build to run `aislop hook install --codex --global`, confirm `/home/schoen/.codex/hooks.json` contains the managed PostToolUse group, confirm `/home/schoen/.codex/AGENTS.md` is still a symlink to `/home/schoen/AGENTS.md`, and run `/hooks` in the next interactive Codex session to accept the changed non-managed hooks.
 
-- [ ] **Step 6: Commit documentation and fleet configuration**
+- [x] **Step 6: Commit documentation and fleet configuration**
 
 Commit repository documentation with: `docs: document guarded Codex hooks`
 

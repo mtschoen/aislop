@@ -190,9 +190,11 @@ Session review commands:
 | `--project` | Install to project-scope config |
 | `--dry-run` | Print the planned diff without writing |
 | `--yes` | Skip confirmation prompt |
-| `--quality-gate` | Add a Claude Stop hook that blocks score regressions |
+| `--quality-gate` | Add a Claude or Codex Stop hook that blocks score regressions |
 
 Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
+
+Codex writes `hooks.json` under `~/.codex/` globally or `.codex/` in project scope. The global callback scans only projects containing `.aislop/config.yml`; review the installed non-managed hook once through Codex `/hooks`.
 
 ### hook uninstall
 

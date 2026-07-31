@@ -248,6 +248,7 @@ Runs after every agent edit. Feedback flows back immediately.
 
 ```bash
 aislop hook install --claude           # Claude Code
+aislop hook install --codex --global   # Codex, guarded by project config
 aislop hook install --cursor           # Cursor
 aislop hook install --gemini           # Gemini CLI
 aislop hook install --pi               # pi
@@ -258,8 +259,10 @@ aislop install claude cursor           # alias for hook install
 aislop install hooks --claude          # natural alias for hook install
 ```
 
-**Runtime adapters** (scan + feedback): `claude`, `cursor`, `gemini`, `pi`.  
-**Rules-only** (agent reads rules): `codex`, `windsurf`, `cline`, `kilocode`, `antigravity`, `copilot`.
+**Runtime adapters** (scan + feedback): `claude`, `codex`, `cursor`, `gemini`, `pi`.
+**Rules-only** (agent reads rules): `windsurf`, `cline`, `kilocode`, `antigravity`, `copilot`.
+
+Codex installs `hooks.json` under `~/.codex/` globally or `.codex/` in project scope. A global Codex hook exits without scanning unless the current project has `.aislop/config.yml`, so shared Codex workers inherit the hook without adding noise to projects that have not opted in. After installation, open `/hooks` in Codex once to review and accept the changed non-managed hook configuration.
 
 Hook install flags: `--agent <names>`, `-g, --global`, `--project`, `--dry-run`, `--yes`, `--quality-gate`, plus per-agent shortcuts `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
 
@@ -267,6 +270,7 @@ Hook install flags: `--agent <names>`, `-g, --global`, `--project`, `--dry-run`,
 
 ```bash
 aislop hook install --claude --quality-gate
+aislop hook install --codex --global --quality-gate
 aislop hook baseline                    # re-capture baseline
 aislop hook status                      # list installed
 aislop hook uninstall --claude          # remove
