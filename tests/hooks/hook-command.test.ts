@@ -1,5 +1,12 @@
+import { Command } from "commander";
 import { describe, expect, it } from "vitest";
-import { defaultInstallTargets, parseAgentFlag, resolveAgents } from "../../src/commands/hook.js";
+import { registerHookCommand } from "../../src/cli/hook-command.js";
+import {
+	AGENT_LABELS,
+	defaultInstallTargets,
+	parseAgentFlag,
+	resolveAgents,
+} from "../../src/commands/hook.js";
 
 describe("parseAgentFlag", () => {
 	it("returns the fallback when no arg is provided", () => {
@@ -80,5 +87,31 @@ describe("resolveAgents", () => {
 
 	it("positional args beat --agent", () => {
 		expect(resolveAgents({}, ["claude"], "gemini", [])).toEqual(["claude"]);
+	});
+});
+
+describe("Codex runtime registration", () => {
+	it("labels Codex as a PostToolUse runtime adapter", () => {
+		expect(AGENT_LABELS.codex.hint).toBe("PostToolUse, runtime");
+	});
+
+	it("registers the hidden codex callback with Stop mode", () => {
+		const program = new Command();
+		registerHookCommand(program);
+		const hook = program.commands.find((command) => command.name() === "hook");
+		const codex = hook?.commands.find((command) => command.name() === "codex");
+
+		expect(codex).toBeDefined();
+		expect(codex?.options.some((option) => option.long === "--stop")).toBe(true);
+	});
+
+	it("documents quality-gate support for Claude and Codex", () => {
+		const program = new Command();
+		registerHookCommand(program);
+		const hook = program.commands.find((command) => command.name() === "hook");
+		const install = hook?.commands.find((command) => command.name() === "install");
+		const qualityGate = install?.options.find((option) => option.long === "--quality-gate");
+
+		expect(qualityGate?.description).toContain("Claude and Codex");
 	});
 });

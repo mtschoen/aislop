@@ -128,7 +128,7 @@ const addInstallOptions = (command: Command): Command =>
 			.option("--yes", "skip the confirmation prompt (reserved)")
 			.option(
 				"--quality-gate",
-				"add a Stop hook that blocks when score regresses below baseline (Claude only)",
+				"add a Stop hook that blocks when score regresses below baseline (Claude and Codex)",
 			),
 	);
 
@@ -240,6 +240,13 @@ const registerCallbacks = (hook: Command): void => {
 				stop: Boolean(opts.stop),
 				onFileChanged: Boolean(opts.onFileChanged),
 			});
+		});
+	hook
+		.command("codex", { hidden: true })
+		.description("Internal: Codex PostToolUse / Stop callback (reads stdin)")
+		.option("--stop", "run in Stop-hook mode for the quality gate")
+		.action(async (opts: { stop?: boolean }) => {
+			await hookRun("codex", { stop: Boolean(opts.stop) });
 		});
 	hook
 		.command("cursor", { hidden: true })

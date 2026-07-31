@@ -18,99 +18,6 @@
 
 ---
 
-## Phase 2: Runtime adapter
-
-### Task 2: Guarded PostToolUse and Stop callbacks
-
-**Files:**
-- Create: `src/hooks/adapters/codex.ts`
-- Create: `tests/hooks/codex-adapter.test.ts`
-- Modify: `src/hooks/feedback.ts`
-
-**Interfaces:**
-- Produces: `parseCodexStdin(raw: string): CodexHookStdin`.
-- Produces: `extractCodexPatchFiles(command: string): string[]`.
-- Produces: `runCodexHook(deps?): Promise<number>` and `runCodexStopHook(deps?): Promise<number>`.
-
-- [x] **Step 1: Write failing parser and guard tests**
-
-Use an `apply_patch` command containing add, update, delete, and move headers:
-
-```ts
-const files = extractCodexPatchFiles(`*** Begin Patch
-*** Add File: src/new.ts
-*** Update File: src/old.ts
-*** Move to: src/moved.ts
-*** Delete File: src/gone.ts
-*** End Patch`);
-expect(files).toEqual(["src/new.ts", "src/old.ts", "src/moved.ts", "src/gone.ts"]);
-```
-
-Also cover malformed JSON, duplicate paths, absolute `cwd`, no `.aislop/config.yml`, config present in an ancestor, advisory PostToolUse output, `stop_hook_active`, no baseline, non-regression cleanup, regression blocking, scan-lock contention, and thrown scan failures.
-
-- [x] **Step 2: Run adapter tests and verify failure**
-
-Run: `pnpm vitest run tests/hooks/codex-adapter.test.ts`
-
-Expected: FAIL because the Codex adapter module does not exist.
-
-- [x] **Step 3: Implement parsing and opt-in guard**
-
-Define the documented input subset:
-
-```ts
-interface CodexHookStdin {
-	hook_event_name?: string;
-	tool_name?: string;
-	tool_input?: { command?: string };
-	cwd?: string;
-	session_id?: string;
-	stop_hook_active?: boolean;
-}
-```
-
-Resolve `cwd`, use `findConfigDir(cwd)`, and require an actual `config.yml` file inside that directory before scanning. Extract paths only for `tool_name === "apply_patch"`; match `*** Add File:`, `*** Update File:`, `*** Delete File:`, and `*** Move to:` lines.
-
-- [x] **Step 4: Implement advisory and blocking callbacks**
-
-Reuse `resolveHookFiles`, `runScopedScan`, `acquireHookLock`, baseline/session-file helpers, `buildFeedback`, and telemetry. PostToolUse writes:
-
-```ts
-{
-	hookSpecificOutput: {
-		hookEventName: "PostToolUse",
-		additionalContext: JSON.stringify(feedback),
-	},
-}
-```
-
-Stop returns no output unless the baseline regressed, then writes:
-
-```ts
-{
-	decision: "block",
-	reason: `aislop: score dropped from ${baseline.score} to ${score}. Fix the findings before finishing.`,
-}
-```
-
-Every malformed-input, guard, lock, and exception path returns zero without output.
-
-- [x] **Step 5: Extend feedback agent types and run tests**
-
-Add `"codex"` to the internal feedback `AgentName` union, then run:
-
-Run: `pnpm vitest run tests/hooks/codex-adapter.test.ts tests/hooks/adapters.test.ts tests/hooks/feedback.test.ts`
-
-Expected: PASS.
-
-- [x] **Step 6: Scan and commit Phase 2**
-
-Run: `aislop scan src/hooks/adapters src/hooks/feedback.ts tests/hooks`
-
-Expected: score does not regress and no blocking finding remains.
-
-Commit: `feat: add guarded Codex hook runtime adapter`
-
 ## Phase 3: CLI and documentation
 
 ### Task 3: Route Codex callbacks through the CLI
@@ -125,21 +32,21 @@ Commit: `feat: add guarded Codex hook runtime adapter`
 - Consumes: `runCodexHook()` and `runCodexStopHook()` from Task 2.
 - Produces: hidden `aislop hook codex [--stop]` callback command.
 
-- [ ] **Step 1: Write failing command and rendering tests**
+- [x] **Step 1: Write failing command and rendering tests**
 
 Assert that Codex is labeled `PostToolUse, runtime`, the quality-gate help no longer says Claude only, and callback registration accepts `--stop`.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `pnpm vitest run tests/hooks/hook-command.test.ts tests/commands/hook.render.test.ts`
 
 Expected: FAIL on the rules-only label or missing Codex callback.
 
-- [ ] **Step 3: Add Codex routing and callback registration**
+- [x] **Step 3: Add Codex routing and callback registration**
 
 Import the two Codex runners, route `agent === "codex"` before the rules-only fallback, register the hidden command, and describe `--quality-gate` as supported by Claude and Codex.
 
-- [ ] **Step 4: Run tests, scan, and commit Phase 3**
+- [x] **Step 4: Run tests, scan, and commit Phase 3**
 
 Run: `pnpm vitest run tests/hooks/hook-command.test.ts tests/commands/hook.render.test.ts`
 
