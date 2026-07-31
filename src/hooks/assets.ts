@@ -1,26 +1,25 @@
-export const AISLOP_MD_BODY = `# aislop — agent instructions
+export const AISLOP_MD_BODY = `# aislop - agent instructions
 
-[aislop](https://github.com/scanaislop/aislop) is your guardrail for shipping clean, maintainable, production-grade code. It catches the patterns AI coding tools leave behind: dead imports, redundant code, duplicate logic, unsafe any-typed casts, narrative comments, swallowed errors, hidden fallbacks, oversized functions, risky security constructs — and grades the project out of 100 so regressions are visible. Treat its findings as blocking, not advisory: the goal is code a human maintainer would happily inherit.
+[aislop](https://github.com/scanaislop/aislop) catches maintainability problems commonly left by coding agents and grades the project out of 100. Treat its feedback as work for the current turn.
 
 ## On every edit
 
-A PostToolUse hook runs \`aislop hook claude\` after every Edit, Write, or MultiEdit. It scans the touched files and returns findings as JSON \`additionalContext\` shaped like \`AislopFeedback\` (schema \`aislop.hook.v2\` — score, baseline, delta, regressed, counts, findings, newSinceBaseline, suggestedActions). Act on them the same turn; the \`suggestedActions\` field tells you exactly what to run next.
+When a runtime hook returns \`AislopFeedback\` (schema \`aislop.hook.v2\`), follow its \`nextSteps\` and \`suggestedActions\`. It reports the score, baseline delta, regression state, counts, and findings for touched files.
 
 ## Severity ladder
 
-- \`error\` — MUST fix this turn.
-- \`warning\` + \`fixable: true\` — MUST fix this turn.
-- \`warning\` + \`fixable: false\` — fix if trivially mechanical, otherwise surface in your reply.
+- \`error\`: MUST fix this turn.
+- \`warning\` with \`fixable: true\`: MUST fix this turn.
+- \`warning\` with \`fixable: false\`: fix if mechanical, otherwise surface it.
 
 ## Rules
 
-- \`.aislop/config.yaml\` — thresholds and engine toggles. Treat as authoritative; don't edit without user consent.
-- \`.aislop/rules.yaml\` — project-specific architecture rules (may be absent). When a finding cites \`architecture/*\`, open this file and follow it.
-- Custom rules can change between sessions. Trust what the scan returns, not a cached understanding of what the rules are.
+- \`.aislop/config.yml\`: thresholds and engine toggles. Do not edit without user consent.
+- \`.aislop/rules.yml\`: optional project architecture rules. Follow any cited \`architecture/*\` rule.
+- Trust the current scan because custom rules can change between sessions.
 
 ## Principles
 
-- Do not disable rules to pass the scan. Fix the underlying issue.
-- If a finding is a false positive, leave it and explain in your reply — do not delete the rule config.
-- The findings payload includes \`nextSteps[]\` — treat those as your plan for the turn.
+- Fix the underlying issue instead of disabling a rule.
+- If a finding is a false positive, leave it and explain why.
 `;

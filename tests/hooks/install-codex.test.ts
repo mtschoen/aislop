@@ -137,6 +137,16 @@ describe("installCodex", () => {
 		expect(fs.readFileSync(target, "utf-8")).toContain("# User rules");
 		expect(fs.readFileSync(target, "utf-8")).toContain("<!-- aislop:begin");
 	});
+
+	it("installs runtime-neutral rules with the canonical config filenames", () => {
+		installCodex(globalOptions());
+		const content = fs.readFileSync(resolveCodexPaths(globalOptions()).rules, "utf-8");
+
+		expect(content).toContain(".aislop/config.yml");
+		expect(content).toContain(".aislop/rules.yml");
+		expect(content).not.toContain("aislop hook claude");
+		expect(content).not.toContain("—");
+	});
 });
 
 describe("uninstallCodex", () => {
