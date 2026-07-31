@@ -75,7 +75,10 @@ const paths = {
 		return [p.settings, p.aislopMd, p.geminiMd];
 	},
 	pi: (opts: HookInstallOpts): string[] => [resolvePiPaths(opts).extension],
-	codex: (opts: HookInstallOpts): string[] => [resolveCodexPaths(opts).rules],
+	codex: (opts: HookInstallOpts): string[] => {
+		const p = resolveCodexPaths(opts);
+		return [p.hooks, p.rules];
+	},
 	windsurf: (opts: HookInstallOpts): string[] => [resolveWindsurfPaths(opts).rules],
 	cline: (opts: HookInstallOpts): string[] => [
 		resolveClinePaths(opts).rules,

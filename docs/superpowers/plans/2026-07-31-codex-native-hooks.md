@@ -34,7 +34,7 @@
 - Produces: `removeMarkdownFence(existing: string): string | null` for preserving non-aislop Markdown.
 - Keeps: `installCodex(opts)` and `uninstallCodex(opts)` registry contracts.
 
-- [ ] **Step 1: Write failing installer tests**
+- [x] **Step 1: Write failing installer tests**
 
 Create focused Vitest cases that assert the exact documented hook shape:
 
@@ -51,13 +51,13 @@ expect(hooks.hooks.Stop).toBeUndefined();
 
 Cover global and project paths, unrelated PostToolUse and Stop preservation, repeat-install idempotency, dry run, `qualityGate: true`, reinstall without quality gate, uninstall, invalid existing JSON recovery, and a global `AGENTS.md` symlink whose target retains user text and loses only the aislop fence on uninstall.
 
-- [ ] **Step 2: Run the installer tests and verify failure**
+- [x] **Step 2: Run the installer tests and verify failure**
 
 Run: `pnpm vitest run tests/hooks/install-codex.test.ts`
 
 Expected: FAIL because `resolveCodexPaths()` has no `hooks` path and no Codex hooks are written.
 
-- [ ] **Step 3: Add fenced-rule removal**
+- [x] **Step 3: Add fenced-rule removal**
 
 Add a sentinel helper with this contract:
 
@@ -73,11 +73,11 @@ export const removeMarkdownFence = (existing: string): string | null => {
 };
 ```
 
-- [ ] **Step 4: Implement Codex JSON merging and symlink-safe rules**
+- [x] **Step 4: Implement Codex JSON merging and symlink-safe rules**
 
 Build PostToolUse and Stop groups with only `matcher`, `hooks`, `type`, and `command`. Parse absent or malformed JSON as `{}`. For each managed event, remove groups containing the exact commands `aislop hook codex` or `aislop hook codex --stop`, retain all other groups, then append the desired group. When the rules path is a symlink, read and write its resolved target while reporting the configured path. Uninstall removes only managed groups and the fenced Markdown block, deleting a file only when nothing remains.
 
-- [ ] **Step 5: Register both Codex paths and run tests**
+- [x] **Step 5: Register both Codex paths and run tests**
 
 Change the registry path list to:
 
@@ -92,7 +92,7 @@ Run: `pnpm vitest run tests/hooks/install-codex.test.ts tests/hooks/install-rule
 
 Expected: PASS.
 
-- [ ] **Step 6: Scan and commit Phase 1**
+- [x] **Step 6: Scan and commit Phase 1**
 
 Run: `aislop scan src/hooks/install src/hooks/io tests/hooks`
 

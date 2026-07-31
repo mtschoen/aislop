@@ -33,3 +33,14 @@ export const upsertMarkdownFence = (
 	const joiner = existing.endsWith("\n") ? "" : "\n";
 	return { nextContent: `${existing}${joiner}\n${fenced}\n`, replaced: false };
 };
+
+export const removeMarkdownFence = (existing: string): string | null => {
+	const begin = existing.match(BEGIN_RE);
+	const end = existing.match(END_RE);
+	if (!begin || !end || (end.index ?? 0) <= (begin.index ?? 0)) return existing;
+
+	const before = existing.slice(0, begin.index);
+	const after = existing.slice((end.index ?? 0) + end[0].length);
+	const next = `${before}${after}`.replace(/\n{3,}/g, "\n\n").trim();
+	return next.length === 0 ? null : `${next}\n`;
+};
