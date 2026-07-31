@@ -1,6 +1,6 @@
 import path from "node:path";
-import { toPosix } from "../utils/paths.js";
 import type { Diagnostic } from "../engines/types.js";
+import { toPosix } from "../utils/paths.js";
 
 interface FindingFix {
 	kind: "replace" | "delete-line" | "delete-range" | "insert";
@@ -55,7 +55,7 @@ interface BaselineSnapshot {
 	findingFingerprints: string[];
 }
 
-type AgentName = "claude" | "cursor" | "gemini" | "pi";
+type AgentName = "claude" | "cursor" | "gemini" | "pi" | "codex";
 
 interface FeedbackMeta {
 	agent?: AgentName;
