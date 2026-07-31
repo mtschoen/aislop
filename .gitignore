@@ -7,6 +7,7 @@ assets/release-fix-scan.*
 *.tgz
 .DS_Store
 .claude
+.worktrees/
 CHANGELOG-review.md
 docs/superpowers/
 docs/specs/
