@@ -46,6 +46,12 @@ Each native rule has an explicit impact tier so scoring is strict only where the
 | `mechanical` | 0.5 | Cleanup that `aislop fix` or a simple edit can usually handle |
 | `style` | 0.5 | Style/policy findings and size/readability pressure |
 | `advisory` | 0.25 | Medium-confidence signals such as hardcoded config values |
+| `report-only` | 0 | Rollout tier: findings are rendered and counted but cannot move the score |
+
+The `report-only` tier exists for rules whose backlog has to be measured and swept before a
+project can reasonably gate on them (`ai-slop/em-dash`, `ai-slop/smart-punctuation`). At the
+default `info` severity such a rule also leaves the exit code alone; a project promotes it with
+a `rules:` severity override once its backlog is clean.
 
 Many forgiving tiers also have tighter per-rule caps so one noisy family cannot dominate a score.
 JSON output includes the same metadata on each diagnostic as `scoreImpact`:

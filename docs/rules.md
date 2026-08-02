@@ -250,8 +250,55 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/cpp-null-literal` | warning | `NULL` used in C++ (`.cc`/`.cpp`/`.cxx`/`.hh`/`.hpp`/`.hxx`); prefer `nullptr` |
 | `ai-slop/cpp-define-constant` | warning | Object-like `#define` constant in C++; prefer `constexpr` / `const` |
 | `ai-slop/cpp-endl-in-stream` | warning | `<< std::endl` flushes the stream on every call; prefer `'\n'` |
+| `ai-slop/em-dash` | info | Non-ASCII dash characters: em dash (U+2014), en dash, horizontal bar, figure dash, unicode/non-breaking hyphen, minus sign |
+| `ai-slop/smart-punctuation` | info | Curly single/double quotes, horizontal ellipsis, arrows, non-breaking and zero-width spaces |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
+
+### Non-ASCII punctuation (`ai-slop/em-dash`, `ai-slop/smart-punctuation`)
+
+The em dash is one of the most recognisable "an LLM wrote this" tells, and on Windows it is
+also a practical liability: a stray U+2014 breaks cp1252 round-trips and forces compilers into
+explicit UTF-8 modes. These two rules flag the character wherever it lands.
+
+**What is scanned.** Every supported source extension plus prose and configuration files:
+`.md`, `.markdown`, `.mdx`, `.rst`, `.adoc`, `.txt`, `.yml`, `.yaml`, `.toml`, `.json`,
+`.jsonc`, `.ini`, `.cfg`, `.sh`, `.bash`, `.zsh`, `.ps1`, `.psm1`, `.bat`, `.cmd`, `.html`,
+`.css`, `.scss`, `.vue`, `.svelte`, `.astro`, `.sql`. Comments, string literals, and prose are
+all treated alike. Dependency lockfiles and auto-generated files are skipped; nothing else is.
+
+**Emoji and non-Latin text are safe.** The rules match an explicit table of punctuation code
+points, not "any byte above ASCII", so emoji, accented letters, and CJK text never match.
+
+**No category exemptions.** Fenced code blocks, quoted tool output, and counter-examples are
+*not* exempt just for being what they are. Content that genuinely needs the character opts out
+explicitly, per line or per file:
+
+```md
+<!-- aislop-ignore-file ai-slop/em-dash -- this note is about em dashes -->
+```
+
+```ts
+// aislop-ignore-next-line ai-slop/em-dash -- verbatim transcript of tool output
+const captured = "...";
+```
+
+The trailing reason after `--` is itself exempt, so a suppression can name the character it is
+silencing. The rest of the line is still scanned: a directive for an unrelated rule does not
+smuggle punctuation through.
+
+**Report-only by default.** Both rules ship at `info` severity in the `report-only` scoring
+tier (multiplier 0), so they surface findings without moving the score or the exit code. That
+is deliberate: a punctuation rule turned into a hard gate on day one reddens every repo with a
+pre-existing backlog and teaches everyone to ignore the build. Measure the backlog, sweep it,
+then promote:
+
+```yaml
+# .aislop/config.yml
+rules:
+  ai-slop/em-dash: error            # now fails `aislop ci`
+  ai-slop/smart-punctuation: "off"  # or drop the softer family entirely
+```
 
 ## Security
 

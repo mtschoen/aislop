@@ -4,7 +4,8 @@ export type RuleImpactTier =
 	| "maintainability"
 	| "mechanical"
 	| "style"
-	| "advisory";
+	| "advisory"
+	| "report-only";
 
 export interface RuleScoreImpact {
 	tier: RuleImpactTier;
@@ -50,6 +51,17 @@ const advisory = (rationale: string, cap = 8): RuleScoreImpact => ({
 	tier: "advisory",
 	multiplier: 0.25,
 	cap,
+	rationale,
+});
+
+/**
+ * Zero multiplier: the finding is rendered and counted, but contributes nothing to the
+ * score and (at info severity) nothing to the exit code. Rollout tier for rules whose
+ * backlog has to be measured and swept before anyone can be asked to gate on them.
+ */
+const reportOnly = (rationale: string): RuleScoreImpact => ({
+	tier: "report-only",
+	multiplier: 0,
 	rationale,
 });
 
@@ -258,6 +270,12 @@ export const RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	),
 	"ai-slop/cpp-endl-in-stream": style(
 		"std::endl versus '\\n' is a minor performance/style finding from redundant flushes.",
+	),
+	"ai-slop/em-dash": reportOnly(
+		"Non-ASCII dashes ship report-only so an existing backlog cannot redden a repo on the day the rule lands; promote with a rules: severity override once swept.",
+	),
+	"ai-slop/smart-punctuation": reportOnly(
+		"Smart quotes and friends ship report-only so an existing backlog cannot redden a repo on the day the rule lands; promote with a rules: severity override once swept.",
 	),
 
 	"security/hardcoded-secret": strict("Secret-looking source literals are high-risk."),

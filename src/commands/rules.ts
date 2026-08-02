@@ -186,6 +186,10 @@ const AI_SLOP_FIXABLE = new Set<string>([
 
 const AI_SLOP_ERRORS = new Set<string>(["ai-slop/hallucinated-import"]);
 
+// Report-only rules: they surface findings without touching the score or the exit code
+// until a project promotes them with a `rules:` severity override.
+const AI_SLOP_INFO = new Set<string>(["ai-slop/em-dash", "ai-slop/smart-punctuation"]);
+
 const SECURITY_INFO = new Set<string>(["security/dependency-audit-skipped"]);
 
 const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
@@ -298,6 +302,8 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/cpp-null-literal",
 			"ai-slop/cpp-define-constant",
 			"ai-slop/cpp-endl-in-stream",
+			"ai-slop/em-dash",
+			"ai-slop/smart-punctuation",
 		],
 	},
 	{
@@ -336,10 +342,15 @@ const toRuleEntry = (engine: string, ruleId: string): RuleEntry => {
 		};
 	}
 	if (engine === "ai-slop") {
+		const severity = AI_SLOP_ERRORS.has(ruleId)
+			? "error"
+			: AI_SLOP_INFO.has(ruleId)
+				? "info"
+				: "warning";
 		return {
 			id: ruleId,
 			engine,
-			severity: AI_SLOP_ERRORS.has(ruleId) ? "error" : "warning",
+			severity,
 			fixable: AI_SLOP_FIXABLE.has(ruleId),
 		};
 	}

@@ -323,12 +323,10 @@ describe("calculateScore", () => {
 		expect(scoreFor(makeDiagnostic({ engine: "format" }))).toBe(99);
 		expect(scoreFor(makeDiagnostic({ engine: "lint" }))).toBe(98);
 		expect(scoreFor(makeDiagnostic({ engine: "code-quality" }))).toBe(98);
-		expect(scoreFor(makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/unsafe-type-assertion" }))).toBe(
-			98,
-		);
-		expect(scoreFor(makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/hardcoded-url" }))).toBe(
-			99,
-		);
+		expect(
+			scoreFor(makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/unsafe-type-assertion" })),
+		).toBe(98);
+		expect(scoreFor(makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/hardcoded-url" }))).toBe(99);
 		expect(scoreFor(makeDiagnostic({ engine: "security" }))).toBe(96);
 	});
 
@@ -381,5 +379,38 @@ describe("getScoreColor", () => {
 		expect(getScoreColor(95, custom)).toBe("success");
 		expect(getScoreColor(75, custom)).toBe("warn");
 		expect(getScoreColor(59, custom)).toBe("error");
+	});
+});
+
+describe("calculateScore: report-only rules", () => {
+	const reportOnly = (filePath: string): Diagnostic =>
+		makeDiagnostic({
+			engine: "ai-slop",
+			rule: "ai-slop/em-dash",
+			severity: "info",
+			filePath,
+		});
+
+	it("returns a perfect score when every diagnostic is report-only", () => {
+		const result = calculateScore(
+			Array.from({ length: 500 }, (_, index) => reportOnly(`src/file-${index}.ts`)),
+			defaultWeights,
+			defaultThresholds,
+			600,
+		);
+		expect(result.score).toBe(100);
+		expect(result.label).toBe("Healthy");
+	});
+
+	it("does not amplify other findings through issue density", () => {
+		const real = makeDiagnostic({ engine: "code-quality", rule: "complexity/function-too-long" });
+		const withoutReportOnly = calculateScore([real], defaultWeights, defaultThresholds, 600);
+		const withReportOnly = calculateScore(
+			[real, ...Array.from({ length: 1000 }, (_, index) => reportOnly(`src/file-${index}.ts`))],
+			defaultWeights,
+			defaultThresholds,
+			600,
+		);
+		expect(withReportOnly.score).toBe(withoutReportOnly.score);
 	});
 });
