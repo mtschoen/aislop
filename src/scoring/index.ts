@@ -48,9 +48,18 @@ export const calculateScore = (
 		return { score: PERFECT_SCORE, label: "Healthy", sourceFileCountMode: "not-needed" };
 	}
 
+	// Report-only rules carry a zero multiplier, so they add nothing to the deductions.
+	// They must be dropped here rather than filtered later: issue density is computed from
+	// the diagnostic count, so leaving them in would let a score-neutral rule amplify every
+	// other finding the moment it lands.
+	const scored = diagnostics.filter((d) => scoreImpactForRule(d.rule).multiplier > 0);
+	if (scored.length === 0) {
+		return { score: PERFECT_SCORE, label: "Healthy", sourceFileCountMode: "not-needed" };
+	}
+
 	const deductionsByRule = new Map<string, number>();
 
-	for (const d of diagnostics) {
+	for (const d of scored) {
 		const engineWeight = weights[d.engine] ?? 1.0;
 		const severityPenalty = d.severity === "error" ? 3 : d.severity === "warning" ? 1 : 0.25;
 		const ruleImpact = scoreImpactForRule(d.rule);
@@ -74,11 +83,11 @@ export const calculateScore = (
 		return total + (cap ? Math.min(value, cap) : value);
 	}, 0);
 
-	const fileCount = resolveEffectiveFileCount(diagnostics, sourceFileCount);
+	const fileCount = resolveEffectiveFileCount(scored, sourceFileCount);
 	const smoothingConstant = typeof smoothing === "number" ? smoothing : 10;
 	const issueDensity = Math.min(
 		1,
-		diagnostics.length / (fileCount.effectiveSourceFileCount + smoothingConstant),
+		scored.length / (fileCount.effectiveSourceFileCount + smoothingConstant),
 	);
 	const scaledDeductions = deductions * Math.sqrt(issueDensity);
 

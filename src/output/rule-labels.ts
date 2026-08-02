@@ -73,6 +73,8 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/cpp-define-constant": "#define constant; prefer constexpr",
 	"ai-slop/cpp-endl-in-stream": "std::endl flushes; prefer '\\n'",
 	"ai-slop/hallucinated-import": "Import not in package.json",
+	"ai-slop/em-dash": "Non-ASCII dash character",
+	"ai-slop/smart-punctuation": "Non-ASCII smart punctuation",
 	"security/hardcoded-secret": "Possible hardcoded secret",
 	"security/vulnerable-dependency": "Vulnerable dependency",
 	"security/dependency-audit-skipped": "Dependency audit skipped",
@@ -162,6 +164,9 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/rust-non-test-unwrap": "Production Rust uses unwrap instead of handling failure.",
 	"ai-slop/rust-todo-stub": "Rust todo!/unimplemented! leaves behavior unfinished.",
 	"ai-slop/hallucinated-import": "Import names a package not declared by the project.",
+	"ai-slop/em-dash": "Em dash or another non-ASCII dash where a plain hyphen would do.",
+	"ai-slop/smart-punctuation":
+		"Curly quotes, ellipsis, arrows, or invisible spacing that ASCII already covers.",
 	"security/hardcoded-secret": "Secret-looking token is embedded in source.",
 	"security/vulnerable-dependency": "Dependency audit reported a known vulnerability.",
 	"security/dependency-audit-skipped": "Audit could not run because inputs/tools are missing.",

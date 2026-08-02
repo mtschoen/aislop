@@ -13,6 +13,7 @@ const VALID_TIERS = new Set<RuleImpactTier>([
 	"mechanical",
 	"style",
 	"advisory",
+	"report-only",
 ]);
 
 describe("rule score impacts", () => {
@@ -31,7 +32,11 @@ describe("rule score impacts", () => {
 		for (const [ruleId, impact] of Object.entries(RULE_SCORE_IMPACTS)) {
 			expect(VALID_TIERS.has(impact.tier), `${ruleId} has invalid tier`).toBe(true);
 			expect(Number.isFinite(impact.multiplier), `${ruleId} has invalid multiplier`).toBe(true);
-			expect(impact.multiplier, `${ruleId} multiplier must be positive`).toBeGreaterThan(0);
+			if (impact.tier === "report-only") {
+				expect(impact.multiplier, `${ruleId} report-only multiplier must be zero`).toBe(0);
+			} else {
+				expect(impact.multiplier, `${ruleId} multiplier must be positive`).toBeGreaterThan(0);
+			}
 			expect(
 				impact.multiplier,
 				`${ruleId} multiplier should not exceed strict impact`,
@@ -51,6 +56,8 @@ describe("rule score impacts", () => {
 		expect(scoreImpactForRule("ai-slop/go-library-panic").tier).toBe("maintainability");
 		expect(scoreImpactForRule("ai-slop/trivial-comment").tier).toBe("style");
 		expect(scoreImpactForRule("ai-slop/unused-import").tier).toBe("mechanical");
+		expect(scoreImpactForRule("ai-slop/em-dash").tier).toBe("report-only");
+		expect(scoreImpactForRule("ai-slop/em-dash").multiplier).toBe(0);
 
 		expect(scoreImpactForRule("security/sql-injection").multiplier).toBeGreaterThan(
 			scoreImpactForRule("ai-slop/hardcoded-url").multiplier,

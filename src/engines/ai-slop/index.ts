@@ -13,6 +13,7 @@ import { detectHardcodedConfigLiterals } from "./hardcoded-config.js";
 import { detectHiddenFallbacks } from "./hidden-fallback.js";
 import { detectMetaComments } from "./meta-comment.js";
 import { detectNarrativeComments } from "./narrative-comments.js";
+import { detectNonAsciiPunctuation } from "./non-ascii-punctuation.js";
 import { detectPythonPatterns } from "./python-patterns.js";
 import { detectRustPatterns } from "./rust-patterns.js";
 import { detectSilentRecovery } from "./silent-recovery.js";
@@ -45,6 +46,7 @@ export const aiSlopEngine: Engine = {
 			detectCSharpPatterns(context),
 			detectCppPatterns(context),
 			detectUnusedCss(context),
+			detectNonAsciiPunctuation(context),
 		]);
 
 		for (const result of results) {
