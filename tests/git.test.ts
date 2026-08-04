@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getChangedFiles, getStagedFiles } from "../src/utils/git.js";
+import { baseRefExists, getChangedFiles, getStagedFiles } from "../src/utils/git.js";
 
 const git = (cwd: string, args: string[]) => {
 	execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -15,7 +15,7 @@ const write = (root: string, rel: string, body = "") => {
 	fs.writeFileSync(abs, body, "utf-8");
 };
 
-describe("getChangedFiles", () => {
+	describe("getChangedFiles", () => {
 	let tmpDir: string;
 
 	beforeEach(() => {
@@ -83,6 +83,33 @@ describe("getChangedFiles", () => {
 		} finally {
 			fs.rmSync(nonRepo, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("baseRefExists", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-base-ref-"));
+		git(tmpDir, ["init"]);
+		git(tmpDir, ["config", "user.email", "test@example.com"]);
+		git(tmpDir, ["config", "user.name", "test"]);
+		git(tmpDir, ["config", "commit.gpgsign", "false"]);
+		write(tmpDir, "base.ts", "export const base = 1;\n");
+		git(tmpDir, ["add", "base.ts"]);
+		git(tmpDir, ["commit", "-m", "init", "--no-verify"]);
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("returns true for an existing git reference", () => {
+		expect(baseRefExists(tmpDir, "HEAD")).toBe(true);
+	});
+
+	it("returns false for a missing git reference", () => {
+		expect(baseRefExists(tmpDir, "does-not-exist")).toBe(false);
 	});
 });
 

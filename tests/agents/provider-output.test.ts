@@ -77,6 +77,24 @@ describe("provider output formatting", () => {
 		expect(metadata.usage).toBeUndefined();
 	});
 
+	it("returns empty metadata for non-json lines", () => {
+		const metadata = extractProviderOutputMetadata("not json");
+		expect(metadata).toEqual({ files: [] });
+	});
+
+	it("collects file paths from arrays", () => {
+		const metadata = extractProviderOutputMetadata(
+			JSON.stringify({
+				type: "result",
+				path: ["src/app.ts", "src/utils.ts"],
+			}),
+		);
+
+		expect(metadata).toMatchObject({
+			files: expect.arrayContaining(["src/app.ts", "src/utils.ts"]),
+		});
+	});
+
 	it("extracts Claude-style final cost and cache token usage", () => {
 		const metadata = extractProviderOutputMetadata(
 			JSON.stringify({

@@ -42,6 +42,18 @@ describe("logger", () => {
 		expect(strip(out.join(""))).toContain("→ Run aislop init");
 	});
 
+	it("emits an info line with the info glyph", () => {
+		const { log, out } = mkLogger();
+		log.info("Scan started");
+		expect(strip(out.join(""))).toContain("● Scan started");
+	});
+
+	it("emits a step line with the step glyph", () => {
+		const { log, out } = mkLogger();
+		log.step("Step 1");
+		expect(strip(out.join(""))).toContain("◇ Step 1");
+	});
+
 	it("emits a blank line on break()", () => {
 		const { log, out } = mkLogger();
 		log.break();

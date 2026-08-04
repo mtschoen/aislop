@@ -55,4 +55,12 @@ describe("installPi", () => {
 		uninstallPi(opts);
 		expect(fs.existsSync(paths.extension)).toBe(false);
 	});
+
+	it("marks pi extension uninstall as skipped when absent", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		const paths = resolvePiPaths(opts);
+		const result = uninstallPi(opts);
+		expect(result.removed).toEqual([]);
+		expect(result.skipped).toEqual([paths.extension]);
+	});
 });
