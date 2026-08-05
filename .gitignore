@@ -10,9 +10,11 @@ assets/release-fix-scan.*
 CHANGELOG-review.md
 docs/superpowers/
 docs/specs/
-.aislop/session.jsonl
-.aislop/history.jsonl
-.aislop/hook.lock
-.aislop/baseline.json
 
 .maintenance.json
+
+# aislop runtime artifacts (session/history logs, caches, baselines).
+# Unanchored so nested project directories are covered too.
+**/.aislop/*
+!**/.aislop/config.yml
+!**/.aislop/rules.yml
