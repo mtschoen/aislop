@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureInstallId, resolveInstallIdPath } from "../../src/telemetry/identity.js";
 
 const makeTempHome = () => fs.mkdtempSync(path.join(os.tmpdir(), "aislop-telemetry-"));
@@ -63,5 +63,21 @@ describe("ensureInstallId", () => {
 		const result = ensureInstallId(idPath);
 		expect(result.created).toBe(true);
 		expect(fs.existsSync(idPath)).toBe(true);
+	});
+
+	it("falls back to an existing id if rename fails", () => {
+		const idPath = path.join(tmpHome, "install_id");
+		const existing = "existing-id";
+		const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((_, target) => {
+			fs.writeFileSync(String(target), `${existing}\n`, "utf-8");
+			throw new Error("simulate rename failure");
+		});
+		try {
+			const result = ensureInstallId(idPath);
+			expect(result.created).toBe(false);
+			expect(result.installId).toBe(existing);
+		} finally {
+			renameSpy.mockRestore();
+		}
 	});
 });

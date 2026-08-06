@@ -36,6 +36,16 @@
 # needs no tool-cache archive download at all and avoids the same class of
 # bug on principle, not just by avoidance of the one action that is known
 # to trip it.
+#
+# Corepack shims go to a RUNNER_TEMP directory, not Corepack's default. Its
+# default target is the directory holding the Corepack binary itself - here
+# C:\Program Files\nodejs, which the unprivileged gitea-runner account
+# cannot write. `corepack enable` then dies with
+# "EPERM: operation not permitted, open 'C:\Program Files\nodejs\pnpx'",
+# no shim is ever laid down, and the next step fails with "The term 'pnpm'
+# is not recognized". `--install-directory` is the documented way to place
+# the shims somewhere writable; prepending that directory to GITHUB_PATH is
+# what actually puts pnpm on PATH for subsequent steps.
 
 name: CI
 
@@ -111,8 +121,19 @@ jobs:
             # a plain npm registry install (still no archive extraction).
             npm install -g corepack
           }
-          corepack enable
+          $shimDirectory = Join-Path $env:RUNNER_TEMP 'corepack-shims'
+          New-Item -ItemType Directory -Force -Path $shimDirectory | Out-Null
+          corepack enable --install-directory $shimDirectory
           corepack prepare --activate
+          Add-Content -Path $env:GITHUB_PATH -Value $shimDirectory
+          # Fail loudly here rather than as a confusing "'pnpm' is not
+          # recognized" three steps later.
+          $pnpmShim = Join-Path $shimDirectory 'pnpm.cmd'
+          if (-not (Test-Path $pnpmShim)) {
+            Write-Error "Corepack laid down no pnpm shim in $shimDirectory"
+            exit 1
+          }
+          & $pnpmShim --version
 
       - name: Install dependencies
         shell: pwsh
