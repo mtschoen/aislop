@@ -3,18 +3,25 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { acquireHookLock } from "../../src/hooks/io/scan-lock.js";
+import { hookStateDir } from "../../src/hooks/io/state-dir.js";
 
 let cwd: string;
+let stateRoot: string;
 
 beforeEach(() => {
 	cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-lock-"));
+	stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-lock-state-"));
+	process.env.AISLOP_HOOK_STATE_DIR = stateRoot;
 });
 
 afterEach(() => {
+	delete process.env.AISLOP_HOOK_STATE_DIR;
 	fs.rmSync(cwd, { recursive: true, force: true });
+	fs.rmSync(stateRoot, { recursive: true, force: true });
 });
 
-const lockPath = (dir: string) => path.join(dir, ".aislop", "hook.lock");
+// The lock lives in the per-repo hook state dir, never inside the repo.
+const lockPath = (dir: string) => path.join(hookStateDir(dir), "hook.lock");
 
 describe("acquireHookLock", () => {
 	it("creates the lock file and returns a release function", () => {

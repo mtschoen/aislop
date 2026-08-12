@@ -7,6 +7,7 @@ import { calculateScore } from "../../scoring/index.js";
 import { discoverProject } from "../../utils/discover.js";
 import { toPosix } from "../../utils/paths.js";
 import { atomicWrite, readIfExists } from "../io/atomic-write.js";
+import { hookStateDir } from "../io/state-dir.js";
 
 interface Baseline {
 	schema: "aislop.baseline.v2";
@@ -58,12 +59,15 @@ const migrateMarkerlessFingerprint = (cwd: string, fingerprint: string): string 
 		? fingerprint
 		: normalizeLegacyFingerprint(fingerprint);
 
-const BASELINE_REL = path.join(".aislop", "baseline.json");
+export const baselinePath = (cwd: string): string => path.join(hookStateDir(cwd), "baseline.json");
 
-export const baselinePath = (cwd: string): string => path.join(cwd, BASELINE_REL);
+// Baselines captured before hook state moved out of the repo live at
+// <repo>/.aislop/baseline.json. Read them as a fallback so the upgrade does
+// not make every existing finding look new; never write there again.
+const legacyBaselinePath = (cwd: string): string => path.join(cwd, ".aislop", "baseline.json");
 
 export const readBaseline = (cwd: string): Baseline | null => {
-	const raw = readIfExists(baselinePath(cwd));
+	const raw = readIfExists(baselinePath(cwd)) ?? readIfExists(legacyBaselinePath(cwd));
 	if (!raw) return null;
 	try {
 		const parsed = JSON.parse(raw) as Partial<Baseline> & { schema?: string };
@@ -162,9 +166,14 @@ export const captureBaseline = async (
 	return { score, fileCount: project.sourceFileCount, path: target };
 };
 
+const sessionPath = (cwd: string): string => path.join(hookStateDir(cwd), "session.jsonl");
+
+// Session logs written before hook state moved out of the repo.
+const legacySessionPath = (cwd: string): string => path.join(cwd, ".aislop", "session.jsonl");
+
 export const appendSessionFiles = (cwd: string, files: string[]): void => {
 	if (files.length === 0) return;
-	const target = path.join(cwd, ".aislop", "session.jsonl");
+	const target = sessionPath(cwd);
 	try {
 		fs.mkdirSync(path.dirname(target), { recursive: true });
 		const line = `${JSON.stringify({ ts: Date.now(), files })}\n`;
@@ -175,27 +184,30 @@ export const appendSessionFiles = (cwd: string, files: string[]): void => {
 };
 
 export const readSessionFiles = (cwd: string): string[] => {
-	const target = path.join(cwd, ".aislop", "session.jsonl");
-	const raw = readIfExists(target);
-	if (!raw) return [];
 	const files = new Set<string>();
-	for (const line of raw.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			const entry = JSON.parse(line) as { files?: string[] };
-			for (const f of entry.files ?? []) files.add(f);
-		} catch {
-			// skip malformed line
+	for (const contents of [readIfExists(sessionPath(cwd)), readIfExists(legacySessionPath(cwd))]) {
+		if (!contents) continue;
+		for (const line of contents.split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const entry = JSON.parse(line) as { files?: string[] };
+				for (const f of entry.files ?? []) files.add(f);
+			} catch {
+				// skip malformed line
+			}
 		}
 	}
 	return Array.from(files);
 };
 
 export const clearSessionFiles = (cwd: string): void => {
-	const target = path.join(cwd, ".aislop", "session.jsonl");
-	try {
-		fs.unlinkSync(target);
-	} catch {
-		// already gone
+	// Clears the legacy in-repo log too: it is this tool's own artifact, and
+	// leaving it behind would feed stale entries to the fallback read forever.
+	for (const target of [sessionPath(cwd), legacySessionPath(cwd)]) {
+		try {
+			fs.unlinkSync(target);
+		} catch {
+			// already gone
+		}
 	}
 };
