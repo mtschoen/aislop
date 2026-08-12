@@ -241,13 +241,13 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install roslynator CLI
-        run: dotnet tool install -g roslynator.dotnet.cli
+        run: dotnet tool update -g roslynator.dotnet.cli --version 0.12.0 --allow-downgrade
 
       - name: Build
         run: pnpm build

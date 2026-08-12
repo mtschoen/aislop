@@ -23,18 +23,25 @@ describe("mapWithConcurrencyLimit", () => {
 	});
 
 	it("keeps results in input order when items finish out of order", async () => {
-		const items = ["a", "b", "c", "d", "e"];
-		const completionOrder: string[] = [];
+		vi.useFakeTimers();
+		try {
+			const items = ["a", "b", "c", "d", "e"];
+			const completionOrder: string[] = [];
 
-		// Later items finish first, so completion order is the reverse of input order.
-		const results = await mapWithConcurrencyLimit(items, items.length, async (item, index) => {
-			await sleep((items.length - index) * 10);
-			completionOrder.push(item);
-			return item.toUpperCase();
-		});
+			// Later items finish first, so completion order is the reverse of input order.
+			const resultsPromise = mapWithConcurrencyLimit(items, items.length, async (item, index) => {
+				await sleep((items.length - index) * 10);
+				completionOrder.push(item);
+				return item.toUpperCase();
+			});
+			await vi.runAllTimersAsync();
+			const results = await resultsPromise;
 
-		expect(completionOrder).toEqual(["e", "d", "c", "b", "a"]);
-		expect(results).toEqual(["A", "B", "C", "D", "E"]);
+			expect(completionOrder).toEqual(["e", "d", "c", "b", "a"]);
+			expect(results).toEqual(["A", "B", "C", "D", "E"]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("propagates a rejection without abandoning work that is already in flight", async () => {
