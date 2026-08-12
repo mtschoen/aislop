@@ -44,24 +44,6 @@ export const chunkFilePaths = (
 	return chunks;
 };
 
-// True when a runSubprocess rejection means the tool binary itself could not be
-// found (ENOENT from the underlying spawn). Callers gate on `installedTools`
-// before invoking a tool at all, so this should be rare in practice, but it is
-// the expected-and-silent case: the current UX for a missing optional tool is
-// to say nothing. Anything else - a timeout, an oversized argv, a real spawn
-// error - is a tool that IS present failing to run, which must not be swallowed
-// the same way (see warnSubprocessFailure).
-export const isMissingToolError = (error: unknown): boolean =>
-	error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";
-
-// Surface a real invocation failure (not a missing tool) instead of silently
-// returning no findings. Writes to stderr, never stdout, so it cannot corrupt
-// `--json`/`--sarif` output, which is a single machine-readable blob on stdout.
-export const warnSubprocessFailure = (tool: string, error: unknown): void => {
-	const message = error instanceof Error ? error.message : String(error);
-	console.error(`aislop: ${tool} failed to run and was skipped: ${message}`);
-};
-
 // A timed-out tool (e.g. cppcheck -j) can have spawned worker processes of its
 // own; killing only the direct child leaves those workers running as orphans.
 // This kills the whole tree instead. Windows has no process groups, so it
@@ -81,7 +63,7 @@ const killProcessTree = (child: ChildProcess): void => {
 			windowsHide: true,
 		});
 		// A missing taskkill binary must not crash the process; the timeout
-		// rejection below still fires regardless of whether this succeeds.
+		// rejection still fires regardless of whether this succeeds.
 		taskkill.once("error", () => {});
 		return;
 	}
@@ -160,6 +142,24 @@ const createOutputCapture = (): OutputCapture => {
 		}
 		throw error;
 	}
+};
+
+// True when a runSubprocess rejection means the tool binary itself could not be
+// found (ENOENT from the underlying spawn). Callers gate on `installedTools`
+// before invoking a tool at all, so this should be rare in practice, but it is
+// the expected-and-silent case: the current UX for a missing optional tool is
+// to say nothing. Anything else - a timeout, an oversized argv, a real spawn
+// error - is a tool that IS present failing to run, which must not be swallowed
+// the same way (see warnSubprocessFailure).
+export const isMissingToolError = (error: unknown): boolean =>
+	error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT";
+
+// Surface a real invocation failure (not a missing tool) instead of silently
+// returning no findings. Writes to stderr, never stdout, so it cannot corrupt
+// `--json`/`--sarif` output, which is a single machine-readable blob on stdout.
+export const warnSubprocessFailure = (tool: string, error: unknown): void => {
+	const message = error instanceof Error ? error.message : String(error);
+	console.error(`aislop: ${tool} failed to run and was skipped: ${message}`);
 };
 
 export const runSubprocess = (
@@ -275,7 +275,8 @@ export const runSubprocess = (
 
 export const isToolInstalled = async (tool: string): Promise<boolean> => {
 	try {
-		const result = await runSubprocess("which", [tool]);
+		const command = process.platform === "win32" ? "where.exe" : "which";
+		const result = await runSubprocess(command, [tool]);
 		return result.exitCode === 0 && result.stdout.length > 0;
 	} catch {
 		return false;

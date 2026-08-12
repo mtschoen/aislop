@@ -1,12 +1,20 @@
-type LangFamily = "js" | "py" | "rb" | "php" | "c" | "cstyle" | "none";
+import { maskCSharp, maskCStyle } from "./source-masker-cstyle.js";
+import { maskSimple } from "./source-masker-simple.js";
+import { consumeQuotedString } from "./string-literals.js";
+
+type LangFamily = "js" | "py" | "rb" | "php" | "csharp" | "cstyle" | "none";
 
 const JS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const PY_EXTS = new Set([".py"]);
 const RB_EXTS = new Set([".rb"]);
 const PHP_EXTS = new Set([".php"]);
-// C-family: C#, C, and C++ (including headers). They share C-style `"..."` /
-// `'...'` literals and `//` + `/* */` comments, so maskSimple handles them.
-const C_EXTS = new Set([".cs", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"]);
+// C# needs its own scanner: verbatim and raw string literals delimit their
+// bodies differently from the generic quoted-string form, and getting the end
+// of one wrong leaves its contents visible as code.
+const CSHARP_EXTS = new Set([".cs"]);
+// C and C++ (including headers) share C-style string and character literals
+// and `//` + `/* */` comments, so the cstyle masker handles them.
+const CPP_EXTS = new Set([".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"]);
 const C_STYLE_COMMENT_EXTS = new Set([".go"]);
 
 const familyForExt = (ext: string): LangFamily => {
@@ -14,7 +22,8 @@ const familyForExt = (ext: string): LangFamily => {
 	if (PY_EXTS.has(ext)) return "py";
 	if (RB_EXTS.has(ext)) return "rb";
 	if (PHP_EXTS.has(ext)) return "php";
-	if (C_EXTS.has(ext)) return "c";
+	if (CSHARP_EXTS.has(ext)) return "csharp";
+	if (CPP_EXTS.has(ext)) return "cstyle";
 	if (C_STYLE_COMMENT_EXTS.has(ext)) return "cstyle";
 	return "none";
 };
@@ -23,6 +32,7 @@ export const maskStringsAndComments = (content: string, ext: string): string => 
 	const family = familyForExt(ext);
 	if (family === "none") return content;
 	if (family === "js") return maskJs(content, true);
+	if (family === "csharp") return maskCSharp(content, true);
 	if (family === "cstyle") return maskCStyle(content, true);
 	return maskSimple(content, family, true);
 };
@@ -32,6 +42,7 @@ export const maskComments = (content: string, ext: string): string => {
 	const family = familyForExt(ext);
 	if (family === "none") return content;
 	if (family === "js") return maskJs(content, false);
+	if (family === "csharp") return maskCSharp(content, false);
 	if (family === "cstyle") return maskCStyle(content, false);
 	return maskSimple(content, family, false);
 };
@@ -41,89 +52,12 @@ interface MaskHandler {
 	nextI: number;
 }
 
-const WORD_CHAR_RE = /[A-Za-z0-9_$]/;
-// A `/` opens a regex literal (not division) when it follows one of these operators
-// or openers ...
-const REGEX_PRECEDER_CHARS = new Set([
-	"(",
-	"{",
-	"}",
-	"[",
-	",",
-	";",
-	":",
-	"?",
-	"=",
-	"!",
-	"&",
-	"|",
-	"^",
-	"~",
-	"<",
-	">",
-	"+",
-	"-",
-	"*",
-	"%",
-]);
-// ... or one of these keywords (`return /re/`, `typeof /re/`, ...).
-const REGEX_PRECEDER_WORDS = new Set([
-	"return",
-	"typeof",
-	"instanceof",
-	"in",
-	"of",
-	"new",
-	"delete",
-	"void",
-	"throw",
-	"yield",
-	"case",
-	"do",
-	"else",
-	"await",
-]);
-
-// Decide whether a `/` starts a regex literal (vs a division operator) from the
-// preceding significant token: regex after an operator/opener/keyword, division
-// after a value (identifier, number, `)`, `]`, string, regex).
-const regexAllowedAfter = (lastSig: string, lastWord: string): boolean => {
-	if (lastSig === "") return true;
-	if (WORD_CHAR_RE.test(lastSig)) return REGEX_PRECEDER_WORDS.has(lastWord);
-	return REGEX_PRECEDER_CHARS.has(lastSig);
-};
-
-// Consume a regex literal from its opening `/`. Returns the index just past the
-// closing `/`, or -1 if it isn't a single-line regex (hits a newline first), in
-// which case the `/` was division after all. Handles `\` escapes and `[...]`
-// character classes (where `/` is literal).
-const consumeRegexLiteral = (content: string, start: number): number => {
-	const len = content.length;
-	let i = start + 1;
-	let inClass = false;
-	while (i < len) {
-		const c = content[i];
-		if (c === "\n") return -1;
-		if (c === "\\" && i + 1 < len) {
-			i += 2;
-			continue;
-		}
-		if (c === "[") inClass = true;
-		else if (c === "]") inClass = false;
-		else if (c === "/" && !inClass) return i + 1;
-		i++;
-	}
-	return -1;
-};
-
 const handleQuotesAndComments = (
 	content: string,
 	i: number,
 	tplStack: number[],
 	mask: (start: number, end: number) => void,
 	maskStrings: boolean,
-	lastSig: string,
-	lastWord: string,
 ): MaskHandler => {
 	const len = content.length;
 	const c = content[i];
@@ -155,16 +89,68 @@ const handleQuotesAndComments = (
 		mask(strStart, k);
 		return { handled: true, nextI: k };
 	}
-	// Regex literal: recognised so its contents (which routinely include quotes,
-	// backticks and comment markers — e.g. /(?:`|["'])/) don't desync the scanner.
-	if (c === "/" && regexAllowedAfter(lastSig, lastWord)) {
-		const end = consumeRegexLiteral(content, i);
-		if (end !== -1) {
-			if (maskStrings) mask(i + 1, end - 1);
-			return { handled: true, nextI: end };
-		}
-	}
 	return { handled: false, nextI: i };
+};
+
+const REGEX_PRECEDING_KEYWORDS = new Set([
+	"return",
+	"typeof",
+	"instanceof",
+	"in",
+	"of",
+	"new",
+	"delete",
+	"void",
+	"do",
+	"else",
+	"yield",
+	"await",
+	"case",
+	"throw",
+]);
+
+const regexAllowedAt = (content: string, slashIndex: number): boolean => {
+	let p = slashIndex - 1;
+	while (
+		p >= 0 &&
+		(content[p] === " " || content[p] === "\t" || content[p] === "\n" || content[p] === "\r")
+	) {
+		p--;
+	}
+	if (p < 0) return true;
+	const ch = content[p];
+	if (ch === ")" || ch === "]" || ch === "}" || ch === '"' || ch === "'" || ch === "`") {
+		return false;
+	}
+	if (/[A-Za-z0-9_$]/.test(ch)) {
+		let w = p;
+		while (w >= 0 && /[A-Za-z0-9_$]/.test(content[w])) w--;
+		return REGEX_PRECEDING_KEYWORDS.has(content.slice(w + 1, p + 1));
+	}
+	return true;
+};
+
+const consumeRegex = (content: string, start: number): number => {
+	const len = content.length;
+	let i = start + 1;
+	let inClass = false;
+	while (i < len) {
+		const c = content[i];
+		if (c === "\\") {
+			i += 2;
+			continue;
+		}
+		if (c === "\n") return -1;
+		if (c === "[") inClass = true;
+		else if (c === "]") inClass = false;
+		else if (c === "/" && !inClass) {
+			i++;
+			while (i < len && /[a-z]/i.test(content[i])) i++;
+			return i;
+		}
+		i++;
+	}
+	return -1;
 };
 
 const maskJs = (content: string, maskStrings: boolean): string => {
@@ -172,10 +158,6 @@ const maskJs = (content: string, maskStrings: boolean): string => {
 	const len = content.length;
 	const tplStack: number[] = [];
 	let i = 0;
-	// Last significant (non-whitespace) code char and the identifier ending at it;
-	// used to disambiguate regex literals from division.
-	let lastSig = "";
-	let lastWord = "";
 
 	const mask = (start: number, end: number) => {
 		for (let k = start; k < end; k++) {
@@ -189,8 +171,6 @@ const maskJs = (content: string, maskStrings: boolean): string => {
 		if (tplStack.length > 0) {
 			if (c === "{") {
 				tplStack[tplStack.length - 1]++;
-				lastSig = "{";
-				lastWord = "";
 				i++;
 				continue;
 			}
@@ -201,118 +181,41 @@ const maskJs = (content: string, maskStrings: boolean): string => {
 					const scan = consumeTemplateString(content, i + 1);
 					if (maskStrings) mask(i + 1, scan.maskEnd);
 					if (scan.openedInterp) tplStack.push(0);
-					lastSig = "`";
-					lastWord = "";
 					i = scan.resumeAt;
 					continue;
 				}
 				tplStack[tplStack.length - 1]--;
-				lastSig = "}";
-				lastWord = "";
 				i++;
 				continue;
 			}
 		}
 
-		const handled = handleQuotesAndComments(
-			content,
-			i,
-			tplStack,
-			mask,
-			maskStrings,
-			lastSig,
-			lastWord,
-		);
-		if (handled.handled) {
-			// A comment is whitespace-like (leave lastSig alone); a string/template/regex
-			// is a value, so a following `/` reads as division.
-			const isComment = c === "/" && (content[i + 1] === "/" || content[i + 1] === "*");
-			if (!isComment) {
-				lastSig = c === "`" ? "`" : c === "/" ? "/" : '"';
-				lastWord = "";
+		if (
+			c === "/" &&
+			content[i + 1] !== "/" &&
+			content[i + 1] !== "*" &&
+			regexAllowedAt(content, i)
+		) {
+			const regexEnd = consumeRegex(content, i);
+			if (regexEnd !== -1) {
+				// A regex body can contain braces and quotes; blank it like a string
+				// so structural passes over the masked text never see them.
+				if (maskStrings) mask(i + 1, regexEnd);
+				i = regexEnd;
+				continue;
 			}
+		}
+
+		const handled = handleQuotesAndComments(content, i, tplStack, mask, maskStrings);
+		if (handled.handled) {
 			i = handled.nextI;
 			continue;
 		}
 
-		if (!/\s/.test(c)) {
-			lastSig = c;
-			lastWord = WORD_CHAR_RE.test(c) ? lastWord + c : "";
-		}
 		i++;
 	}
 
 	return out.join("");
-};
-
-const maskCStyle = (content: string, maskStrings: boolean): string => {
-	const out = content.split("");
-	const len = content.length;
-	let i = 0;
-
-	const mask = (start: number, end: number) => {
-		for (let k = start; k < end; k++) {
-			if (out[k] !== "\n") out[k] = " ";
-		}
-	};
-
-	while (i < len) {
-		const c = content[i];
-		const next = content[i + 1];
-
-		if (c === '"' || c === "'") {
-			const strStart = i;
-			i = consumeQuotedString(content, i, c);
-			if (maskStrings) mask(strStart + 1, i - 1);
-			continue;
-		}
-
-		if (c === "`") {
-			const strStart = i;
-			const end = content.indexOf("`", i + 1);
-			i = end === -1 ? len : end + 1;
-			if (maskStrings) mask(strStart + 1, i - 1);
-			continue;
-		}
-
-		if (c === "/" && next === "/") {
-			const start = i;
-			while (i < len && content[i] !== "\n") i++;
-			mask(start, i);
-			continue;
-		}
-
-		if (c === "/" && next === "*") {
-			const start = i;
-			i += 2;
-			while (i < len - 1 && !(content[i] === "*" && content[i + 1] === "/")) i++;
-			if (i < len - 1) i += 2;
-			mask(start, i);
-			continue;
-		}
-
-		i++;
-	}
-
-	return out.join("");
-};
-
-// Consume a quoted string starting at the opening quote. Returns the index
-// just past the closing quote (or end-of-content if unterminated).
-const consumeQuotedString = (content: string, start: number, quote: string): number => {
-	const len = content.length;
-	let i = start + 1;
-	while (i < len) {
-		const c = content[i];
-		if (c === "\\" && i + 1 < len) {
-			i += 2;
-			continue;
-		}
-		if (c === quote) return i + 1;
-		if (c === "\n") return i; // unterminated — bail
-		i++;
-	}
-	return i;
 };
 
 interface TemplateScan {
@@ -337,67 +240,4 @@ const consumeTemplateString = (content: string, start: number): TemplateScan => 
 		i++;
 	}
 	return { maskEnd: i, resumeAt: i, openedInterp: false };
-};
-
-const maskSimple = (content: string, family: LangFamily, maskStrings: boolean): string => {
-	const out = content.split("");
-	const len = content.length;
-	let i = 0;
-
-	const mask = (start: number, end: number) => {
-		for (let k = start; k < end; k++) {
-			if (out[k] !== "\n") out[k] = " ";
-		}
-	};
-
-	while (i < len) {
-		const c = content[i];
-		const next = content[i + 1];
-
-		if (family === "py" && (c === '"' || c === "'")) {
-			// Triple-quoted?
-			if (content[i + 1] === c && content[i + 2] === c) {
-				const triple = c + c + c;
-				const end = content.indexOf(triple, i + 3);
-				const stop = end === -1 ? len : end + 3;
-				if (maskStrings) mask(i + 3, stop - 3);
-				i = stop;
-				continue;
-			}
-		}
-
-		if (c === '"' || c === "'") {
-			const strStart = i;
-			i = consumeQuotedString(content, i, c);
-			if (maskStrings) mask(strStart + 1, i - 1);
-			continue;
-		}
-
-		if ((family === "py" || family === "rb" || family === "php") && c === "#") {
-			const strStart = i;
-			while (i < len && content[i] !== "\n") i++;
-			mask(strStart, i);
-			continue;
-		}
-
-		if ((family === "php" || family === "c") && c === "/" && next === "/") {
-			const strStart = i;
-			while (i < len && content[i] !== "\n") i++;
-			mask(strStart, i);
-			continue;
-		}
-
-		if ((family === "php" || family === "c") && c === "/" && next === "*") {
-			const strStart = i;
-			i += 2;
-			while (i < len - 1 && !(content[i] === "*" && content[i + 1] === "/")) i++;
-			if (i < len - 1) i += 2;
-			mask(strStart, i);
-			continue;
-		}
-
-		i++;
-	}
-
-	return out.join("");
 };

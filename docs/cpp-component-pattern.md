@@ -9,6 +9,8 @@ The goal is simple: keep small files for agent readability while preserving one 
 Use a component when all of these are true:
 
 - A C++ module genuinely exceeds the project's `complexity.maxFileLoc` target.
+  (C/C++ files get a 2.5x budget - 1000 lines at the default `maxFileLoc` of
+  400 - because splitting them has linkage costs other languages don't pay.)
 - The split files are one cohesive responsibility, not independent modules.
 - Helpers would otherwise need header declarations only so another split file can call them.
 - `misc-use-internal-linkage` or the JetBrains `CppClangTidyMiscUseInternalLinkage` mirror would become noise.

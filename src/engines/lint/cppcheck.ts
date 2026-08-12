@@ -10,6 +10,7 @@ import {
 import { findCppSources, hasCppOnlySources } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 import type { JbSeverity } from "./jb.js";
+import { decodeEntities, xmlAttribute } from "./xml-entities.js";
 
 // cppcheck's own per-invocation overhead (loading suppressions, enabling check
 // groups) is higher than clang-format's, so allow more files per chunk before
@@ -117,17 +118,6 @@ export const buildCppcheckArgs = (
 	return args;
 };
 
-const decodeEntities = (value: string): string =>
-	value
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'")
-		.replace(/&amp;/g, "&");
-
-const attr = (tag: string, name: string): string =>
-	new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1] ?? "";
-
 // True when a chunk-level runSubprocess rejection was the 180s timeout applied
 // in runCppcheck below, rather than some other spawn/exit failure.
 const isTimeoutError = (error: unknown): boolean =>
@@ -191,6 +181,8 @@ const buildChunksSkippedDiagnostic = (
 		fixable: false,
 	};
 };
+
+const attr = (tag: string, name: string): string => xmlAttribute(tag, name) ?? "";
 
 // Defensive regex parse (no XML dependency), mirroring parseRoslynatorXml. cppcheck
 // emits each finding as <error ...><location .../></error>; entries without a

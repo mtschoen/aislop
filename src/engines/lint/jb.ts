@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { projectRelativePosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
 import { findJbTargets, projectsSkippedNotice } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext, Severity } from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
+import { decodeEntities, xmlAttribute } from "./xml-entities.js";
 
 export type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 
@@ -27,17 +29,9 @@ const SEVERITY_RANK: Record<JbSeverity, number> = { HINT: 0, SUGGESTION: 1, WARN
 const toAislopSeverity = (severity: JbSeverity): Severity =>
 	SEVERITY_RANK[severity] >= SEVERITY_RANK.WARNING ? "warning" : "info";
 
-const decodeEntities = (value: string): string =>
-	value
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'")
-		.replace(/&amp;/g, "&");
-
 const attribute = (tag: string, name: string): string | null => {
-	const match = new RegExp(`\\b${name}="([^"]*)"`).exec(tag);
-	return match ? decodeEntities(match[1]) : null;
+	const value = xmlAttribute(tag, name);
+	return value !== null ? decodeEntities(value) : null;
 };
 
 const asSeverity = (raw: string | null): JbSeverity =>
@@ -76,10 +70,10 @@ export const parseJbXml = (
 			const severity = severityByType.get(typeId) ?? "WARNING";
 			if (SEVERITY_RANK[severity] < SEVERITY_RANK[langOptions.severityFloor]) continue;
 
-			const normalized = file.replace(/\\/g, "/");
-			const relative = path.isAbsolute(normalized)
-				? path.relative(rootDirectory, normalized).replace(/\\/g, "/")
-				: normalized;
+			// jb reports File with backslash separators regardless of host OS, and on
+			// Linux path.sep never matches them, so normalize before relativizing to
+			// keep diagnostic paths forward-slashed on every OS.
+			const relative = projectRelativePosix(rootDirectory, file.replace(/\\/g, "/"));
 			const lineRaw = attribute(tag, "Line");
 			result.push({
 				filePath: relative,
@@ -101,6 +95,7 @@ export const parseJbXml = (
 };
 
 interface CsharpLintConfig {
+	projectEvaluation: boolean;
 	jb: boolean;
 	roslynator: boolean;
 	jbSeverityFloor: JbSeverity;
@@ -109,6 +104,7 @@ interface CsharpLintConfig {
 }
 
 const CSHARP_LINT_DEFAULTS: CsharpLintConfig = {
+	projectEvaluation: false,
 	jb: true,
 	roslynator: true,
 	jbSeverityFloor: "WARNING",
@@ -119,6 +115,7 @@ export const resolveCsharpLintConfig = (context: EngineContext): CsharpLintConfi
 	const raw = context.config.lint.csharp;
 	if (!raw) return { ...CSHARP_LINT_DEFAULTS };
 	return {
+		projectEvaluation: raw.projectEvaluation === true,
 		jb: raw.jb,
 		roslynator: raw.roslynator,
 		jbSeverityFloor: raw.jbSeverityFloor,

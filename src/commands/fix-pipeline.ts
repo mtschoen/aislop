@@ -19,14 +19,8 @@ import {
 	diagnosticsToDeclarations,
 	removeUnusedDeclarations,
 } from "../engines/code-quality/unused-removal.js";
-import { fixBiomeFormat, runBiomeFormat } from "../engines/format/biome.js";
-import { fixClangFormat, runClangFormat } from "../engines/format/clang-format.js";
-import { fixDotnetFormat, runDotnetFormat } from "../engines/format/dotnet-format.js";
-import { fixGenericFormatter, runGenericFormatter } from "../engines/format/generic.js";
-import { fixGofmt, runGofmt } from "../engines/format/gofmt.js";
-import { fixRuffFormat, runRuffFormat } from "../engines/format/ruff-format.js";
 import { runExpoDoctor } from "../engines/lint/expo-doctor.js";
-import { fixRubyLint } from "../engines/lint/generic.js";
+import { fixRubyLint, runGenericLinter } from "../engines/lint/generic.js";
 import { fixOxlint, runOxlint } from "../engines/lint/oxlint.js";
 import { fixRuffLint, fixRuffLintForce, runRuffLint } from "../engines/lint/ruff.js";
 import { runDependencyAudit } from "../engines/security/audit.js";
@@ -35,11 +29,14 @@ import { log } from "../ui/logger.js";
 import type { discoverProject } from "../utils/discover.js";
 import { fixExpoDependencies } from "./fix-expo.js";
 import { fixDependencyAudit } from "./fix-force.js";
+import { hasJsOrTs } from "./fix-pipeline-language.js";
 import type { FixStepResult } from "./fix-steps.js";
+
+export { runFormattingStep } from "./fix-formatting-pipeline.js";
 
 export type ProjectInfo = Awaited<ReturnType<typeof discoverProject>>;
 
-export type RunStepFn = (
+type RunStepFn = (
 	name: string,
 	detect: () => Promise<Diagnostic[]>,
 	applyFix: () => Promise<void>,
@@ -59,19 +56,6 @@ export interface PipelineDeps {
 	safe: boolean;
 	runStep: RunStepFn;
 }
-
-const hasJsOrTs = (projectInfo: ProjectInfo): boolean =>
-	projectInfo.languages.includes("typescript") || projectInfo.languages.includes("javascript");
-
-const skipUnsafeSafeFormatter = (deps: PipelineDeps, language: "ruby" | "php"): boolean => {
-	if (!deps.safe) return false;
-	const tool = language === "ruby" ? "rubocop" : "php-cs-fixer";
-	const label = language === "ruby" ? "Ruby" : "PHP";
-	log.warn(
-		`Safe mode skips ${label} formatting because ${tool} can execute project-controlled configuration. Run \`aislop fix\` without --safe if you trust this repository.`,
-	);
-	return true;
-};
 
 export const runAiSlopSteps = async (deps: PipelineDeps): Promise<void> => {
 	if (!deps.config.engines["ai-slop"]) return;
@@ -153,10 +137,7 @@ export const runLintSteps = async (deps: PipelineDeps): Promise<void> => {
 	if (deps.projectInfo.languages.includes("ruby") && deps.projectInfo.installedTools.rubocop) {
 		await deps.runStep(
 			"Lint fixes (ruby)",
-			() =>
-				import("../engines/lint/generic.js").then((mod) =>
-					mod.runGenericLinter(deps.context, "ruby"),
-				),
+			() => runGenericLinter(deps.context, "ruby"),
 			() => fixRubyLint(deps.resolvedDir),
 		);
 	} else if (deps.projectInfo.languages.includes("ruby")) {
@@ -173,104 +154,6 @@ export const runDependencyStep = async (deps: PipelineDeps): Promise<void> => {
 		() => runKnipDependencyCheck(deps.resolvedDir),
 		() => fixUnusedDependencies(deps.resolvedDir),
 	);
-};
-
-export const runFormattingStep = async (deps: PipelineDeps): Promise<void> => {
-	if (!deps.config.engines.format) return;
-
-	if (hasJsOrTs(deps.projectInfo)) {
-		await deps.runStep(
-			"Formatting (js/ts)",
-			() => runBiomeFormat(deps.context),
-			() => fixBiomeFormat(deps.context),
-		);
-	}
-
-	if (deps.projectInfo.languages.includes("python") && deps.projectInfo.installedTools.ruff) {
-		await deps.runStep(
-			"Formatting (python)",
-			() => runRuffFormat(deps.context),
-			() => fixRuffFormat(deps.resolvedDir),
-		);
-	} else if (deps.projectInfo.languages.includes("python")) {
-		log.warn("Python detected but ruff is not installed; skipping Python formatting fixes.");
-	}
-
-	if (deps.projectInfo.languages.includes("go") && deps.projectInfo.installedTools.gofmt) {
-		await deps.runStep(
-			"Formatting (go)",
-			() => runGofmt(deps.context),
-			() => fixGofmt(deps.resolvedDir),
-		);
-	} else if (deps.projectInfo.languages.includes("go")) {
-		log.warn("Go detected but gofmt is not installed; skipping Go formatting fixes.");
-	}
-
-	if (deps.projectInfo.languages.includes("rust") && deps.projectInfo.installedTools.rustfmt) {
-		await deps.runStep(
-			"Formatting (rust)",
-			() => runGenericFormatter(deps.context, "rust"),
-			() => fixGenericFormatter(deps.resolvedDir, "rust"),
-		);
-	} else if (deps.projectInfo.languages.includes("rust")) {
-		log.warn("Rust detected but rustfmt is not installed; skipping Rust formatting fixes.");
-	}
-
-	if (deps.projectInfo.languages.includes("ruby") && deps.projectInfo.installedTools.rubocop) {
-		if (!skipUnsafeSafeFormatter(deps, "ruby")) {
-			await deps.runStep(
-				"Formatting (ruby)",
-				() => runGenericFormatter(deps.context, "ruby"),
-				() => fixGenericFormatter(deps.resolvedDir, "ruby"),
-			);
-		}
-	} else if (deps.projectInfo.languages.includes("ruby")) {
-		log.warn("Ruby detected but rubocop is not installed; skipping Ruby formatting fixes.");
-	}
-
-	if (
-		deps.projectInfo.languages.includes("php") &&
-		deps.projectInfo.installedTools["php-cs-fixer"]
-	) {
-		if (!skipUnsafeSafeFormatter(deps, "php")) {
-			await deps.runStep(
-				"Formatting (php)",
-				() => runGenericFormatter(deps.context, "php"),
-				() => fixGenericFormatter(deps.resolvedDir, "php"),
-			);
-		}
-	} else if (deps.projectInfo.languages.includes("php")) {
-		log.warn("PHP detected but php-cs-fixer is not installed; skipping PHP formatting fixes.");
-	}
-
-	await runNativeFormattingSteps(deps);
-};
-
-// C#/C++ formatting fixes — split out of runFormattingStep so the per-language
-// formatter cascade stays under the function-length budget.
-const runNativeFormattingSteps = async (deps: PipelineDeps): Promise<void> => {
-	if (deps.projectInfo.languages.includes("csharp") && deps.projectInfo.installedTools.dotnet) {
-		await deps.runStep(
-			"Formatting (csharp)",
-			() => runDotnetFormat(deps.context),
-			() => fixDotnetFormat(deps.resolvedDir),
-		);
-	} else if (deps.projectInfo.languages.includes("csharp")) {
-		log.warn("C# detected but dotnet is not installed; skipping C# formatting fixes.");
-	}
-
-	if (
-		deps.projectInfo.languages.includes("cpp") &&
-		deps.projectInfo.installedTools["clang-format"]
-	) {
-		await deps.runStep(
-			"Formatting (cpp)",
-			() => runClangFormat(deps.context),
-			() => fixClangFormat(deps.resolvedDir),
-		);
-	} else if (deps.projectInfo.languages.includes("cpp")) {
-		log.warn("C/C++ detected but clang-format is not installed; skipping C/C++ formatting fixes.");
-	}
 };
 
 export const runForceSteps = async (deps: PipelineDeps): Promise<void> => {

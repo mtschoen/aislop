@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverProject } from "../src/utils/discover.js";
 import {
 	filterProjectFiles,
+	filterTestFiles,
+	getProjectSourceFiles,
 	getSourceFilesForRoot,
+	getTestFiles,
 	listProjectFiles,
 	readAislopIgnorePatterns,
 } from "../src/utils/source-files.js";
@@ -114,6 +117,95 @@ describe("source file selection", () => {
 			path.join(tmpDir, "src/deleted.ts"),
 		]);
 		expect(result).toEqual([path.join(tmpDir, "src/a.ts")]);
+	});
+
+	it("selects supported test files without adding them to production scan scope", () => {
+		createFile(tmpDir, "src/app.ts", "export const app = true;\n");
+		createFile(tmpDir, "src/app.test.ts", "expect(true).toBe(true);\n");
+		createFile(tmpDir, "tests/test_pipeline.py", "assert True\n");
+		createFile(tmpDir, "tests/helper.ts", "export const helper = true;\n");
+		const candidates = [
+			"src/app.ts",
+			"src/app.test.ts",
+			"tests/test_pipeline.py",
+			"tests/helper.ts",
+		];
+
+		expect(filterProjectFiles(tmpDir, candidates)).toEqual([path.join(tmpDir, "src/app.ts")]);
+		expect(filterTestFiles(tmpDir, candidates).sort()).toEqual(
+			[path.join(tmpDir, "src/app.test.ts"), path.join(tmpDir, "tests/test_pipeline.py")].sort(),
+		);
+		expect(filterTestFiles(tmpDir, candidates, [], ["src/**"])).toEqual([
+			path.join(tmpDir, "src/app.test.ts"),
+		]);
+		expect(filterTestFiles(tmpDir, candidates, [], ["src"])).toEqual([
+			path.join(tmpDir, "src/app.test.ts"),
+		]);
+	});
+
+	it("includes common e2e spec files in test scope", () => {
+		createFile(tmpDir, "e2e/login.spec.ts", "expect(true).toBe(true);\n");
+
+		expect(filterTestFiles(tmpDir, ["e2e/login.spec.ts"])).toEqual([
+			path.join(tmpDir, "e2e/login.spec.ts"),
+		]);
+	});
+
+	it("revalidates explicit engine test files against project boundaries", () => {
+		const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-test-files-outside-"));
+		try {
+			createFile(tmpDir, "src/app.test.ts", "expect(true).toBe(true);\n");
+			createFile(tmpDir, "src/app.ts", "export const app = true;\n");
+			const outsideTest = path.join(outsideDir, "outside.test.ts");
+			fs.writeFileSync(outsideTest, "expect(true).toBe(true);\n");
+
+			expect(
+				getTestFiles({
+					rootDirectory: tmpDir,
+					languages: ["typescript"],
+					frameworks: [],
+					installedTools: {},
+					config: {
+						quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
+						security: { audit: false, auditTimeout: 0 },
+						lint: { typecheck: false },
+					},
+					testFiles: [
+						path.join(tmpDir, "src/app.test.ts"),
+						path.join(tmpDir, "src/app.ts"),
+						outsideTest,
+					],
+				}),
+			).toEqual([path.join(tmpDir, "src/app.test.ts")]);
+		} finally {
+			fs.rmSync(outsideDir, { recursive: true, force: true });
+		}
+	});
+
+	it("revalidates project-wide evidence files against project boundaries", () => {
+		const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-project-files-outside-"));
+		try {
+			createFile(tmpDir, "src/virtual.d.ts", 'declare module "local:module";\n');
+			const outsideDeclaration = path.join(outsideDir, "outside.d.ts");
+			fs.writeFileSync(outsideDeclaration, 'declare module "outside:module";\n');
+
+			expect(
+				getProjectSourceFiles({
+					rootDirectory: tmpDir,
+					languages: ["typescript"],
+					frameworks: [],
+					installedTools: {},
+					config: {
+						quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
+						security: { audit: false, auditTimeout: 0 },
+						lint: { typecheck: false },
+					},
+					projectFiles: [path.join(tmpDir, "src/virtual.d.ts"), outsideDeclaration],
+				}),
+			).toEqual([path.join(tmpDir, "src/virtual.d.ts")]);
+		} finally {
+			fs.rmSync(outsideDir, { recursive: true, force: true });
+		}
 	});
 
 	it("skips common docs, tutorial, and sample code paths in zero-config scans", () => {
@@ -260,6 +352,19 @@ describe("source file selection", () => {
 		createFile(tmpDir, ".aislopignore", "# generated code\nlegacy\n\nsrc/api.generated.ts\n");
 
 		expect(readAislopIgnorePatterns(tmpDir)).toEqual(["legacy", "src/api.generated.ts"]);
+	});
+
+	it.runIf(process.platform !== "win32")("does not follow a symlinked .aislopignore", () => {
+		const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-ignore-outside-"));
+		try {
+			const outsideFile = path.join(outsideDir, "ignore");
+			fs.writeFileSync(outsideFile, "src/**\n", "utf-8");
+			fs.symlinkSync(outsideFile, path.join(tmpDir, ".aislopignore"));
+
+			expect(readAislopIgnorePatterns(tmpDir)).toEqual([]);
+		} finally {
+			fs.rmSync(outsideDir, { recursive: true, force: true });
+		}
 	});
 
 	it("excludes files matched by .aislopignore patterns", () => {

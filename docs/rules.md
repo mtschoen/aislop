@@ -94,6 +94,7 @@ Both passes are independently togglable via the `lint.csharp` config block:
 ```yaml
 lint:
   csharp:
+    projectEvaluation: false              # opt in only for repositories you trust
     jb: true                              # run jb inspectcode if installed
     roslynator: true                      # run roslynator if installed
     jbSeverityFloor: WARNING              # ERROR | WARNING | SUGGESTION | HINT
@@ -103,6 +104,7 @@ lint:
 
 | Field | Default | Description |
 |---|---|---|
+| `projectEvaluation` | `false` | Allow MSBuild-backed lint, format, and NuGet audit passes. These may evaluate repository-controlled project files; enable only for repositories you trust. |
 | `jb` | `true` | Run jb inspectcode when installed |
 | `roslynator` | `true` | Run roslynator when installed |
 | `jbSeverityFloor` | `WARNING` | Drop jb findings below this severity |
@@ -229,6 +231,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/rust-non-test-unwrap` | warning | Rust `.unwrap()` in production code where errors should be handled or documented |
 | `ai-slop/rust-todo-stub` | warning | Rust `todo!()` stubs in production code |
 | `ai-slop/hallucinated-import` | error | Imports of JS/TS packages that are not declared in the project manifest |
+| `ai-slop/tautological-test` | warning | JavaScript/TypeScript assertions comparing equal fixed literals, plus standalone Python `assert True` statements, which cannot fail |
 | `ai-slop/csharp-not-implemented` | warning | C# `throw new NotImplementedException()` stubs the agent forgot to fill in |
 | `ai-slop/csharp-redundant-doc-comment` | warning | C# XML-doc `<summary>` that just restates the member (`Gets or sets the X`) without adding information |
 | `ai-slop/csharp-async-void` | warning | C# `async void` methods that aren't event handlers (can't be awaited; exceptions crash the process) |
@@ -336,7 +339,7 @@ See [examples/architecture-rules.yml](../examples/architecture-rules.yml) for a 
 | TypeScript | Biome | oxlint | knip, complexity | All rules | All rules |
 | JavaScript | Biome | oxlint | knip, complexity | All rules | All rules |
 | Expo / React Native | Biome | oxlint + expo-doctor | knip, complexity | All rules | All rules |
-| Python | ruff | ruff | complexity | Imports, exceptions, comments | Secrets, audit |
+| Python | ruff | ruff | complexity | Imports, exceptions, comments, tautological tests (`assert True`) | Secrets, audit |
 | Go | gofmt | golangci-lint | complexity | Exceptions, comments | Secrets, audit |
 | Rust | cargo fmt | clippy | complexity | Comments | Secrets, audit |
 | Ruby | rubocop | rubocop | complexity | Exceptions, comments | Secrets |

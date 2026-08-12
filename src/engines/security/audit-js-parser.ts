@@ -1,94 +1,17 @@
-import fs from "node:fs";
-import path from "node:path";
-import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic } from "../types.js";
-import { type JsAuditSource, SEVERITY_RANK, toSeverity } from "./audit-shared.js";
+import { isRecord, readString } from "./audit-value.js";
 
-export const hasBunLockfile = (rootDir: string): boolean =>
-	fs.existsSync(path.join(rootDir, "bun.lock")) || fs.existsSync(path.join(rootDir, "bun.lockb"));
+export type JsAuditSource = "npm audit" | "pnpm audit" | "bun audit";
 
-const errorMessageOf = (error: unknown): string =>
-	error instanceof Error ? error.message : String(error);
-
-const auditSkippedDiagnostic = (source: JsAuditSource, help: string): Diagnostic => ({
-	filePath: "package.json",
-	engine: "security",
-	rule: "security/dependency-audit-skipped",
-	severity: "info",
-	message: `Dependency audit did not complete (${source})`,
-	help,
-	line: 0,
-	column: 0,
-	category: "Security",
-	fixable: false,
-});
-
-export const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
-	try {
-		const result = await runSubprocess("npm", ["audit", "--json"], {
-			cwd: rootDir,
-			timeout,
-		});
-		return parseJsAudit(result.stdout, "npm audit");
-	} catch (error) {
-		return [
-			auditSkippedDiagnostic("npm audit", `Failed to run npm audit: ${errorMessageOf(error)}`),
-		];
-	}
+const SEVERITY_RANK: Record<string, number> = {
+	critical: 4,
+	high: 3,
+	moderate: 2,
+	low: 1,
 };
 
-export const runBunAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
-	try {
-		const result = await runSubprocess("bun", ["audit", "--json"], {
-			cwd: rootDir,
-			timeout,
-		});
-		if (result.stdout) {
-			return parseBunAudit(result.stdout);
-		}
-		if (result.exitCode === 0) return [];
-		return [
-			auditSkippedDiagnostic(
-				"bun audit",
-				`Failed to run bun audit: ${result.stderr || "unknown error"}`,
-			),
-		];
-	} catch (error) {
-		return [
-			auditSkippedDiagnostic("bun audit", `Failed to run bun audit: ${errorMessageOf(error)}`),
-		];
-	}
-};
-
-export const runPnpmAuditWithFallback = async (
-	rootDir: string,
-	timeout: number,
-): Promise<Diagnostic[]> => {
-	const canFallbackToNpm = fs.existsSync(path.join(rootDir, "package-lock.json"));
-
-	try {
-		const result = await runSubprocess("pnpm", ["audit", "--json"], {
-			cwd: rootDir,
-			timeout,
-		});
-		const diagnostics = parseJsAudit(result.stdout, "pnpm audit");
-		const hasAuditFailure = diagnostics.some((d) => d.rule === "security/dependency-audit-skipped");
-		if (hasAuditFailure) {
-			if (canFallbackToNpm) {
-				return runNpmAudit(rootDir, timeout);
-			}
-			return diagnostics;
-		}
-		return diagnostics;
-	} catch (error) {
-		if (canFallbackToNpm) {
-			return runNpmAudit(rootDir, timeout);
-		}
-		return [
-			auditSkippedDiagnostic("pnpm audit", `Failed to run pnpm audit: ${errorMessageOf(error)}`),
-		];
-	}
-};
+const toSeverity = (value: string): "error" | "warning" =>
+	value === "critical" || value === "high" ? "error" : "warning";
 
 interface VulnAggregate {
 	packageName: string;
@@ -165,19 +88,19 @@ const aggregateToDiagnostic = (agg: VulnAggregate, source: JsAuditSource): Diagn
 export const parseBunAudit = (output: string): Diagnostic[] => {
 	if (!output.trim()) return [];
 	try {
-		const parsed = JSON.parse(output) as Record<string, unknown>;
+		const parsed: unknown = JSON.parse(output);
+		if (!isRecord(parsed)) return [];
 		const bucket = new Map<string, VulnAggregate>();
 
 		for (const [packageName, advisories] of Object.entries(parsed)) {
 			if (!Array.isArray(advisories) || advisories.length === 0) continue;
 			for (const advisory of advisories) {
-				if (!advisory || typeof advisory !== "object") continue;
-				const record = advisory as Record<string, unknown>;
-				const severity = ((record.severity as string) ?? "moderate").toLowerCase();
+				if (!isRecord(advisory)) continue;
+				const severity = (readString(advisory, "severity") ?? "moderate").toLowerCase();
 				const recommendation =
-					(record.title as string) ??
-					(record.vulnerable_versions as string) ??
-					(record.url as string) ??
+					readString(advisory, "title") ??
+					readString(advisory, "vulnerable_versions") ??
+					readString(advisory, "url") ??
 					"";
 				upsertVuln(bucket, packageName, severity, recommendation);
 			}
@@ -190,19 +113,21 @@ export const parseBunAudit = (output: string): Diagnostic[] => {
 };
 
 const parseLegacyAdvisories = (
-	advisories: Record<string, Record<string, unknown>>,
+	advisories: Record<string, unknown>,
 	source: JsAuditSource,
 ): Diagnostic[] => {
 	const bucket = new Map<string, VulnAggregate>();
 
 	for (const [key, advisory] of Object.entries(advisories)) {
+		if (!isRecord(advisory)) continue;
 		const packageName =
-			(advisory.module_name as string) ??
-			(advisory.name as string) ??
-			(advisory.package as string) ??
+			readString(advisory, "module_name") ??
+			readString(advisory, "name") ??
+			readString(advisory, "package") ??
 			key;
-		const severity = ((advisory.severity as string) ?? "moderate").toLowerCase();
-		const recommendation = (advisory.recommendation as string) ?? (advisory.title as string) ?? "";
+		const severity = (readString(advisory, "severity") ?? "moderate").toLowerCase();
+		const recommendation =
+			readString(advisory, "recommendation") ?? readString(advisory, "title") ?? "";
 
 		upsertVuln(bucket, packageName, severity, recommendation);
 	}
@@ -213,19 +138,21 @@ const parseLegacyAdvisories = (
 // An object in `via` means this package is the CVE source; a string means it is
 // only affected through another, so reporting it would duplicate the root cause.
 const carriesAdvisory = (vulnerability: Record<string, unknown>): boolean =>
-	Array.isArray(vulnerability.via) &&
-	vulnerability.via.some((entry) => entry !== null && typeof entry === "object");
+	Array.isArray(vulnerability.via) && vulnerability.via.some(isRecord);
 
 const parseModernVulnerabilities = (
-	vulnerabilities: Record<string, Record<string, unknown>>,
+	vulnerabilities: Record<string, unknown>,
 	source: JsAuditSource,
 ): Diagnostic[] => {
 	const bucket = new Map<string, VulnAggregate>();
-	const hasRootCauses = Object.values(vulnerabilities).some(carriesAdvisory);
+	const records = Object.entries(vulnerabilities).filter(
+		(entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]),
+	);
+	const hasRootCauses = records.some(([, vulnerability]) => carriesAdvisory(vulnerability));
 
-	for (const [packageName, vulnerability] of Object.entries(vulnerabilities)) {
+	for (const [packageName, vulnerability] of records) {
 		if (hasRootCauses && !carriesAdvisory(vulnerability)) continue;
-		const severity = ((vulnerability.severity as string) ?? "moderate").toLowerCase();
+		const severity = (readString(vulnerability, "severity") ?? "moderate").toLowerCase();
 		const fixAvailable = vulnerability.fixAvailable;
 		const isDirect = vulnerability.isDirect === true;
 
@@ -236,15 +163,11 @@ const parseModernVulnerabilities = (
 				: "transitive — needs override or parent upgrade";
 		} else if (!isDirect && fixAvailable === true) {
 			recommendation = "transitive — may need override or parent upgrade";
-		} else if (
-			fixAvailable &&
-			typeof fixAvailable === "object" &&
-			"name" in fixAvailable &&
-			"version" in fixAvailable
-		) {
-			const target = fixAvailable as { name?: string; version?: string };
-			if (target.name && target.version) {
-				recommendation = `upgrade to ${target.name}@${target.version}`;
+		} else if (isRecord(fixAvailable)) {
+			const name = readString(fixAvailable, "name");
+			const version = readString(fixAvailable, "version");
+			if (name && version) {
+				recommendation = `upgrade to ${name}@${version}`;
 			}
 		}
 
@@ -257,10 +180,14 @@ const parseModernVulnerabilities = (
 export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[] => {
 	if (!output) return [];
 	try {
-		const parsed = JSON.parse(output) as Record<string, unknown>;
+		const parsed: unknown = JSON.parse(output);
+		if (!isRecord(parsed)) return [];
 
-		const error = parsed.error as { code?: string; summary?: string; detail?: string } | undefined;
-		if (error?.code === "ENOLOCK") {
+		const error = isRecord(parsed.error) ? parsed.error : undefined;
+		const errorCode = error ? readString(error, "code") : undefined;
+		const errorSummary = error ? readString(error, "summary") : undefined;
+		const errorDetail = error ? readString(error, "detail") : undefined;
+		if (errorCode === "ENOLOCK") {
 			return [
 				{
 					filePath: "package.json",
@@ -269,7 +196,7 @@ export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[
 					severity: "info",
 					message: `Dependency audit skipped (${source}): lockfile is missing`,
 					help:
-						error.detail ??
+						errorDetail ??
 						"Generate a lockfile, then re-run `aislop scan` for dependency vulnerability checks.",
 					line: 0,
 					column: 0,
@@ -278,7 +205,7 @@ export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[
 				},
 			];
 		}
-		if (error?.summary || error?.code) {
+		if (errorSummary || errorCode) {
 			return [
 				{
 					filePath: "package.json",
@@ -287,8 +214,8 @@ export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[
 					severity: "info",
 					message: `Dependency audit did not complete (${source})`,
 					help:
-						error.detail ??
-						error.summary ??
+						errorDetail ??
+						errorSummary ??
 						"Re-run dependency audit directly to inspect the underlying error.",
 					line: 0,
 					column: 0,
@@ -299,16 +226,13 @@ export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[
 		}
 
 		const advisories = parsed.advisories;
-		if (advisories && typeof advisories === "object") {
-			return parseLegacyAdvisories(advisories as Record<string, Record<string, unknown>>, source);
+		if (isRecord(advisories)) {
+			return parseLegacyAdvisories(advisories, source);
 		}
 
 		const vulnerabilities = parsed.vulnerabilities;
-		if (vulnerabilities && typeof vulnerabilities === "object") {
-			return parseModernVulnerabilities(
-				vulnerabilities as Record<string, Record<string, unknown>>,
-				source,
-			);
+		if (isRecord(vulnerabilities)) {
+			return parseModernVulnerabilities(vulnerabilities, source);
 		}
 
 		return [];

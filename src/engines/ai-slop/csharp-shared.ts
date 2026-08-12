@@ -1,5 +1,10 @@
 import type { Diagnostic } from "../types.js";
 
+export interface CSharpSourceLines {
+	readonly code: readonly string[];
+	readonly raw: readonly string[];
+}
+
 export const LINE_COMMENT_RE = /^\s*\/\//;
 
 // A catch whose entire body is `throw;` - matched after collapsing whitespace so
@@ -8,7 +13,7 @@ export const LINE_COMMENT_RE = /^\s*\/\//;
 // breaks the match), so log-then-rethrow and wrap-and-rethrow are not flagged.
 export const CATCH_ONLY_THROW_RE = /\bcatch\b\s*(?:\([^)]*\))?\s*\{\s*throw\s*;\s*\}/;
 
-// Shared shape for every C# finding — keeps each rule to its detection logic.
+// Shared shape for every C# finding - keeps each rule to its detection logic.
 export const pushFinding = (
 	out: Diagnostic[],
 	relPath: string,
@@ -31,16 +36,18 @@ export const pushFinding = (
 	});
 };
 
-// True when the regex match sits inside a `//` line comment on that line.
-export const isInLineComment = (line: string, matchIndex: number): boolean => {
-	const commentIndex = line.indexOf("//");
-	return commentIndex !== -1 && commentIndex < matchIndex;
-};
+// Join a short window of lines so a multi-line `catch { ... }` body collapses
+// onto one string a single-line regex can match.
+export const buildCatchWindow = (lines: readonly string[], i: number): string =>
+	lines
+		.slice(i, i + 5)
+		.join(" ")
+		.replace(/\s+/g, " ");
 
 // Scan each non-comment line against `regex`; emit a finding when it matches and
 // the optional `accept` guard (extra context-sensitive checks) returns true.
 export const scanLineMatches = (
-	lines: string[],
+	lines: readonly string[],
 	relPath: string,
 	out: Diagnostic[],
 	regex: RegExp,

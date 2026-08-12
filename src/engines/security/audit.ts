@@ -1,16 +1,14 @@
 // aislop-ignore-file duplicate-block
 import fs from "node:fs";
 import path from "node:path";
+import { isDependencyAuditInputFile } from "../../utils/source-file-selection.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic, EngineContext } from "../types.js";
-import { runCargoAudit, runGovulncheck, runPipAudit } from "./audit-ecosystem.js";
-import { hasBunLockfile, runBunAudit, runNpmAudit, runPnpmAuditWithFallback } from "./audit-js.js";
-import { SEVERITY_RANK, toSeverity } from "./audit-shared.js";
+import { runCargoAudit, runDotnetAudit, runGovulncheck, runPipAudit } from "./audit-ecosystem.js";
+import { type JsAuditSource, parseBunAudit, parseJsAudit } from "./audit-js-parser.js";
 
-export { parseBunAudit, parseJsAudit } from "./audit-js.js";
-
-const AUDIT_INPUT_FILE_RE =
-	/(?:^|\/)(?:package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements(?:\.[\w-]+)?\.txt|pyproject\.toml|Pipfile|Pipfile\.lock|poetry\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|[\w.-]+\.csproj|packages\.lock\.json|Directory\.Packages\.props)$/i;
+export { parseDotnetAudit } from "./audit-ecosystem.js";
+export { parseBunAudit, parseJsAudit } from "./audit-js-parser.js";
 
 const toRelativePath = (rootDirectory: string, filePath: string): string => {
 	const absolute = path.isAbsolute(filePath) ? filePath : path.resolve(rootDirectory, filePath);
@@ -18,9 +16,11 @@ const toRelativePath = (rootDirectory: string, filePath: string): string => {
 };
 
 export const shouldRunDependencyAudit = (context: EngineContext): boolean => {
-	if (!context.files) return true;
-	return context.files.some((file) =>
-		AUDIT_INPUT_FILE_RE.test(toRelativePath(context.rootDirectory, file)),
+	if (context.dependencyAuditScope === "full") return true;
+	const scopedFiles = context.dependencyAuditFiles ?? context.files;
+	if (!scopedFiles) return true;
+	return scopedFiles.some((file) =>
+		isDependencyAuditInputFile(toRelativePath(context.rootDirectory, file)),
 	);
 };
 
@@ -47,11 +47,12 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 
 	const diagnostics: Diagnostic[] = [];
 	const timeout = context.config.security.auditTimeout;
+	const auditLanguages = context.dependencyAuditLanguages ?? context.languages;
 
 	const promises: Promise<Diagnostic[]>[] = [];
 
 	// npm/pnpm/bun audit
-	if (context.languages.includes("typescript") || context.languages.includes("javascript")) {
+	if (auditLanguages.includes("typescript") || auditLanguages.includes("javascript")) {
 		if (fs.existsSync(path.join(context.rootDirectory, "pnpm-lock.yaml"))) {
 			promises.push(runPnpmAuditWithFallback(context.rootDirectory, timeout));
 		} else if (hasBunLockfile(context.rootDirectory)) {
@@ -68,7 +69,7 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 	// environment, so without metadata to scope it the result describes aislop's own
 	// interpreter, not the scanned project.
 	if (
-		context.languages.includes("python") &&
+		auditLanguages.includes("python") &&
 		context.installedTools["pip-audit"] &&
 		hasPythonDependencyManifest(context.rootDirectory)
 	) {
@@ -76,17 +77,23 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 	}
 
 	// govulncheck
-	if (context.languages.includes("go") && context.installedTools.govulncheck) {
+	if (auditLanguages.includes("go") && context.installedTools.govulncheck) {
 		promises.push(runGovulncheck(context.rootDirectory, timeout));
 	}
 
 	// cargo audit
-	if (context.languages.includes("rust")) {
+	if (auditLanguages.includes("rust")) {
 		promises.push(runCargoAudit(context.rootDirectory, timeout));
 	}
 
-	// dotnet list package --vulnerable (NuGet)
-	if (context.languages.includes("csharp") && context.installedTools.dotnet) {
+	// dotnet list package --vulnerable (NuGet). Keyed to the manifest-aware
+	// audit languages like the other ecosystems: a .csproj is what the audit
+	// needs, even when no .cs file is in the scan scope.
+	if (
+		auditLanguages.includes("csharp") &&
+		context.installedTools.dotnet &&
+		context.config.lint.csharp?.projectEvaluation === true
+	) {
 		promises.push(runDotnetAudit(context.rootDirectory, timeout));
 	}
 
@@ -100,109 +107,88 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 	return diagnostics;
 };
 
-// dotnet / NuGet audit.
-// `dotnet list package --vulnerable --include-transitive --format json` emits the
-// schema projects -> frameworks -> {topLevelPackages, transitivePackages} -> packages,
-// each package carrying id, resolvedVersion and a vulnerabilities list (severity,
-// advisoryurl). NuGet severities are Low/Moderate/High/Critical; only vulnerable
-// packages appear.
+const hasBunLockfile = (rootDir: string): boolean =>
+	fs.existsSync(path.join(rootDir, "bun.lock")) || fs.existsSync(path.join(rootDir, "bun.lockb"));
 
-interface DotnetVulnerability {
-	severity?: string;
-	advisoryurl?: string;
-}
-interface DotnetPackage {
-	id?: string;
-	resolvedVersion?: string;
-	vulnerabilities?: DotnetVulnerability[];
-}
-interface DotnetFramework {
-	topLevelPackages?: DotnetPackage[];
-	transitivePackages?: DotnetPackage[];
-}
-interface DotnetProject {
-	path?: string;
-	frameworks?: DotnetFramework[];
-}
-interface DotnetAuditReport {
-	projects?: DotnetProject[];
-}
+const errorMessageOf = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
 
-const toDotnetDiagnostic = (
-	pkg: DotnetPackage,
-	projectFile: string,
-	transitive: boolean,
-): Diagnostic | null => {
-	const vulns = pkg.vulnerabilities ?? [];
-	if (vulns.length === 0 || !pkg.id) return null;
+const auditSkippedDiagnostic = (source: JsAuditSource, help: string): Diagnostic => ({
+	filePath: "package.json",
+	engine: "security",
+	rule: "security/dependency-audit-skipped",
+	severity: "info",
+	message: `Dependency audit did not complete (${source})`,
+	help,
+	line: 0,
+	column: 0,
+	category: "Security",
+	fixable: false,
+});
 
-	const worstSeverity = vulns.reduce((worst, vuln) => {
-		const severity = (vuln.severity ?? "moderate").toLowerCase();
-		return (SEVERITY_RANK[severity] ?? 0) > (SEVERITY_RANK[worst] ?? 0) ? severity : worst;
-	}, "low");
-	const advisory = vulns.find((vuln) => vuln.advisoryurl)?.advisoryurl ?? "";
-	const scopeLabel = transitive ? " transitive" : "";
-	const countLabel = vulns.length > 1 ? ` (${vulns.length} advisories)` : "";
-
-	return {
-		filePath: projectFile,
-		engine: "security",
-		rule: "security/vulnerable-dependency",
-		severity: toSeverity(worstSeverity),
-		message: `${pkg.id}@${pkg.resolvedVersion ?? "?"} (${worstSeverity})${scopeLabel}${countLabel}`,
-		help: advisory
-			? `See ${advisory}; upgrade ${pkg.id} to a patched version.`
-			: `Upgrade ${pkg.id} to a patched version.`,
-		line: 0,
-		column: 0,
-		category: "Security",
-		fixable: false,
-		detail: "dotnet",
-	};
+const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
+	try {
+		const result = await runSubprocess("npm", ["audit", "--json"], {
+			cwd: rootDir,
+			timeout,
+		});
+		return parseJsAudit(result.stdout, "npm audit");
+	} catch (error) {
+		return [
+			auditSkippedDiagnostic("npm audit", `Failed to run npm audit: ${errorMessageOf(error)}`),
+		];
+	}
 };
 
-export const parseDotnetAudit = (output: string): Diagnostic[] => {
-	if (!output) return [];
-	let report: DotnetAuditReport;
+const runBunAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
 	try {
-		report = JSON.parse(output) as DotnetAuditReport;
-	} catch {
-		return [];
-	}
-
-	const diagnostics: Diagnostic[] = [];
-	// A multi-targeted project lists the same vulnerable package once per framework;
-	// dedupe so a net8/net10 project doesn't report each finding twice.
-	const seen = new Set<string>();
-	for (const project of report.projects ?? []) {
-		const projectFile = project.path ? path.basename(project.path) : "*.csproj";
-		for (const framework of project.frameworks ?? []) {
-			const packages = [
-				...(framework.topLevelPackages ?? []).map((pkg) => ({ pkg, transitive: false })),
-				...(framework.transitivePackages ?? []).map((pkg) => ({ pkg, transitive: true })),
-			];
-			for (const { pkg, transitive } of packages) {
-				const key = `${projectFile}:${pkg.id}:${transitive}`;
-				if (seen.has(key)) continue;
-				const diagnostic = toDotnetDiagnostic(pkg, projectFile, transitive);
-				if (!diagnostic) continue;
-				seen.add(key);
-				diagnostics.push(diagnostic);
-			}
+		const result = await runSubprocess("bun", ["audit", "--json"], {
+			cwd: rootDir,
+			timeout,
+		});
+		if (result.stdout) {
+			return parseBunAudit(result.stdout);
 		}
+		if (result.exitCode === 0) return [];
+		return [
+			auditSkippedDiagnostic(
+				"bun audit",
+				`Failed to run bun audit: ${result.stderr || "unknown error"}`,
+			),
+		];
+	} catch (error) {
+		return [
+			auditSkippedDiagnostic("bun audit", `Failed to run bun audit: ${errorMessageOf(error)}`),
+		];
 	}
-	return diagnostics;
 };
 
-const runDotnetAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
+const runPnpmAuditWithFallback = async (
+	rootDir: string,
+	timeout: number,
+): Promise<Diagnostic[]> => {
+	const canFallbackToNpm = fs.existsSync(path.join(rootDir, "package-lock.json"));
+
 	try {
-		const result = await runSubprocess(
-			"dotnet",
-			["list", "package", "--vulnerable", "--include-transitive", "--format", "json"],
-			{ cwd: rootDir, timeout },
-		);
-		return parseDotnetAudit(result.stdout);
-	} catch {
-		return [];
+		const result = await runSubprocess("pnpm", ["audit", "--json"], {
+			cwd: rootDir,
+			timeout,
+		});
+		const diagnostics = parseJsAudit(result.stdout, "pnpm audit");
+		const hasAuditFailure = diagnostics.some((d) => d.rule === "security/dependency-audit-skipped");
+		if (hasAuditFailure) {
+			if (canFallbackToNpm) {
+				return runNpmAudit(rootDir, timeout);
+			}
+			return diagnostics;
+		}
+		return diagnostics;
+	} catch (error) {
+		if (canFallbackToNpm) {
+			return runNpmAudit(rootDir, timeout);
+		}
+		return [
+			auditSkippedDiagnostic("pnpm audit", `Failed to run pnpm audit: ${errorMessageOf(error)}`),
+		];
 	}
 };

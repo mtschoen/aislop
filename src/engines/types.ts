@@ -36,10 +36,15 @@ export interface EngineContext {
 	rootDirectory: string;
 	languages: Language[];
 	frameworks: Framework[];
+	readonly dependencyAuditFiles?: string[];
+	readonly dependencyAuditLanguages?: Language[];
+	readonly dependencyAuditScope?: "full" | "files";
 	files?: string[];
+	testFiles?: string[];
+	projectFiles?: string[];
 	// Raw user exclude entries (config `exclude` + `.aislopignore`). The
 	// file-scanning engines already start from the excluded file list; this lets
-	// the build-backed C#/C++ engines - which shell out to tools that scan whole
+	// the build-backed C# engines - which shell out to tools that scan whole
 	// projects - honor the same excludes via a shared diagnostic post-filter.
 	excludePatterns?: string[];
 	installedTools: Record<string, boolean>;
@@ -61,6 +66,7 @@ export interface EngineConfig {
 		typecheck: boolean;
 		expoDoctor: boolean;
 		csharp?: {
+			projectEvaluation?: boolean;
 			jb: boolean;
 			roslynator: boolean;
 			jbSeverityFloor: "ERROR" | "WARNING" | "SUGGESTION" | "HINT";

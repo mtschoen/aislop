@@ -17,7 +17,16 @@ const csharpContext = (
 	config: {
 		quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
 		security: { audit: false, auditTimeout: 0 },
-		lint: { typecheck: false },
+		lint: {
+			typecheck: false,
+			csharp: {
+				projectEvaluation: true,
+				jb: true,
+				roslynator: true,
+				jbSeverityFloor: "WARNING",
+				jbExcludeTypes: [],
+			},
+		},
 	},
 });
 
@@ -69,7 +78,6 @@ describe("parseRoslynatorXml", () => {
 		const diags = parseRoslynatorXml(xml, "/repo");
 		expect(diags).toHaveLength(1);
 		expect(diags[0].rule).toBe("dotnet/IDISP001");
-		// POSIX separators on every OS (relativePosix); guards the Windows backslash regression.
 		expect(diags[0].filePath).toBe("src/Leak.cs");
 		expect(diags[0].line).toBe(5);
 	});

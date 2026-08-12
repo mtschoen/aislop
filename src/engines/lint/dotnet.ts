@@ -1,10 +1,12 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { toPosix } from "../../utils/paths.js";
+import { projectRelativePosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
 import { findDotnetTargets, projectsSkippedNotice } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
+import { decodeEntities } from "./xml-entities.js";
 
 // Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
 const RELEVANT_IDS = new Set([
@@ -26,14 +28,6 @@ interface ParsedDiagnostic {
 	line: number;
 	column: number;
 }
-
-const decodeEntities = (value: string): string =>
-	value
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'")
-		.replace(/&amp;/g, "&");
 
 // Defensive regex parse (no XML dependency). Matches each <Diagnostic Id="..."> ... </Diagnostic>.
 // Summary-section entries have no <FilePath> and are skipped.
@@ -70,9 +64,7 @@ export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnost
 	return parsed
 		.filter((d) => RELEVANT_IDS.has(d.id))
 		.map((d) => ({
-			filePath: toPosix(
-				path.isAbsolute(d.filePath) ? path.relative(rootDirectory, d.filePath) : d.filePath,
-			),
+			filePath: projectRelativePosix(rootDirectory, d.filePath),
 			engine: "lint" as const,
 			rule: `dotnet/${d.id}`,
 			severity: "warning" as const,
@@ -85,42 +77,31 @@ export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnost
 		}));
 };
 
-// Restore + roslynator-analyze a single .sln/.csproj target, returning the
-// relevant diagnostics. Failures are swallowed to [] so one unloadable project
-// can't sink the whole lint pass.
 const analyzeTarget = async (
 	context: EngineContext,
 	roslynator: string,
 	analyzerAssemblies: string[],
 	target: string,
 ): Promise<Diagnostic[]> => {
-	const outputPath = path.join(context.rootDirectory, ".aislop-roslynator.xml");
+	const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-roslynator-"));
+	const outputPath = path.join(outputDirectory, "report.xml");
 	try {
-		// Best-effort restore; ignore failure (analyze surfaces nothing if it can't load).
-		await runSubprocess("dotnet", ["restore", target], {
-			cwd: context.rootDirectory,
-			timeout: 120000,
-		});
 		const analyzeArgs = ["analyze", target, "--output", outputPath];
 		if (analyzerAssemblies.length > 0) {
 			analyzeArgs.push("--analyzer-assemblies", ...analyzerAssemblies);
 		}
 		// Parse whatever output is produced: roslynator's exit code varies with the
-		// highest diagnostic severity, so the written XML — not the code — is the signal.
+		// highest diagnostic severity, so the written XML (not the code) is the signal.
 		await runSubprocess(roslynator, analyzeArgs, {
 			cwd: context.rootDirectory,
 			timeout: 180000,
 		});
-		let xml: string;
-		try {
-			xml = fs.readFileSync(outputPath, "utf-8");
-			fs.rmSync(outputPath, { force: true });
-		} catch {
-			return [];
-		}
+		const xml = fs.readFileSync(outputPath, "utf-8");
 		return parseRoslynatorXml(xml, context.rootDirectory);
 	} catch {
 		return [];
+	} finally {
+		fs.rmSync(outputDirectory, { recursive: true, force: true });
 	}
 };
 

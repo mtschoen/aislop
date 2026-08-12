@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { filterExcludedDiagnostics } from "../utils/exclude.js";
 import { aiSlopEngine } from "./ai-slop/index.js";
 import { architectureEngine } from "./architecture/index.js";
 import { codeQualityEngine } from "./code-quality/index.js";
@@ -8,7 +9,6 @@ import { formatEngine } from "./format/index.js";
 import { lintEngine } from "./lint/index.js";
 import { securityEngine } from "./security/index.js";
 import type { Engine, EngineContext, EngineName, EngineResult } from "./types.js";
-import { filterExcludedDiagnostics } from "../utils/exclude.js";
 
 const ALL_ENGINES: Engine[] = [
 	formatEngine,
@@ -34,8 +34,8 @@ export const runEngines = async (
 
 			try {
 				const result = await engine.run(context);
-				// Honor the user exclude list uniformly: the build-backed C#/C++
-				// engines scan whole projects/solutions and cannot filter their own
+				// Honor the user exclude list uniformly: the build-backed C# engines
+				// scan whole projects/solutions and cannot filter their own
 				// output, so drop excluded-path diagnostics here before they are
 				// counted or reported.
 				result.diagnostics = filterExcludedDiagnostics(

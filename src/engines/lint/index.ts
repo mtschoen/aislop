@@ -2,11 +2,13 @@ import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.j
 import { runClangTidy } from "./clang-tidy.js";
 import { resolveCppLintConfig, runCppcheck } from "./cppcheck.js";
 import { runDotnetLint } from "./dotnet.js";
+import { runExpoDoctor } from "./expo-doctor.js";
 import { runGenericLinter } from "./generic.js";
 import { runGolangciLint } from "./golangci.js";
 import { resolveCsharpLintConfig, runJbLint } from "./jb.js";
 import { runOxlint } from "./oxlint.js";
 import { runRuffLint } from "./ruff.js";
+import { runTypecheck } from "./typecheck.js";
 
 // jb reports a Roslyn finding as "jb/<id>" and roslynator as "dotnet/<id>"; when
 // a project both references one of aislop's bundled analyzers AND jb runs it, the
@@ -33,15 +35,18 @@ export const canonicalCppRuleId = (rule: string): string => {
 	return m ? camelToKebab(m[1]) : bare;
 };
 
-/** Exported for unit tests. cppcheck and clang-tidy frequently report the same
- *  underlying defect at the same site; collapse by (file, line, canonical rule id).
- *  jb CppClangTidy* inspections normalize to the same key as aislop clang-tidy findings. */
-export const dedupeCppDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
+// Collapse duplicate findings by (file, line, canonicalized rule id). Path
+// separators are normalized so Windows backslashes and Unix forward-slashes do
+// not produce separate keys for the same logical file.
+const dedupeDiagnostics = (
+	diagnostics: Diagnostic[],
+	canonicalize: (rule: string) => string,
+): Diagnostic[] => {
 	const seen = new Set<string>();
 	const result: Diagnostic[] = [];
 	for (const diagnostic of diagnostics) {
 		const normalizedPath = diagnostic.filePath.replace(/\\/g, "/");
-		const key = `${normalizedPath}::${diagnostic.line}::${canonicalCppRuleId(diagnostic.rule)}`;
+		const key = `${normalizedPath}::${diagnostic.line}::${canonicalize(diagnostic.rule)}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		result.push(diagnostic);
@@ -49,21 +54,15 @@ export const dedupeCppDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] =>
 	return result;
 };
 
+/** Exported for unit tests. cppcheck and clang-tidy frequently report the same
+ *  underlying defect at the same site; jb CppClangTidy* inspections normalize
+ *  to the same key as aislop clang-tidy findings. */
+export const dedupeCppDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] =>
+	dedupeDiagnostics(diagnostics, canonicalCppRuleId);
+
 /** Exported for unit tests. */
-export const dedupeCsharpDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
-	const seen = new Set<string>();
-	const result: Diagnostic[] = [];
-	for (const diagnostic of diagnostics) {
-		// Normalize path separators so Windows backslashes and Unix forward-slashes
-		// do not produce separate keys for the same logical file.
-		const normalizedPath = diagnostic.filePath.replace(/\\/g, "/");
-		const key = `${normalizedPath}::${diagnostic.line}::${bareRuleId(diagnostic.rule)}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
-		result.push(diagnostic);
-	}
-	return result;
-};
+export const dedupeCsharpDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] =>
+	dedupeDiagnostics(diagnostics, bareRuleId);
 
 export const lintEngine: Engine = {
 	name: "lint",
@@ -77,13 +76,13 @@ export const lintEngine: Engine = {
 		if (languages.includes("typescript") || languages.includes("javascript")) {
 			promises.push(runOxlint(context));
 			if (context.config.lint.typecheck) {
-				promises.push(import("./typecheck.js").then((mod) => mod.runTypecheck(context)));
+				promises.push(runTypecheck(context));
 			}
 		}
 
 		if (context.frameworks.includes("expo") && context.config.lint.expoDoctor) {
 			// Expo Doctor may evaluate project config, so only run it when explicitly enabled.
-			promises.push(import("./expo-doctor.js").then((mod) => mod.runExpoDoctor(context)));
+			promises.push(runExpoDoctor(context));
 		}
 
 		if (languages.includes("python") && installedTools.ruff) {
@@ -104,7 +103,8 @@ export const lintEngine: Engine = {
 
 		const cpp = resolveCppLintConfig(context);
 		const csharp = resolveCsharpLintConfig(context);
-		const wantJbCsharp = languages.includes("csharp") && csharp.jb && installedTools.jb;
+		const wantJbCsharp =
+			languages.includes("csharp") && csharp.projectEvaluation && csharp.jb && installedTools.jb;
 		const wantJbCpp = languages.includes("cpp") && cpp.jb && installedTools.jb;
 		const jbPromise: Promise<Diagnostic[]> =
 			wantJbCsharp || wantJbCpp
@@ -123,7 +123,9 @@ export const lintEngine: Engine = {
 
 		if (languages.includes("csharp")) {
 			const csharpPasses: Promise<Diagnostic[]>[] = [];
-			if (csharp.roslynator && installedTools.roslynator) csharpPasses.push(runDotnetLint(context));
+			if (csharp.projectEvaluation && csharp.roslynator && installedTools.roslynator) {
+				csharpPasses.push(runDotnetLint(context));
+			}
 			if (wantJbCsharp)
 				csharpPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C# Lint")));
 			if (csharpPasses.length > 0)

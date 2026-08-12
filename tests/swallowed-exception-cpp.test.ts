@@ -31,4 +31,11 @@ describe("detectSwallowedExceptions (C/C++)", () => {
 		expect(fa.map((d) => d.rule)).toContain("ai-slop/swallowed-exception");
 		expect(fb.map((d) => d.rule)).not.toContain("ai-slop/swallowed-exception");
 	});
+
+	it("treats a line-commented catch body as documented, like C# does", async () => {
+		const ok = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-swcpp-"));
+		write(ok, "c.cpp", "try { g(); } catch (...) {\n  // expected: device may be gone\n}\n");
+		const findings = await detectSwallowedExceptions(ctx(ok));
+		expect(findings.map((d) => d.rule)).not.toContain("ai-slop/swallowed-exception");
+	});
 });

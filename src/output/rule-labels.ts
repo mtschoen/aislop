@@ -73,6 +73,7 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/cpp-define-constant": "#define constant; prefer constexpr",
 	"ai-slop/cpp-endl-in-stream": "std::endl flushes; prefer '\\n'",
 	"ai-slop/hallucinated-import": "Import not in package.json",
+	"ai-slop/tautological-test": "Test assertion cannot fail",
 	"ai-slop/em-dash": "Non-ASCII dash character",
 	"ai-slop/smart-punctuation": "Non-ASCII smart punctuation",
 	"security/hardcoded-secret": "Possible hardcoded secret",
@@ -164,6 +165,7 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/rust-non-test-unwrap": "Production Rust uses unwrap instead of handling failure.",
 	"ai-slop/rust-todo-stub": "Rust todo!/unimplemented! leaves behavior unfinished.",
 	"ai-slop/hallucinated-import": "Import names a package not declared by the project.",
+	"ai-slop/tautological-test": "Test compares fixed literals and therefore cannot fail.",
 	"ai-slop/em-dash": "Em dash or another non-ASCII dash where a plain hyphen would do.",
 	"ai-slop/smart-punctuation":
 		"Curly quotes, ellipsis, arrows, or invisible spacing that ASCII already covers.",

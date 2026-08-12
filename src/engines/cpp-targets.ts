@@ -19,7 +19,7 @@ export const CPP_IMPL_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cxx"]);
 
 // Extensions that only appear in C++ (never plain C). Their presence means the
 // tree is C++, so headers (.h is ambiguous) should be analyzed as C++ too.
-const CPP_ONLY_EXTENSIONS = new Set([".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"]);
+export const CPP_ONLY_EXTENSIONS = new Set([".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"]);
 
 const isCppExtension = (filePath: string): boolean =>
 	CPP_SOURCE_EXTENSIONS.has(path.extname(filePath).toLowerCase());

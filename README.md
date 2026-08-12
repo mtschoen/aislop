@@ -2,11 +2,11 @@
 
 **Catch the slop AI coding agents leave in your code.**
 
-[![npm version](https://img.shields.io/npm/v/aislop.svg)](https://www.npmjs.com/package/aislop) [![npm downloads](https://img.shields.io/npm/dm/aislop.svg)](https://www.npmjs.com/package/aislop) [![PyPI downloads](https://img.shields.io/pepy/dt/aislop.svg?label=PyPI%20downloads)](https://pypi.org/project/aislop/) [![Homebrew tap](https://img.shields.io/badge/Homebrew-scanaislop%2Ftap-2f855a.svg)](https://github.com/scanaislop/homebrew-tap) [![CI](https://github.com/scanaislop/aislop/actions/workflows/ci.yml/badge.svg)](https://github.com/scanaislop/aislop/actions/workflows/ci.yml) [![aislop score](https://badges.scanaislop.com/score/scanaislop/aislop.svg)](https://scanaislop.com/scanaislop/aislop) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/aislop.svg)](https://www.npmjs.com/package/aislop) [![npm downloads](https://img.shields.io/npm/dm/aislop.svg)](https://www.npmjs.com/package/aislop) [![PyPI downloads](https://img.shields.io/pepy/dt/aislop.svg?label=PyPI%20downloads)](https://pypi.org/project/aislop/) [![Homebrew tap](https://img.shields.io/badge/Homebrew-scanaislop%2Ftap-2f855a.svg)](https://github.com/scanaislop/homebrew-tap) [![CI](https://github.com/scanaislop/aislop/actions/workflows/ci.yml/badge.svg)](https://github.com/scanaislop/aislop/actions/workflows/ci.yml) [![aislop score](https://badges.scanaislop.com/score/scanaislop/aislop.svg)](https://scanaislop.com/scanaislop/aislop) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org) [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/Mzz4A6mfj6)
 
 The patterns Claude Code, Cursor, Codex, and OpenCode leave behind: narrative comments above self-explanatory code, swallowed exceptions, hidden fallbacks, `as any` casts, hallucinated imports, duplicated helpers, dead code, todo stubs, oversized functions. Tests pass. Lint passes. The code rots anyway.
 
-aislop catches them. 50+ rules across 10 language targets (TypeScript, JavaScript, Expo / React Native, Python, Go, Rust, Ruby, PHP, C#, C/C++). Scores every change 0-100. Sub-second. Deterministic - no LLM in the runtime path, same code in, same score out. MIT-licensed, free CLI.
+aislop catches them. 50+ rules across 10 language targets (TypeScript, JavaScript, Expo / React Native, Python, Go, Rust, Ruby, PHP, C#, C/C++). Scores every change 0–100. Sub-second. Deterministic: no LLM in the runtime path, same code in, same score out. MIT-licensed, free CLI.
 
 ## Quick start
 
@@ -27,6 +27,12 @@ pipx install aislop                  # Python
 ```
 
 See [Installation](#installation) for every option.
+
+## Language support
+
+aislop supports TypeScript, JavaScript, Expo / React Native, Python, Go, Rust, Ruby, PHP, C#, and C/C++.
+
+Coverage includes formatting, linting, complexity, AI-slop detection, and security checks. Some checks use optional system tools; see [Installation](docs/installation.md) and the [rules reference](docs/rules.md) for details.
 
 ```bash
 aislop agent                 # repair with your coding agent (Codex/Claude/OpenCode)
@@ -80,6 +86,8 @@ npm install -g aislop
 
 Also available as [`@scanaislop/aislop`](docs/installation.md) on GitHub Packages.
 
+Package installation does not run dependency lifecycle scripts. After installing, run `aislop-tools` once if you want bundled Ruff and golangci-lint coverage; the core scanner works without it.
+
 **Homebrew** (macOS / Linux)
 
 ```bash
@@ -96,7 +104,7 @@ pipx install aislop
 
 `pipx` keeps `aislop` in its own isolated environment. Needs Node.js on `PATH`. Details: [PyPI package](https://pypi.org/project/aislop/).
 
-Full reference for every channel, bundled tooling, and external tools: [docs/installation.md](docs/installation.md).
+Full reference for every channel, optional bundled tooling, and external tools: [docs/installation.md](docs/installation.md).
 
 ---
 
@@ -454,11 +462,11 @@ Six deterministic engines run in parallel:
 
 | Engine | What it checks | How |
 |---|---|---|
-| **Formatting** | Code style consistency | Biome, ruff, gofmt, cargo fmt, rubocop, php-cs-fixer, clang-format (C/C++, requires `.clang-format`) |
-| **Linting** | Language-specific issues | oxlint, ruff, golangci-lint, clippy, expo-doctor, cppcheck + clang-tidy (C/C++; clang-tidy requires `compile_commands.json`) |
+| **Formatting** | Code style consistency | Biome, ruff, gofmt, cargo fmt, rubocop, php-cs-fixer, dotnet format, clang-format |
+| **Linting** | Language-specific issues | oxlint, ruff, golangci-lint, clippy, expo-doctor, Roslynator, JetBrains InspectCode, cppcheck, clang-tidy |
 | **Code Quality** | Complexity and dead code | Function/file size limits, deep nesting, unused files/deps (knip), AST-based unused-declaration removal |
 | **AI Slop** | AI-authored code patterns | Narrative comments, trivial comments, dead patterns, unused imports, `as any`, `console.log` leftovers, TODO stubs, generic names |
-| **Security** | Vulnerabilities and risky code | eval, innerHTML, SQL/shell injection, dependency audits (npm/pip/cargo/govulncheck) |
+| **Security** | Vulnerabilities and risky code | eval, innerHTML, SQL/shell injection, dependency audits for JavaScript, Python, Rust, Go, and .NET |
 | **Architecture** | Structural rules (opt-in) | Custom import bans, layering rules, required patterns |
 
 See the full [rules reference](docs/rules.md).
@@ -477,7 +485,7 @@ aislop rules are shaped by public scans and benchmark-derived failure modes, not
 
 ## Community
 
-[Discussions](https://github.com/scanaislop/aislop/discussions) for questions, rule requests, and false-positive triage · [Issues](https://github.com/scanaislop/aislop/issues) for bugs
+[Discord](https://discord.gg/Mzz4A6mfj6) for community chat and support · [Discussions](https://github.com/scanaislop/aislop/discussions) for questions, rule requests, and false-positive triage · [Issues](https://github.com/scanaislop/aislop/issues) for bugs
 
 ## Contributing
 

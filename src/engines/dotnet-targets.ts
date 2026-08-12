@@ -26,7 +26,7 @@ const dropExcludedProjects = (
 };
 
 // Recursively collect every .csproj under `root`, skipping the directories above.
-export const findCsprojFiles = (root: string, excludePatterns?: string[]): string[] => {
+const collectCsprojFiles = (root: string): string[] => {
 	const results: string[] = [];
 	const walk = (directory: string): void => {
 		let entries: fs.Dirent[];
@@ -45,6 +45,11 @@ export const findCsprojFiles = (root: string, excludePatterns?: string[]): strin
 		}
 	};
 	walk(root);
+	return results;
+};
+
+export const findCsprojFiles = (root: string, excludePatterns?: string[]): string[] => {
+	const results = collectCsprojFiles(root);
 	// Honor .gitignore: the raw walk would otherwise lint projects under ignored
 	// directories (spikes, scratch checkouts) that the git-aware file discovery skips.
 	return dropExcludedProjects(root, dropGitIgnoredPaths(root, results), excludePatterns);
@@ -68,11 +73,6 @@ const emptySelection = (): DotnetTargetSelection => ({
 	targets: [],
 	coldProjects: [],
 	overCapProjects: [],
-});
-
-const solutionSelection = (root: string, solutionName: string): DotnetTargetSelection => ({
-	...emptySelection(),
-	targets: dropGitIgnoredPaths(root, [path.join(root, solutionName)]),
 });
 
 // project.assets.json is written by a successful `dotnet restore`, so its
@@ -109,7 +109,38 @@ const selectRestoredProjects = (
 	};
 };
 
-// Targets for the Roslynator lint pass. Prefer a classic .sln — roslynator loads
+const findSolutionOrProjects = (
+	root: string,
+	solutionExtensions: string[],
+	excludePatterns?: string[],
+): DotnetTargetSelection => {
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(root);
+	} catch {
+		return emptySelection();
+	}
+	let solution: string | undefined;
+	for (const extension of solutionExtensions) {
+		solution = entries.find((name) => name.endsWith(extension));
+		if (solution) break;
+	}
+	const allProjects = collectCsprojFiles(root);
+	const visibleProjects = dropExcludedProjects(
+		root,
+		dropGitIgnoredPaths(root, allProjects),
+		excludePatterns,
+	);
+	if (solution && visibleProjects.length === allProjects.length) {
+		return {
+			...emptySelection(),
+			targets: dropGitIgnoredPaths(root, [path.join(root, solution)]),
+		};
+	}
+	return selectRestoredProjects(visibleProjects, root);
+};
+
+// Targets for the Roslynator lint pass. Prefer a classic .sln: roslynator loads
 // it natively in a single pass with full project-reference context. Otherwise fall
 // back to the restored .csproj files in the tree: a lone .slnx is not a reliable
 // roslynator target (MSBuild's solution parser fails to load .slnx on some SDKs,
@@ -117,18 +148,8 @@ const selectRestoredProjects = (
 // the root.
 export const findDotnetTargets = (
 	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
-): DotnetTargetSelection => {
-	const root = context.rootDirectory;
-	let entries: string[];
-	try {
-		entries = fs.readdirSync(root);
-	} catch {
-		return emptySelection();
-	}
-	const solution = entries.find((name) => name.endsWith(".sln"));
-	if (solution) return solutionSelection(root, solution);
-	return selectRestoredProjects(findCsprojFiles(root, context.excludePatterns), root);
-};
+): DotnetTargetSelection =>
+	findSolutionOrProjects(context.rootDirectory, [".sln"], context.excludePatterns);
 
 // Targets for the jb (ReSharper CLT) lint pass. Unlike roslynator, jb inspectcode
 // loads a .slnx solution natively, so prefer a single solution target - .sln
@@ -138,19 +159,8 @@ export const findDotnetTargets = (
 // restored .csproj files only when no solution file exists.
 export const findJbTargets = (
 	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
-): DotnetTargetSelection => {
-	const root = context.rootDirectory;
-	let entries: string[];
-	try {
-		entries = fs.readdirSync(root);
-	} catch {
-		return emptySelection();
-	}
-	const solution =
-		entries.find((name) => name.endsWith(".sln")) ?? entries.find((name) => name.endsWith(".slnx"));
-	if (solution) return solutionSelection(root, solution);
-	return selectRestoredProjects(findCsprojFiles(root, context.excludePatterns), root);
-};
+): DotnetTargetSelection =>
+	findSolutionOrProjects(context.rootDirectory, [".sln", ".slnx"], context.excludePatterns);
 
 // One advisory notice per lint pass - never one per project - telling the user
 // which build-backed C# work was skipped and how to include it. Mirrors

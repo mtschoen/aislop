@@ -1,5 +1,3 @@
-export type JsAuditSource = "npm audit" | "pnpm audit" | "bun audit";
-
 export const SEVERITY_RANK: Record<string, number> = {
 	critical: 4,
 	high: 3,

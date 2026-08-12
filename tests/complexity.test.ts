@@ -72,6 +72,15 @@ describe("checkComplexity — file too large", () => {
 		expect(fileDiags[0].message).toContain("10");
 	});
 
+	it("points C# files at partial classes in the file-too-large help", async () => {
+		const content = makeLines(15, "// filler");
+		const filePath = writeFile("Big.cs", content);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
+		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
+		expect(fileDiags).toHaveLength(1);
+		expect(fileDiags[0].help).toContain("partial class");
+	});
+
 	it("includes the file path in the diagnostic", async () => {
 		const content = makeLines(15, "const x = 1;");
 		const filePath = writeFile("subdir/big.ts", content);
@@ -124,21 +133,32 @@ describe("checkComplexity — file too large", () => {
 		expect(fileDiags[0]).toContain("logic.ts");
 	});
 
+	it("gives C/C++ files a 2.5x file budget (same as Rust)", async () => {
+		// maxFileLoc = 10 → C++ budget 25, trigger at ceil(25 * 1.1) = 28.
+		const within = writeFile("ok.cpp", makeLines(28, "int x = 1;"));
+		const over = writeFile("big.cpp", makeLines(29, "int x = 1;"));
+		const diagnostics = await checkComplexity(makeContext([within, over], { maxFileLoc: 10 }));
+		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
+		expect(fileDiags).toHaveLength(1);
+		expect(fileDiags[0].filePath).toContain("big.cpp");
+		expect(fileDiags[0].message).toContain("max: 25");
+	});
+
 	it("points oversized C++ files at the component-as-translation-unit pattern", async () => {
-		const filePath = writeFile("mft.cpp", makeLines(15, "int x = 1;"));
+		const filePath = writeFile("mft.cpp", makeLines(30, "int x = 1;"));
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
 		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
 		expect(fileDiags).toHaveLength(1);
-		expect(fileDiags[0].help).toContain("aislop scaffold component");
+		expect(fileDiags[0].help).toContain("component-as-translation-unit pattern");
 		expect(fileDiags[0].help).toContain("docs/cpp-component-pattern.md");
 	});
 
 	it("applies the C++ component hint to ambiguous .h headers in a C++ tree", async () => {
-		const header = writeFile("mft.h", makeLines(15, "int x = 1;"));
+		const header = writeFile("mft.h", makeLines(30, "int x = 1;"));
 		const diagnostics = await checkComplexity(makeContext([header], { maxFileLoc: 10 }));
 		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
 		expect(fileDiags).toHaveLength(1);
-		expect(fileDiags[0].help).toContain("aislop scaffold component");
+		expect(fileDiags[0].help).toContain("component-as-translation-unit pattern");
 	});
 
 	it("keeps the generic split hint for non-C++ files", async () => {
@@ -233,7 +253,7 @@ describe("checkComplexity — function too long", () => {
 	});
 });
 
-describe("analyzeFunctions — braces inside strings/comments don't skew length", () => {
+describe("analyzeFunctions: braces inside strings/comments don't skew length", () => {
 	it("does not count a brace inside a line comment as opening a block", () => {
 		const content = [
 			"function tiny(a: number) {",
@@ -277,7 +297,7 @@ describe("analyzeFunctions — braces inside strings/comments don't skew length"
 	});
 });
 
-describe("analyzeFunctions — Python end-detection uses masked lines", () => {
+describe("analyzeFunctions: Python end-detection uses masked lines", () => {
 	it("does not truncate a Python function at a comment dedented to column 0", () => {
 		const content = [
 			"def f():",
@@ -446,7 +466,8 @@ describe("checkComplexity — too many parameters", () => {
 		// function-boundary detection treats it like a prototype and skips it
 		// (same as a C++ declaration) - give it a body so the counting logic is
 		// actually exercised.
-		const content = "public record class Big(int A, int B, int C, int D, int E, int F, int G) { }\n";
+		const content =
+			"public record class Big(int A, int B, int C, int D, int E, int F, int G) { }\n";
 		const filePath = writeFile("Big.cs", content);
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
 		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
@@ -790,10 +811,32 @@ describe("checkComplexity — general", () => {
 	});
 });
 
+describe("analyzeFunctions — brace masking regressions", () => {
+	it("does not inflate readPnpmStoreVersion when a regex replace precedes string concat", () => {
+		const content = fs.readFileSync(
+			path.join(import.meta.dirname, "../src/commands/fix-force.ts"),
+			"utf-8",
+		);
+		const fn = analyzeFunctions(content, ".ts").find((f) => f.name === "readPnpmStoreVersion");
+		expect(fn).toBeDefined();
+		expect(fn?.lineCount).toBeLessThanOrEqual(25);
+	});
+
+	it("does not inflate collectClassDefinitions when comments mention braces", () => {
+		const content = fs.readFileSync(
+			path.join(import.meta.dirname, "../src/engines/ai-slop/unused-css.ts"),
+			"utf-8",
+		);
+		const fn = analyzeFunctions(content, ".ts").find((f) => f.name === "collectClassDefinitions");
+		expect(fn).toBeDefined();
+		expect(fn?.lineCount).toBeLessThanOrEqual(30);
+	});
+});
+
 // C++ false-positive regression: a function-call expression on a `return` statement
 // must NOT be mistaken for a function definition.
-describe("checkComplexity — C++ function-call false positive regression", () => {
-	// Mirrors the exact structure of MFTLibNative/usn/usn_journal.cpp:
+describe("checkComplexity: C++ function-call false positive regression", () => {
+	// Mirrors a real Win32 source layout:
 	//   namespace { ... short wrapper ... }
 	//   extern "C" { ... long real code ... }
 	// The bug: `return GetOverlappedResult(...)` on the last line of the short wrapper
@@ -871,7 +914,7 @@ describe("checkComplexity — C++ function-call false positive regression", () =
 // Header coverage: inline / class-member function bodies in C++ headers must be
 // nesting-checked, while declaration prototypes in the same headers must not be
 // mistaken for definitions (they carry no body).
-describe("checkComplexity — C++ header nesting coverage", () => {
+describe("checkComplexity: C++ header nesting coverage", () => {
 	const DEEP_INLINE_BODY = [
 		"    if (a) {",
 		"        if (b) {",
@@ -930,7 +973,7 @@ describe("checkComplexity — C++ header nesting coverage", () => {
 // C#/C++ function detection: constructors, multi-modifier/complex-return methods,
 // out-of-line (scoped) definitions, and multi-line signatures - plus adversarial
 // cases (calls, control flow, prototypes) that must NOT be counted as functions.
-describe("analyzeFunctions — C#/C++ constructor & multi-line signature detection", () => {
+describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection", () => {
 	const names = (src: string, ext: string) => analyzeFunctions(src, ext).map((f) => f.name);
 
 	it("detects a C# constructor (no return type)", () => {
@@ -947,7 +990,7 @@ describe("analyzeFunctions — C#/C++ constructor & multi-line signature detecti
 		expect(names(src, ".cs")).toContain("DoAsync");
 	});
 
-	// Regression (MFTLib dogfood): a statement-position multi-line awaited call
+	// Regression: a statement-position multi-line awaited call
 	// (`await WriteFrameAsync(...)` with a `.ConfigureAwait(false);` continuation)
 	// was once shape-matched as a function definition, and brace-scanning from it
 	// swallowed the rest of the enclosing method - misreporting the real method as
@@ -1075,24 +1118,191 @@ describe("analyzeFunctions — C#/C++ constructor & multi-line signature detecti
 	});
 });
 
-describe("analyzeFunctions — brace masking regressions", () => {
-	it("does not inflate readPnpmStoreVersion when a regex replace precedes string concat", () => {
-		const content = fs.readFileSync(
-			path.join(import.meta.dirname, "../src/commands/fix-force.ts"),
-			"utf-8",
-		);
-		const fn = analyzeFunctions(content, ".ts").find((f) => f.name === "readPnpmStoreVersion");
-		expect(fn).toBeDefined();
-		expect(fn?.lineCount).toBeLessThanOrEqual(25);
+// A C++ member-initializer list can carry brace initialization (`value_{0}`),
+// whose braces open and close before the real constructor body starts. Taking
+// the first depth-1 brace as the body would end the function on the initializer
+// line and hide the whole body from the length and nesting checks.
+describe("analyzeFunctions: C++ member-initializer lists", () => {
+	it("spans the real body of an out-of-line constructor with brace initializers", () => {
+		const src = [
+			"Widget::Widget()",
+			"    : value_{0},",
+			'      name_{"x"} {',
+			"  stepOne();",
+			"  if (value_) {",
+			"    stepTwo();",
+			"  }",
+			"  stepThree();",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor).toBeDefined();
+		expect(ctor?.lineCount).toBe(9);
+		expect(ctor?.maxNesting).toBe(1);
 	});
 
-	it("does not inflate collectClassDefinitions when comments mention braces", () => {
-		const content = fs.readFileSync(
-			path.join(import.meta.dirname, "../src/engines/ai-slop/unused-css.ts"),
-			"utf-8",
+	it("spans the real body of a bare in-class constructor with brace initializers", () => {
+		const src = [
+			"class Widget {",
+			"  Widget(int a)",
+			"      : value_{a}",
+			"  {",
+			"    stepOne();",
+			"    stepTwo();",
+			"  }",
+			"};",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget");
+		expect(ctor).toBeDefined();
+		expect(ctor?.lineCount).toBe(6);
+	});
+
+	it("handles paren, brace, templated, and nested-brace initializers together", () => {
+		const src = [
+			"Widget::Widget(int a)",
+			"    : Base<int, float>{a},",
+			"      other_(a, a),",
+			"      matrix_{{1, 2}, {3, 4}},",
+			"      handler_([]{ return 1; }) {",
+			"  stepOne();",
+			"  stepTwo();",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(8);
+	});
+
+	it("reports a long constructor body hidden behind an initializer list", async () => {
+		const body = Array.from({ length: 30 }, (_, index) => `  step${index}();`).join("\n");
+		const src = `Widget::Widget()\n    : value_{0},\n      other_{1}\n{\n${body}\n}\n`;
+		const filePath = writeFile("Widget.cpp", src);
+		const diagnostics = await checkComplexity(makeContext([filePath], { maxFunctionLoc: 10 }));
+		const tooLong = diagnostics.filter((d) => d.rule === "complexity/function-too-long");
+		expect(tooLong.find((d) => d.detail?.includes("Widget::Widget"))).toBeDefined();
+	});
+
+	it("leaves a constructor with no initializer list unchanged", () => {
+		const src = ["Widget::Widget()", "{", "  stepOne();", "  stepTwo();", "}"].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(5);
+	});
+
+	it("leaves a C# base-constructor initializer unchanged", () => {
+		const src = [
+			"class C {",
+			"  public C(int a)",
+			"    : base(a)",
+			"  {",
+			"    stepOne();",
+			"    stepTwo();",
+			"  }",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cs").find((f) => f.name === "C");
+		expect(ctor?.lineCount).toBe(6);
+	});
+
+	it("handles a ternary and a qualifier around the initializer list", () => {
+		const src = [
+			"Widget::Widget(int a) noexcept",
+			"    : value_{a > 0 ? 1 : 2},",
+			"      flag_(a ? true : false) {",
+			"  stepOne();",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(5);
+	});
+
+	it("still skips a defaulted constructor and a prototype with default arguments", () => {
+		expect(analyzeFunctions("Widget::Widget() = default;\n", ".cpp")).toHaveLength(0);
+		expect(analyzeFunctions("class C {\n  void f(int a = 0);\n};", ".hpp")).toHaveLength(0);
+	});
+
+	it("leaves a TypeScript return-type annotation unchanged", () => {
+		const objectReturn = ["function shape(a) : { x: number } {", "  return { x: a };", "}"].join(
+			"\n",
 		);
-		const fn = analyzeFunctions(content, ".ts").find((f) => f.name === "collectClassDefinitions");
-		expect(fn).toBeDefined();
-		expect(fn?.lineCount).toBeLessThanOrEqual(30);
+		const shape = analyzeFunctions(objectReturn, ".ts").find((f) => f.name === "shape");
+		expect(shape?.lineCount).toBe(3);
+
+		const genericReturn = ["function load(a): Promise<void> {", "  return go(a);", "}"].join("\n");
+		const load = analyzeFunctions(genericReturn, ".ts").find((f) => f.name === "load");
+		expect(load?.lineCount).toBe(3);
+	});
+
+	it("spans the body of an in-class constructor declared in a header", () => {
+		const src = [
+			"class Widget {",
+			" public:",
+			"  Widget(int a)",
+			"      : value_{a},",
+			"        other_{0}",
+			"  {",
+			"    stepOne();",
+			"    stepTwo();",
+			"  }",
+			"};",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".hpp").find((f) => f.name === "Widget");
+		expect(ctor?.lineCount).toBe(7);
+	});
+
+	it("spans the body past a comment or a brace-bearing string in the list", () => {
+		const src = [
+			"Widget::Widget()",
+			"    : value_{0},  // seeded",
+			'      /* wide */ name_{"}{"} {',
+			"  stepOne();",
+			"  stepTwo();",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(6);
+	});
+
+	it("spans the body past an initializer holding a multi-line lambda", () => {
+		const src = [
+			"Widget::Widget()",
+			"    : handler_([] {",
+			"        stepOne();",
+			"        return 1;",
+			"      }),",
+			"      value_{0} {",
+			"  stepTwo();",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(8);
+	});
+
+	it("spans the body of a constructor with a long member list", () => {
+		const members = Array.from(
+			{ length: 60 },
+			(_, index) => `${index === 0 ? "    : " : "      "}member${index}_{${index}},`,
+		);
+		const src = ["Widget::Widget()", ...members, "      last_{1} {", "  stepOne();", "}"].join(
+			"\n",
+		);
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(64);
+	});
+
+	// A function-try-block puts `try` between the last initializer and the body,
+	// so the body brace is one token further along than the usual case.
+	it("spans the body of a function-try-block constructor", () => {
+		const src = [
+			"Widget::Widget()",
+			"    : value_{0},",
+			"      other_{1}",
+			"try {",
+			"  stepOne();",
+			"  stepTwo();",
+			"}",
+			"catch (...) {",
+			"}",
+		].join("\n");
+		const ctor = analyzeFunctions(src, ".cpp").find((f) => f.name === "Widget::Widget");
+		expect(ctor?.lineCount).toBe(7);
 	});
 });

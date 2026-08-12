@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -64,6 +64,10 @@ const PUBLIC_HELP_COMMANDS: string[][] = [
 	["version", "--help"],
 	["commands", "--help"],
 ];
+// 44 sequential CLI spawns; windows-latest Node 22 runners have been observed
+// taking ~1.5s per spawn (65s total), so lower ceilings left no headroom for
+// runner variance.
+const PUBLIC_HELP_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 60_000;
 
 describe("cli ergonomics", () => {
 	it("uses the installed command in top-level help and keeps npx for one-off latest runs", () => {
@@ -100,6 +104,40 @@ describe("cli ergonomics", () => {
 		expect(result.stdout.trim()).toBe(PKG_VERSION);
 		expect(result.stderr).not.toContain("unknown option");
 	});
+
+	it("returns non-zero for missing and non-directory fix targets", () => {
+		const tempRoot = mkdtempSync(path.join(tmpdir(), "aislop-fix-target-"));
+		const missingPath = path.join(tempRoot, "missing");
+		const filePath = path.join(tempRoot, "not-a-directory");
+
+		try {
+			writeFileSync(filePath, "");
+			const missing = runCli(["fix", missingPath]);
+			expect(missing.status).toBe(1);
+			expect(`${missing.stdout}${missing.stderr}`).toContain(
+				`Path does not exist: ${missingPath}`,
+			);
+
+			const file = runCli(["fix", filePath]);
+			expect(file.status).toBe(1);
+			expect(`${file.stdout}${file.stderr}`).toContain(`Not a directory: ${filePath}`);
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps a zero exit code for valid fix targets", () => {
+		const projectDir = mkdtempSync(path.join(tmpdir(), "aislop-fix-project-"));
+
+		try {
+			const result = runCli(["fix", projectDir, "--safe"]);
+			expect(result.status).toBe(0);
+			expect(`${result.stdout}${result.stderr}`).not.toContain("Path does not exist");
+			expect(`${result.stdout}${result.stderr}`).not.toContain("Not a directory");
+		} finally {
+			rmSync(projectDir, { recursive: true, force: true });
+		}
+	}, 30_000);
 
 	it("lists all commands and major flags", () => {
 		const result = runCli(["commands"]);
@@ -168,9 +206,7 @@ describe("cli ergonomics", () => {
 			expect(result.stderr, label).not.toContain("too many arguments");
 			expect(result.stderr, label).not.toContain("unknown command");
 		}
-		// 44 sequential CLI spawns; windows-latest Node 22 runners have been observed
-		// taking ~1.5s per spawn (65s total), so 60s left no headroom for runner variance.
-	}, 180_000);
+	}, PUBLIC_HELP_TIMEOUT_MS);
 
 	it("keeps existing core command help complete and aligned with registered flags", () => {
 		const scan = runCli(["scan", "--help"]);
