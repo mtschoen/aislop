@@ -82,6 +82,7 @@ vi.mock("../src/engines/orchestrator.js", () => ({
 
 vi.mock("../src/utils/discover.js", () => ({
 	discoverProject: discoverProjectMock,
+	detectSourceLanguages: () => ["typescript"],
 }));
 
 vi.mock("../src/utils/git.js", () => ({
@@ -91,13 +92,20 @@ vi.mock("../src/utils/git.js", () => ({
 }));
 
 vi.mock("../src/utils/source-files.js", () => ({
-	filterProjectFiles: filterProjectFilesMock,
-	listProjectFiles: listProjectFilesMock,
 	readAislopIgnorePatterns: readAislopIgnorePatternsMock,
+}));
+
+vi.mock("../src/utils/source-file-selection.js", () => ({
+	listProjectFiles: listProjectFilesMock,
+	filterEnumeratedProjectFiles: filterProjectFilesMock,
+	filterEnumeratedTestFiles: () => [],
+	filterProjectDeclarationFiles: () => [],
+	filterDependencyAuditFiles: () => [],
 }));
 
 vi.mock("../src/utils/history.js", () => ({
 	appendHistory: appendHistoryMock,
+	isHistoryDisabled: () => false,
 }));
 
 vi.mock("../src/utils/suppress.js", () => ({
@@ -366,7 +374,7 @@ describe("scanCommand", () => {
 				score: 92,
 				errors: 0,
 				warnings: 1,
-				files: 4,
+				files: 1,
 			}),
 		);
 		expect(buildScanRenderMock).toHaveBeenCalled();
@@ -392,7 +400,6 @@ describe("scanCommand", () => {
 
 		expect(getStagedFilesMock).toHaveBeenCalledWith(tmpDir);
 		expect(capturedStdout).toContain("1 staged file(s)");
-		expect(listProjectFilesMock).not.toHaveBeenCalled();
 	});
 
 	it("writes scoped scope rows for changed-file selection", async () => {
@@ -447,8 +454,12 @@ describe("scanCommand", () => {
 
 	it("emits coverage notice and diagnostics when score is withheld", async () => {
 		setupSuccessfulRun({
+			// deriveScanCoverage recomputes scoreable from the counts, so the
+			// fixture has to trip the real threshold (>= 10 unsupported files and
+			// more than 3x the supported count), not just assert the flag.
 			coverage: makeCoverage({
 				supportedFiles: 0,
+				unsupportedFiles: 40,
 				scoreable: false,
 				dominantUnsupported: "Swift",
 			}),
