@@ -19,6 +19,7 @@ pnpm build             # Build with tsdown (tsdown cleans dist itself)
 pnpm typecheck         # tsc --noEmit
 pnpm test              # Build + vitest run
 pnpm vitest run        # Run tests without rebuilding (faster iteration)
+pnpm test:coverage     # Run tests with V8 line coverage and Cobertura output
 pnpm scan              # Build + run aislop on itself
 node dist/cli.js scan . # Run after building manually
 ```
@@ -124,11 +125,13 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 - **Releases**: publishing a GitHub Release runs `.github/workflows/release.yml`; failed npm publishes can use its guarded manual recovery after promotion to `main`.
 - **CI**: Node 22 + 24 matrix, typecheck + build + test + self-scan.
 - **In-house verification backstop (fork)**: `.gitea/workflows/ci.yml` runs the
-  full matrix (ubuntu node 22/24, windows host-node, quality gate, C# lint) on
-  the self-hosted gitea for every push to `schoen/main`, `feat/**`, `fix/**`.
+  full matrix (ubuntu node 22/24, windows host-node, coverage status, quality
+  gate, C# lint) on the self-hosted gitea for every push to `schoen/main`,
+  `feat/**`, `fix/**`. The coverage job posts `pr-crew/coverage` for the
+  default-branch gate.
   Check it green there before pushing branches to GitHub - saves cloud runner
   minutes and keeps draft-PR churn quiet.
-- All changes should pass: `pnpm typecheck && pnpm test && pnpm scan`.
+- All changes should pass: `pnpm typecheck && pnpm test && pnpm test:coverage && pnpm scan`.
 
 ## Agent operation guardrails
 

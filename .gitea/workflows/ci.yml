@@ -64,6 +64,37 @@ permissions:
   contents: read
 
 jobs:
+  # Gitea commit-status writes are authorized through the Code unit. A
+  # job-level contents:write grant keeps that permission away from every
+  # other CI job while allowing this job to post pr-crew/coverage.
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Measure coverage
+        run: pnpm test:coverage
+
+      - name: Post coverage status
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/post-coverage-status.py --cobertura "coverage/cobertura-coverage.xml"
+
   test-ubuntu:
     name: Build & test (ubuntu-latest, node ${{ matrix.node-version }})
     runs-on: ubuntu-latest

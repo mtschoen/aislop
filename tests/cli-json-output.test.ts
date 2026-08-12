@@ -55,7 +55,6 @@ describe("cli json output", () => {
 		).toBe(true);
 		// Heavy test: scans 450 files through the full CLI subprocess. 15s flaked at ~15.6s,
 		// 30s flaked at ~31.5s on Windows once the suite grew past 1800 tests (worker
-		// parallelism starves the spawned scan). Platform-aware headroom, matching
-		// PUBLIC_HELP_TIMEOUT_MS in cli-ergonomics.
+		// parallelism starves the spawned scan), so it keeps platform-aware headroom.
 	}, process.platform === "win32" ? 120_000 : 60_000);
 });

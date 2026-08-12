@@ -1,6 +1,7 @@
 node_modules/
 .idea/
 dist/
+coverage/
 tools/bin/
 tools/analyzers/
 assets/release-fix-scan.*

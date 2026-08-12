@@ -64,11 +64,6 @@ const PUBLIC_HELP_COMMANDS: string[][] = [
 	["version", "--help"],
 	["commands", "--help"],
 ];
-// 44 sequential CLI spawns; windows-latest Node 22 runners have been observed
-// taking ~1.5s per spawn (65s total), so lower ceilings left no headroom for
-// runner variance.
-const PUBLIC_HELP_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 60_000;
-
 describe("cli ergonomics", () => {
 	it("uses the installed command in top-level help and keeps npx for one-off latest runs", () => {
 		const result = runCli(["--help"]);
@@ -193,20 +188,25 @@ describe("cli ergonomics", () => {
 		expect(result.stdout).not.toContain("--all");
 	});
 
-	it("renders help for every public command without argument-routing errors", () => {
-		for (const args of PUBLIC_HELP_COMMANDS) {
-			const result = runCli(args);
-			const label = `aislop ${args.join(" ")}`;
-			expect(result.status, label).toBe(0);
-			if (args.length === 1 && args[0] === "--help") {
-				expect(result.stdout, label).toContain("Usage");
+	it.for(
+		PUBLIC_HELP_COMMANDS.map((commandArguments) => ({
+			commandArguments,
+			commandLabel: `aislop ${commandArguments.join(" ")}`,
+		})),
+	)(
+		"$commandLabel renders help without argument-routing errors",
+		({ commandArguments, commandLabel }) => {
+			const result = runCli(commandArguments);
+			expect(result.status, commandLabel).toBe(0);
+			if (commandArguments.length === 1 && commandArguments[0] === "--help") {
+				expect(result.stdout, commandLabel).toContain("Usage");
 			} else {
-				expect(result.stdout, label).toContain("Usage:");
+				expect(result.stdout, commandLabel).toContain("Usage:");
 			}
-			expect(result.stderr, label).not.toContain("too many arguments");
-			expect(result.stderr, label).not.toContain("unknown command");
-		}
-	}, PUBLIC_HELP_TIMEOUT_MS);
+			expect(result.stderr, commandLabel).not.toContain("too many arguments");
+			expect(result.stderr, commandLabel).not.toContain("unknown command");
+		},
+	);
 
 	it("keeps existing core command help complete and aligned with registered flags", () => {
 		const scan = runCli(["scan", "--help"]);
