@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installAntigravity, uninstallAntigravity } from "../../src/hooks/install/antigravity.js";
 import { installCline, uninstallCline } from "../../src/hooks/install/cline.js";
 import { installCodex, resolveCodexPaths, uninstallCodex } from "../../src/hooks/install/codex.js";
@@ -19,28 +19,129 @@ let cwd: string;
 beforeEach(() => {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-home-"));
 	cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-cwd-"));
+	vi.stubEnv("CODEX_HOME", "");
 });
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	fs.rmSync(home, { recursive: true, force: true });
 	fs.rmSync(cwd, { recursive: true, force: true });
 });
 
 describe("installCodex", () => {
-	it("writes ~/.codex/AGENTS.md globally", () => {
+	it("writes ~/.codex/hooks.json and AGENTS.md globally", () => {
 		const opts = { home, cwd, scope: "global" as const };
-		installCodex(opts);
-		const p = resolveCodexPaths(opts).rules;
-		expect(fs.existsSync(p)).toBe(true);
-		expect(fs.readFileSync(p, "utf-8")).toContain("<!-- aislop:begin");
+		const result = installCodex(opts);
+		const paths = resolveCodexPaths(opts);
+		expect(result.wrote).toContain(paths.hooks);
+		expect(fs.readFileSync(paths.rules, "utf-8")).toContain("<!-- aislop:begin");
+
+		const hooks = JSON.parse(fs.readFileSync(paths.hooks, "utf-8"));
+		expect(hooks.hooks.PostToolUse).toHaveLength(1);
+		expect(hooks.hooks.PostToolUse[0].matcher).toBe("apply_patch");
+		expect(hooks.hooks.PostToolUse[0].hooks[0]).toEqual({
+			type: "command",
+			command: "aislop hook codex",
+			timeout: 15,
+			statusMessage: "Running aislop [managed:v1]",
+		});
 	});
 
 	it("writes cwd/AGENTS.md when project scope", () => {
 		const opts = { home, cwd, scope: "project" as const };
 		installCodex(opts);
-		const p = resolveCodexPaths(opts).rules;
-		expect(p).toBe(path.join(cwd, "AGENTS.md"));
-		expect(fs.existsSync(p)).toBe(true);
+		const paths = resolveCodexPaths(opts);
+		expect(paths.rules).toBe(path.join(cwd, "AGENTS.md"));
+		expect(paths.hooks).toBe(path.join(cwd, ".codex", "hooks.json"));
+		expect(fs.existsSync(paths.rules)).toBe(true);
+		expect(fs.existsSync(paths.hooks)).toBe(true);
+	});
+
+	it("uses CODEX_HOME for global hooks and rules", () => {
+		const codexHome = path.join(home, "custom-codex-home");
+		vi.stubEnv("CODEX_HOME", codexHome);
+		const opts = { home, cwd, scope: "global" as const };
+
+		installCodex(opts);
+
+		const paths = resolveCodexPaths(opts);
+		expect(paths.hooks).toBe(path.join(codexHome, "hooks.json"));
+		expect(paths.rules).toBe(path.join(codexHome, "AGENTS.md"));
+		expect(fs.existsSync(paths.hooks)).toBe(true);
+		expect(fs.existsSync(paths.rules)).toBe(true);
+	});
+
+	it("preserves unrelated PostToolUse hooks", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(opts).hooks;
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(
+			hooksPath,
+			JSON.stringify({
+				hooks: {
+					PostToolUse: [{ matcher: "shell", hooks: [{ type: "command", command: "other-hook" }] }],
+				},
+			}),
+		);
+
+		installCodex(opts);
+		uninstallCodex(opts);
+		const hooks = JSON.parse(fs.readFileSync(hooksPath, "utf-8"));
+		expect(hooks.hooks.PostToolUse).toEqual([
+			{ matcher: "shell", hooks: [{ type: "command", command: "other-hook" }] },
+		]);
+	});
+
+	it("preserves a user-authored group that invokes the same callback with different settings", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(opts).hooks;
+		const userGroup = {
+			matcher: "shell",
+			hooks: [{ type: "command", command: "aislop hook codex", timeout: 60 }],
+		};
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(hooksPath, JSON.stringify({ hooks: { PostToolUse: [userGroup] } }));
+
+		installCodex(opts);
+		uninstallCodex(opts);
+
+		const hooks = JSON.parse(fs.readFileSync(hooksPath, "utf-8"));
+		expect(hooks.hooks.PostToolUse).toEqual([userGroup]);
+	});
+
+	it("refuses to overwrite malformed hooks.json", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(opts).hooks;
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(hooksPath, "{ malformed");
+
+		expect(() => installCodex(opts)).toThrow(/invalid JSON/);
+		expect(fs.readFileSync(hooksPath, "utf-8")).toBe("{ malformed");
+	});
+
+	it("refuses to overwrite an empty hooks.json", () => {
+		const options = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(options).hooks;
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(hooksPath, "");
+
+		expect(() => installCodex(options)).toThrow(/invalid JSON/);
+		expect(fs.readFileSync(hooksPath, "utf-8")).toBe("");
+		expect(fs.existsSync(resolveCodexPaths(options).rules)).toBe(false);
+	});
+
+	it.each([
+		["an array-valued hooks property", { hooks: [] }],
+		["a non-array PostToolUse property", { hooks: { PostToolUse: { matcher: "apply_patch" } } }],
+	])("refuses to overwrite %s", (_label, configuration) => {
+		const options = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(options).hooks;
+		const original = `${JSON.stringify(configuration, null, 2)}\n`;
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(hooksPath, original);
+
+		expect(() => installCodex(options)).toThrow(/Cannot update/);
+		expect(fs.readFileSync(hooksPath, "utf-8")).toBe(original);
 	});
 });
 
@@ -84,11 +185,48 @@ describe("P3 project-only installers", () => {
 });
 
 describe("rules-only uninstall reversibility", () => {
-	it("uninstallCodex removes the AGENTS.md it wrote", () => {
+	it("uninstallCodex removes the runtime hook and AGENTS.md it wrote", () => {
 		const opts = { home, cwd, scope: "global" as const };
 		installCodex(opts);
 		uninstallCodex(opts);
-		expect(fs.existsSync(resolveCodexPaths(opts).rules)).toBe(false);
+		const paths = resolveCodexPaths(opts);
+		expect(fs.existsSync(paths.rules)).toBe(false);
+		expect(fs.existsSync(paths.hooks)).toBe(false);
+	});
+
+	it("refuses to remove malformed hooks.json", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(opts).hooks;
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(hooksPath, "{ malformed");
+
+		expect(() => uninstallCodex(opts)).toThrow(/invalid JSON/);
+		expect(fs.readFileSync(hooksPath, "utf-8")).toBe("{ malformed");
+	});
+
+	it("refuses to uninstall through an empty hooks.json", () => {
+		const options = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(options).hooks;
+		installCodex(options);
+		fs.writeFileSync(hooksPath, "");
+
+		expect(() => uninstallCodex(options)).toThrow(/invalid JSON/);
+		expect(fs.readFileSync(hooksPath, "utf-8")).toBe("");
+		expect(fs.existsSync(resolveCodexPaths(options).rules)).toBe(true);
+	});
+
+	it.each([
+		["an array-valued hooks property", { hooks: [] }],
+		["a non-array PostToolUse property", { hooks: { PostToolUse: { matcher: "apply_patch" } } }],
+	])("refuses to remove from %s", (_label, configuration) => {
+		const options = { home, cwd, scope: "global" as const };
+		const hooksPath = resolveCodexPaths(options).hooks;
+		const original = `${JSON.stringify(configuration, null, 2)}\n`;
+		fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+		fs.writeFileSync(hooksPath, original);
+
+		expect(() => uninstallCodex(options)).toThrow(/Cannot update/);
+		expect(fs.readFileSync(hooksPath, "utf-8")).toBe(original);
 	});
 
 	it("uninstallWindsurf removes .windsurfrules", () => {

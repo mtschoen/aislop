@@ -192,7 +192,7 @@ Session review commands:
 | `--yes` | Skip confirmation prompt |
 | `--quality-gate` | Add a Claude Stop hook that blocks score regressions |
 
-Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
+Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--kimi`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
 
 ### hook uninstall
 
@@ -203,7 +203,7 @@ Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--
 | `--project` | Uninstall from project-scope config |
 | `--dry-run` | Print the planned removal without writing |
 
-Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
+Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--kimi`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
 
 ### Other command flags
 
@@ -278,6 +278,8 @@ aislop agent stop
 # Hooks
 aislop hook install --claude
 aislop hook install --agent claude,cursor
+aislop hook install --codex
+aislop hook install --kimi
 aislop hook install --claude --quality-gate
 aislop hook baseline
 aislop hook status

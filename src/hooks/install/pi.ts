@@ -92,6 +92,10 @@ export default function (pi) {
 	});
 }
 `;
+export const hasManagedPiHook = (content: string | null): boolean =>
+	content?.startsWith("// aislop ") === true &&
+	content.includes("auto-generated pi extension. Do not edit by hand.") &&
+	content.includes('["hook", "pi"]');
 
 export const installPi = (opts: HookInstallOpts): HookInstallResult => {
 	const paths = resolvePiPaths(opts);

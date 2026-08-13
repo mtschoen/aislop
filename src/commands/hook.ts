@@ -5,17 +5,20 @@ import {
 	runClaudeHook,
 	runClaudeStopHook,
 } from "../hooks/adapters/claude.js";
+import { runCodexHook } from "../hooks/adapters/codex.js";
 import { runCursorHook } from "../hooks/adapters/cursor.js";
 import { runGeminiHook } from "../hooks/adapters/gemini.js";
 import { runPiHook } from "../hooks/adapters/pi.js";
 import {
+	AGENTS_GLOBAL_ONLY,
 	AGENTS_PROJECT_ONLY,
 	AGENTS_SUPPORTING_BOTH_SCOPES,
 	type AgentName,
 	ALL_AGENTS,
 	defaultScopeFor,
-	detectInstalledAgents,
 	REGISTRY,
+	resolveInstalledScope,
+	resolveManagedInstalledScope,
 } from "../hooks/install/registry.js";
 import type {
 	HookInstallOpts,
@@ -45,7 +48,8 @@ const AGENT_LABELS: Record<AgentName, { label: string; hint: string }> = {
 	cursor: { label: "Cursor", hint: "afterFileEdit, runtime" },
 	gemini: { label: "Gemini CLI", hint: "AfterTool, runtime" },
 	pi: { label: "pi", hint: "extension, runtime" },
-	codex: { label: "Codex CLI", hint: "rules-only" },
+	codex: { label: "Codex CLI", hint: "PostToolUse, runtime" },
+	kimi: { label: "Kimi Code", hint: "rules-only" },
 	windsurf: { label: "Windsurf", hint: "rules-only, project" },
 	cline: { label: "Cline + Roo", hint: "rules-only, project" },
 	kilocode: { label: "Kilo Code", hint: "rules-only, project" },
@@ -55,7 +59,7 @@ const AGENT_LABELS: Record<AgentName, { label: string; hint: string }> = {
 
 interface InstallFlags {
 	agents: AgentName[];
-	scope: "global" | "project";
+	scope?: "global" | "project";
 	dryRun: boolean;
 	yes: boolean;
 	qualityGate: boolean;
@@ -79,11 +83,25 @@ interface HookOperationRenderItem {
 	rows: DisplayRow[];
 }
 
-const resolveOpts = (agent: AgentName, flags: InstallFlags): HookInstallOpts => {
-	const scope: "global" | "project" = AGENTS_PROJECT_ONLY.includes(agent) ? "project" : flags.scope;
+const resolveOpts = (
+	agent: AgentName,
+	flags: InstallFlags,
+	mode: "install" | "uninstall",
+): HookInstallOpts => {
+	const home = os.homedir();
+	const cwd = process.cwd();
+	const requestedScope =
+		flags.scope ??
+		(mode === "uninstall" ? resolveManagedInstalledScope(agent, { home, cwd }) : null) ??
+		defaultScopeFor(agent);
+	const scope: "global" | "project" = AGENTS_PROJECT_ONLY.includes(agent)
+		? "project"
+		: AGENTS_GLOBAL_ONLY.includes(agent)
+			? "global"
+			: requestedScope;
 	return {
-		home: os.homedir(),
-		cwd: process.cwd(),
+		home,
+		cwd,
 		scope,
 		dryRun: flags.dryRun,
 		qualityGate: flags.qualityGate,
@@ -93,7 +111,7 @@ const resolveOpts = (agent: AgentName, flags: InstallFlags): HookInstallOpts => 
 export const hookInstall = async (flags: InstallFlags): Promise<void> => {
 	const items: HookInstallRenderItem[] = [];
 	for (const agent of flags.agents) {
-		const opts = resolveOpts(agent, flags);
+		const opts = resolveOpts(agent, flags, "install");
 		const result = REGISTRY[agent].install(opts);
 		items.push({ agent, scope: opts.scope, result });
 	}
@@ -103,7 +121,7 @@ export const hookInstall = async (flags: InstallFlags): Promise<void> => {
 export const hookUninstall = async (flags: InstallFlags): Promise<void> => {
 	const items: HookUninstallRenderItem[] = [];
 	for (const agent of flags.agents) {
-		const opts = resolveOpts(agent, flags);
+		const opts = resolveOpts(agent, flags, "uninstall");
 		const result = REGISTRY[agent].uninstall(opts);
 		items.push({ agent, scope: opts.scope, result });
 	}
@@ -205,14 +223,15 @@ export const renderHookUninstall = (input: {
 export const hookStatus = async (): Promise<void> => {
 	const home = os.homedir();
 	const cwd = process.cwd();
-	const installed = new Set(detectInstalledAgents({ home, cwd }));
 	const items = ALL_AGENTS.map((agent) => {
-		const scope = defaultScopeFor(agent);
+		const installedScope = resolveInstalledScope(agent, { home, cwd });
+		const scope = installedScope ?? defaultScopeFor(agent);
 		const targets = REGISTRY[agent].paths({ home, cwd, scope });
 		return {
 			agent,
 			scope,
-			installed: installed.has(agent),
+			installed: installedScope !== null,
+			mode: REGISTRY[agent].mode,
 			paths: targets.filter((p) => fs.existsSync(p)),
 		};
 	});
@@ -224,6 +243,7 @@ export const renderHookStatus = (
 		agent: AgentName;
 		scope: "global" | "project";
 		installed: boolean;
+		mode: "rules-only" | "runtime";
 		paths: string[];
 	}>,
 ): string => {
@@ -236,7 +256,10 @@ export const renderHookStatus = (
 				marker: hookMarker(item.installed),
 				label: item.agent,
 				rows: [
-					{ label: "Status", value: item.installed ? "installed" : "not installed" },
+					{
+						label: "Status",
+						value: `${item.mode === "runtime" ? "runtime hook" : "rules-only"} ${item.installed ? "installed" : "not installed"}`,
+					},
 					{ label: "Scope", value: item.scope },
 					...item.paths.map((p) => ({ label: "Path", value: p })),
 				],
@@ -271,6 +294,8 @@ export const hookRun = async (
 		exitCode = await runGeminiHook();
 	} else if (agent === "pi") {
 		exitCode = await runPiHook();
+	} else if (agent === "codex") {
+		exitCode = await runCodexHook();
 	} else {
 		process.stderr.write(`hook: agent "${agent}" has no runtime adapter (rules-file-only)\n`);
 		process.exit(0);
@@ -320,7 +345,7 @@ export const parseAgentFlag = (raw: string | undefined, fallback: AgentName[]): 
 };
 
 export const defaultInstallTargets = (): AgentName[] => {
-	return AGENTS_SUPPORTING_BOTH_SCOPES;
+	return [...AGENTS_SUPPORTING_BOTH_SCOPES, ...AGENTS_GLOBAL_ONLY];
 };
 
 export const resolveAgents = (
@@ -359,8 +384,7 @@ export const promptAgentSelection = async (
 	const installed = deps.installed ?? [];
 	const pool = mode === "uninstall" ? installed : ALL_AGENTS;
 	if (pool.length === 0) return [];
-	const preChecked =
-		mode === "uninstall" ? installed : (AGENTS_SUPPORTING_BOTH_SCOPES as AgentName[]);
+	const preChecked = mode === "uninstall" ? installed : defaultInstallTargets();
 	const choice = await searchMultiselect<AgentName>({
 		message:
 			mode === "install"

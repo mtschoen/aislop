@@ -4,6 +4,7 @@ import { type AislopFeedback, buildFeedback } from "../feedback.js";
 import { acquireHookLock } from "../io/scan-lock.js";
 import { resolveHookFiles, runScopedScan } from "../io/scoped-scan.js";
 import { appendSessionFiles, readBaseline } from "../quality-gate/baseline.js";
+import { formatPlainTextFeedback } from "./plain-text.js";
 
 interface PiHookStdin {
 	cwd?: string;
@@ -35,23 +36,7 @@ const readStdin = async (): Promise<string> => {
 };
 
 export const formatPiMessage = (feedback: AislopFeedback): string => {
-	if (feedback.counts.total === 0 && !feedback.regressed) return "";
-
-	const { error, warning } = feedback.counts;
-	const header =
-		`aislop: score ${feedback.score}/100` +
-		`${feedback.baseline != null ? ` (baseline ${feedback.baseline})` : ""}, ` +
-		`${error} error${error === 1 ? "" : "s"}, ${warning} warning${warning === 1 ? "" : "s"}.`;
-
-	const lines = feedback.findings.map(
-		(f) => `  - ${f.file}:${f.line} [${f.severity}] ${f.ruleId}: ${f.message}`,
-	);
-	if (feedback.elided && feedback.elided > 0) {
-		lines.push(`  ...and ${feedback.elided} more.`);
-	}
-
-	const tail = feedback.nextSteps.length > 0 ? `\n${feedback.nextSteps.join("\n")}` : "";
-	return `${header}\n${lines.join("\n")}${tail}`;
+	return formatPlainTextFeedback(feedback);
 };
 
 export const runPiHook = async (

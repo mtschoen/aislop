@@ -86,12 +86,21 @@ describe("renderHookStatus", () => {
 					agent: "claude",
 					scope: "global",
 					installed: true,
+					mode: "runtime",
 					paths: ["/tmp/claude-settings.json"],
 				},
 				{
-					agent: "codex",
+					agent: "windsurf",
 					scope: "project",
+					installed: true,
+					mode: "rules-only",
+					paths: ["/tmp/.windsurfrules"],
+				},
+				{
+					agent: "codex",
+					scope: "global",
 					installed: false,
+					mode: "runtime",
 					paths: [],
 				},
 			]),
@@ -100,21 +109,25 @@ describe("renderHookStatus", () => {
 		expect(out).toContain("Hook status");
 		expect(out).toContain("Hooks");
 		expect(out).toMatch(/✓ claude/);
+		expect(out).toMatch(/✓ windsurf/);
 		expect(out).toMatch(/· codex/);
-		expect(out).toMatch(/Status\s+installed/);
-		expect(out).toMatch(/Status\s+not installed/);
+		expect(out).toMatch(/Status\s+runtime hook installed/);
+		expect(out).toMatch(/Status\s+rules-only installed/);
+		expect(out).toMatch(/Status\s+runtime hook not installed/);
 		expect(out).toMatch(/Scope\s+global/);
 		expect(out).toMatch(/Scope\s+project/);
 		expect(out).toMatch(/Path\s+\/tmp\/claude-settings\.json/);
-		expect(out).not.toMatch(/claude\s+installed/);
-		expect(out).not.toMatch(/codex\s+not installed/);
+		expect(out).not.toMatch(/claude\s+runtime hook installed/);
+		expect(out).not.toMatch(/codex\s+runtime hook not installed/);
 		expect(out).not.toContain("\n\n\n");
 
 		const lines = out.split("\n");
-		const statusLine = lines.find((line) => line.includes("Status") && line.includes("installed"));
+		const statusLine = lines.find(
+			(line) => line.includes("Status") && line.includes("runtime hook installed"),
+		);
 		const scopeLine = lines.find((line) => line.includes("Scope") && line.includes("global"));
 		const pathLine = lines.find((line) => line.includes("Path"));
-		expect(statusLine?.indexOf("installed")).toBe(scopeLine?.indexOf("global"));
+		expect(statusLine?.indexOf("runtime hook installed")).toBe(scopeLine?.indexOf("global"));
 		expect(scopeLine?.indexOf("global")).toBe(pathLine?.indexOf("/tmp/claude-settings.json"));
 	});
 });

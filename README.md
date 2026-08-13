@@ -252,13 +252,15 @@ Other fix handoff flags: `--windsurf`, `--vscode`, `--amp`, `--antigravity`, `--
 
 ### Install hook
 
-Runs after every agent edit. Feedback flows back immediately.
+Installs runtime feedback where the host supports it, or rules-only instructions otherwise.
 
 ```bash
 aislop hook install --claude           # Claude Code
 aislop hook install --cursor           # Cursor
 aislop hook install --gemini           # Gemini CLI
 aislop hook install --pi               # pi
+aislop hook install --codex            # Codex CLI
+aislop hook install --kimi             # Kimi Code
 aislop hook install                    # pick agents interactively
 aislop hook install claude cursor      # specific agents
 aislop hook install --agent claude,pi  # comma-separated agents
@@ -266,10 +268,15 @@ aislop install claude cursor           # alias for hook install
 aislop install hooks --claude          # natural alias for hook install
 ```
 
-**Runtime adapters** (scan + feedback): `claude`, `cursor`, `gemini`, `pi`.  
-**Rules-only** (agent reads rules): `codex`, `windsurf`, `cline`, `kilocode`, `antigravity`, `copilot`.
+**Runtime adapters** (scan + feedback): `claude`, `cursor`, `gemini`, `pi`, `codex`.
 
-Hook install flags: `--agent <names>`, `-g, --global`, `--project`, `--dry-run`, `--yes`, `--quality-gate`, plus per-agent shortcuts `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
+**Rules-only** (agent reads rules): `kimi`, `windsurf`, `cline`, `kilocode`, `antigravity`, `copilot`.
+
+Hook install flags: `--agent <names>`, `-g, --global`, `--project`, `--dry-run`, `--yes`, `--quality-gate`, plus per-agent shortcuts `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--kimi`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
+
+Codex installs an `apply_patch` `PostToolUse` callback alongside its `AGENTS.md` rules under `$CODEX_HOME` (default `~/.codex`). Codex reviews new or changed hooks before running them; aislop leaves that trust decision to Codex instead of modifying `hooks.state`. Kimi installs rules globally in `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`). Kimi's `PostToolUse` event is observation-only, so callback output cannot deliver runtime feedback to the model.
+
+Qwen and OpenCode are both viable future runtime adapters, but neither is installed yet. Qwen's Claude-style lifecycle hooks should support a direct command adapter after its payload and output contracts are verified. OpenCode requires a packaged JavaScript plugin using `tool.execute.after`, so it needs a separate plugin lifecycle and cross-platform install design.
 
 **Quality-gate mode**: Blocks if score regresses below baseline.
 

@@ -1,5 +1,26 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Command } from "commander";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { registerHookCommand } from "../../src/cli/hook-command.js";
 import { defaultInstallTargets, parseAgentFlag, resolveAgents } from "../../src/commands/hook.js";
+import { installClaude, resolveClaudePaths } from "../../src/hooks/install/claude.js";
+import { installCodex, resolveCodexPaths } from "../../src/hooks/install/codex.js";
+import { installCursor, resolveCursorPaths } from "../../src/hooks/install/cursor.js";
+import { installGemini, resolveGeminiPaths } from "../../src/hooks/install/gemini.js";
+import { installPi, resolvePiPaths } from "../../src/hooks/install/pi.js";
+import type { HookInstallOpts, HookInstallResult } from "../../src/hooks/install/types.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
+	for (const directory of temporaryDirectories.splice(0)) {
+		fs.rmSync(directory, { recursive: true, force: true });
+	}
+});
 
 describe("parseAgentFlag", () => {
 	it("returns the fallback when no arg is provided", () => {
@@ -35,6 +56,7 @@ describe("defaultInstallTargets", () => {
 		expect(targets).toContain("cursor");
 		expect(targets).toContain("gemini");
 		expect(targets).toContain("codex");
+		expect(targets).toContain("kimi");
 		expect(targets).not.toContain("windsurf");
 		expect(targets).not.toContain("copilot");
 	});
@@ -80,5 +102,102 @@ describe("resolveAgents", () => {
 
 	it("positional args beat --agent", () => {
 		expect(resolveAgents({}, ["claude"], "gemini", [])).toEqual(["claude"]);
+	});
+});
+
+describe("registerHookCommand", () => {
+	it("does not register a runtime callback for rules-only Kimi", () => {
+		const program = new Command();
+		registerHookCommand(program);
+		const hook = program.commands.find((command) => command.name() === "hook");
+
+		expect(hook?.commands.map((command) => command.name())).not.toContain("kimi");
+	});
+});
+
+describe("hookUninstall", () => {
+	it.each([
+		{
+			agent: "claude",
+			install: installClaude,
+			installedPath: (options: HookInstallOpts) => resolveClaudePaths(options).settings,
+		},
+		{
+			agent: "cursor",
+			install: installCursor,
+			installedPath: (options: HookInstallOpts) => resolveCursorPaths(options).hooks,
+		},
+		{
+			agent: "gemini",
+			install: installGemini,
+			installedPath: (options: HookInstallOpts) => resolveGeminiPaths(options).settings,
+		},
+		{
+			agent: "pi",
+			install: installPi,
+			installedPath: (options: HookInstallOpts) => resolvePiPaths(options).extension,
+		},
+	] satisfies Array<{
+		agent: string;
+		install: (options: HookInstallOpts) => HookInstallResult;
+		installedPath: (options: HookInstallOpts) => string;
+	}>)("uses the detected project scope when uninstalling $agent", async (testCase) => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-home-"));
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-cwd-"));
+		temporaryDirectories.push(home, cwd);
+		vi.stubEnv("AISLOP_NO_TELEMETRY", "1");
+		vi.spyOn(os, "homedir").mockReturnValue(home);
+		vi.spyOn(process, "cwd").mockReturnValue(cwd);
+		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+		const installOptions = { home, cwd, scope: "project" as const };
+		testCase.install(installOptions);
+		const installedPath = testCase.installedPath(installOptions);
+		const program = new Command();
+		registerHookCommand(program);
+
+		await program.parseAsync(["node", "aislop", "hook", "uninstall", testCase.agent]);
+
+		expect(fs.existsSync(installedPath)).toBe(false);
+	});
+
+	it("uses the detected project scope when no scope was requested", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-home-"));
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-cwd-"));
+		temporaryDirectories.push(home, cwd);
+		vi.stubEnv("CODEX_HOME", "");
+		vi.stubEnv("AISLOP_NO_TELEMETRY", "1");
+		vi.spyOn(os, "homedir").mockReturnValue(home);
+		vi.spyOn(process, "cwd").mockReturnValue(cwd);
+		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+		const installOptions = { home, cwd, scope: "project" as const };
+		installCodex(installOptions);
+		const program = new Command();
+		registerHookCommand(program);
+
+		await program.parseAsync(["node", "aislop", "hook", "uninstall", "codex"]);
+
+		expect(fs.existsSync(resolveCodexPaths(installOptions).hooks)).toBe(false);
+	});
+
+	it("ignores unrelated project config when uninstalling a global hook", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-home-"));
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-cwd-"));
+		temporaryDirectories.push(home, cwd);
+		vi.stubEnv("AISLOP_NO_TELEMETRY", "1");
+		vi.spyOn(os, "homedir").mockReturnValue(home);
+		vi.spyOn(process, "cwd").mockReturnValue(cwd);
+		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+		const globalOptions = { home, cwd, scope: "global" as const };
+		installClaude(globalOptions);
+		const projectSettings = resolveClaudePaths({ home, cwd, scope: "project" }).settings;
+		fs.mkdirSync(path.dirname(projectSettings), { recursive: true });
+		fs.writeFileSync(projectSettings, "{}\n");
+		const program = new Command();
+		registerHookCommand(program);
+
+		await program.parseAsync(["node", "aislop", "hook", "uninstall", "claude"]);
+
+		expect(fs.readFileSync(projectSettings, "utf-8")).toBe("{}\n");
+		expect(fs.existsSync(resolveClaudePaths(globalOptions).settings)).toBe(false);
 	});
 });

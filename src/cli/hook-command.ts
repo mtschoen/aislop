@@ -23,6 +23,7 @@ type AgentFlagOpts = Partial<
 		| "gemini"
 		| "pi"
 		| "codex"
+		| "kimi"
 		| "windsurf"
 		| "cline"
 		| "kilocode"
@@ -38,6 +39,7 @@ const AGENT_NAMES = [
 	"gemini",
 	"pi",
 	"codex",
+	"kimi",
 	"windsurf",
 	"cline",
 	"kilocode",
@@ -49,6 +51,15 @@ const resolveScope = (flags: { global?: boolean; project?: boolean }): "global" 
 	if (flags.project) return "project";
 	if (flags.global) return "global";
 	return "global";
+};
+
+const resolveRequestedScope = (flags: {
+	global?: boolean;
+	project?: boolean;
+}): "global" | "project" | undefined => {
+	if (flags.project) return "project";
+	if (flags.global) return "global";
+	return undefined;
 };
 
 const promptForUninstall = async (): Promise<AgentName[] | null> => {
@@ -120,7 +131,7 @@ const addInstallOptions = (command: Command): Command =>
 		command
 			.option(
 				"--agent <names>",
-				"comma-separated agent list (claude,cursor,gemini,codex,windsurf,cline,kilocode,antigravity,copilot)",
+				"comma-separated agent list (claude,cursor,gemini,pi,codex,kimi,windsurf,cline,kilocode,antigravity,copilot)",
 			)
 			.option("-g, --global", "install to the user-scope config (default)")
 			.option("--project", "install to the project-scope config")
@@ -167,7 +178,7 @@ const runUninstallAction = async (positional: string[], opts: UninstallOpts): Pr
 		async () => {
 			await hookUninstall({
 				agents,
-				scope: resolveScope(opts),
+				scope: resolveRequestedScope(opts),
 				dryRun: Boolean(opts.dryRun),
 				yes: true,
 				qualityGate: false,
@@ -240,6 +251,12 @@ const registerCallbacks = (hook: Command): void => {
 				stop: Boolean(opts.stop),
 				onFileChanged: Boolean(opts.onFileChanged),
 			});
+		});
+	hook
+		.command("codex", { hidden: true })
+		.description("Internal: Codex CLI PostToolUse callback (reads stdin)")
+		.action(async () => {
+			await hookRun("codex");
 		});
 	hook
 		.command("cursor", { hidden: true })
