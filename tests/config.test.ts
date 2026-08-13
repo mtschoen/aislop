@@ -146,6 +146,62 @@ describe("parseConfig", () => {
 	});
 });
 
+// ─── aiSlop.hardcodedUserPath.bannedRoots ─────────────────────────────────────
+
+describe("parseConfig bannedRoots validation", () => {
+	const withStderr = (run: () => void): string => {
+		const chunks: string[] = [];
+		const originalWrite = process.stderr.write.bind(process.stderr);
+		process.stderr.write = (chunk: unknown) => {
+			chunks.push(String(chunk));
+			return true;
+		};
+		try {
+			run();
+		} finally {
+			process.stderr.write = originalWrite;
+		}
+		return chunks.join("");
+	};
+
+	it("defaults bannedRoots to an empty array", () => {
+		expect(parseConfig({}).aiSlop.hardcodedUserPath.bannedRoots).toEqual([]);
+	});
+
+	it.each([
+		["/home/schoen", "POSIX"],
+		[String.raw`C:\Users\alice`, "Windows drive (backslash)"],
+		["C:/Users/alice", "Windows drive (forward slash)"],
+		[String.raw`\\server\profiles\alice`, "UNC"],
+	])("accepts an absolute root: %s (%s)", (root) => {
+		const cfg = parseConfig({ aiSlop: { hardcodedUserPath: { bannedRoots: [root] } } });
+		expect(cfg.aiSlop.hardcodedUserPath.bannedRoots).toEqual([root]);
+	});
+
+	it.each([
+		["alice", "bare word"],
+		["home/alice", "relative path"],
+		["", "empty string"],
+		["./relative", "dot-relative path"],
+	])(
+		"rejects a non-absolute root (%s: %s) and falls back to defaults with a visible message",
+		(root) => {
+			let cfg = parseConfig({});
+			const stderr = withStderr(() => {
+				cfg = parseConfig({ aiSlop: { hardcodedUserPath: { bannedRoots: [root] } } });
+			});
+
+			// The whole config falls back to defaults, not just the bad entry -
+			// same behavior as any other schema validation failure in this file.
+			expect(cfg.aiSlop.hardcodedUserPath.bannedRoots).toEqual([]);
+			expect(stderr).toContain("Invalid aislop configuration");
+			expect(stderr).toContain("bannedRoots");
+			expect(stderr).toContain(JSON.stringify(root));
+			expect(stderr).toContain("Using default configuration");
+		},
+	);
+});
+
 // ─── DEFAULT_CONFIG ────────────────────────────────────────────────────────────
 
 describe("DEFAULT_CONFIG", () => {

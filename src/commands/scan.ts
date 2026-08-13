@@ -139,6 +139,7 @@ const runScanBody = async (
 		quality: config.quality,
 		security: config.security,
 		lint: config.lint,
+		aiSlop: config.aiSlop,
 		architectureRulesPath: config.engines.architecture ? rulesPath : undefined,
 	};
 

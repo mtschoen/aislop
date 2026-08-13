@@ -18,5 +18,10 @@ export const createEngineContext = (
 	installedTools: options.safe
 		? { ...projectInfo.installedTools, rubocop: false, "php-cs-fixer": false }
 		: projectInfo.installedTools,
-	config: { quality: config.quality, security: config.security, lint: config.lint },
+	config: {
+		quality: config.quality,
+		security: config.security,
+		lint: config.lint,
+		aiSlop: config.aiSlop,
+	},
 });

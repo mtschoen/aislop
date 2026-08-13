@@ -44,6 +44,7 @@ const buildEngineContext = (
 			quality: config.quality,
 			security: config.security,
 			lint: config.lint,
+			aiSlop: config.aiSlop,
 			architectureRulesPath: config.engines.architecture ? rulesPath : undefined,
 		},
 	};

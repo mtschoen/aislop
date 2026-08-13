@@ -72,6 +72,10 @@ export const AI_SLOP_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 		"Hardcoded provider IDs are config signals, but not all IDs are equally risky.",
 		4,
 	),
+	"ai-slop/hardcoded-user-path": maintainability(
+		"User-specific paths leak machine details and make source or tests fail on other machines.",
+		12,
+	),
 	"ai-slop/python-bare-except": strict("Bare except catches system exits and hides real failures."),
 	"ai-slop/python-broad-except": standard(
 		"Broad exception handling is risky but sometimes intentional at boundaries.",

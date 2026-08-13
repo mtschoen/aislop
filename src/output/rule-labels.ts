@@ -40,6 +40,7 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/duplicate-import": "Duplicate import statement",
 	"ai-slop/hardcoded-url": "Hardcoded URL",
 	"ai-slop/hardcoded-id": "Hardcoded provider ID",
+	"ai-slop/hardcoded-user-path": "Hardcoded user home path",
 	"ai-slop/python-bare-except": "Bare except",
 	"ai-slop/python-broad-except": "Broad except",
 	"ai-slop/python-mutable-default": "Mutable default argument",
@@ -153,6 +154,8 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/duplicate-import": "Same module is imported more than once.",
 	"ai-slop/hardcoded-url": "URL-like value is embedded directly in code.",
 	"ai-slop/hardcoded-id": "Provider/account/test ID is embedded directly in code.",
+	"ai-slop/hardcoded-user-path":
+		"Machine-specific user home path is embedded directly in source or tests.",
 	"ai-slop/python-bare-except": "Bare except catches everything, including system exits.",
 	"ai-slop/python-broad-except": "Broad exception catch hides specific failure modes.",
 	"ai-slop/python-mutable-default": "Mutable default argument is shared across calls.",

@@ -223,6 +223,31 @@
 				}
 			}
 		},
+		"aiSlop": {
+			"default": {
+				"hardcodedUserPath": {
+					"bannedRoots": []
+				}
+			},
+			"type": "object",
+			"properties": {
+				"hardcodedUserPath": {
+					"default": {
+						"bannedRoots": []
+					},
+					"type": "object",
+					"properties": {
+						"bannedRoots": {
+							"default": [],
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						}
+					}
+				}
+			}
+		},
 		"scoring": {
 			"default": {
 				"weights": {

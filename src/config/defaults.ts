@@ -41,6 +41,11 @@ export const DEFAULT_CONFIG: AislopConfig = {
 		audit: true,
 		auditTimeout: 25000,
 	},
+	aiSlop: {
+		hardcodedUserPath: {
+			bannedRoots: [],
+		},
+	},
 	scoring: {
 		weights: {
 			format: 0.3,

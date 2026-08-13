@@ -73,6 +73,35 @@ const SecurityConfigSchema = z.object({
 	auditTimeout: z.number().positive().default(25000),
 });
 
+// Mirrors the drive-root and UNC-root detection in
+// src/engines/ai-slop/hardcoded-user-path.ts. A root that is not absolute
+// (a bare word, a relative path) builds a matcher with no path-boundary
+// requirement, so it would flag ordinary identifiers instead of hardcoded
+// machine paths.
+const isAbsoluteBannedRoot = (value: string): boolean =>
+	value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]/.test(value);
+
+const BannedRootSchema = z.string().refine(isAbsoluteBannedRoot, {
+	error: (issue) =>
+		`must be an absolute path (POSIX "/...", a Windows drive root "C:\\..." or "C:/...", ` +
+		`or a UNC root "\\\\server\\share..."), got ${JSON.stringify(issue.input)}`,
+});
+
+const HardcodedUserPathSchema = z.object({
+	/**
+	 * Extra home roots to treat as machine-bound, in addition to the runtime
+	 * `os.homedir()` seed. Lets CI and teams flag paths bound to accounts other
+	 * than the one running the scan (see docs/rules.md for the seeding rules).
+	 * Must be absolute: a relative or bare entry would match ordinary
+	 * identifiers, not just hardcoded paths.
+	 */
+	bannedRoots: z.array(BannedRootSchema).default(() => []),
+});
+
+const AiSlopConfigSchema = z.object({
+	hardcodedUserPath: HardcodedUserPathSchema.default(() => ({ bannedRoots: [] })),
+});
+
 const ThresholdsSchema = z.object({
 	good: z.number().default(75),
 	ok: z.number().default(50),
@@ -140,6 +169,9 @@ const AislopConfigSchema = z.object({
 		audit: true,
 		auditTimeout: 25000,
 	})),
+	aiSlop: AiSlopConfigSchema.default(() => ({
+		hardcodedUserPath: { bannedRoots: [] },
+	})),
 	scoring: ScoringSchema.default(() => ({
 		weights: { ...DEFAULT_WEIGHTS },
 		thresholds: {
@@ -183,6 +215,20 @@ const preMergeWeights = (raw: Record<string, unknown>): void => {
 	scoring.weights = { ...DEFAULT_WEIGHTS, ...userWeights };
 };
 
+/**
+ * Renders a thrown validation error as a one-line, per-issue summary naming
+ * the offending field and why it was rejected, rather than the raw
+ * JSON-stringified issue array `ZodError#message` produces by default.
+ */
+const describeValidationError = (error: unknown): string => {
+	if (error instanceof z.ZodError) {
+		return error.issues
+			.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+			.join("; ");
+	}
+	return error instanceof Error ? error.message : String(error);
+};
+
 export const parseConfig = (raw: unknown): AislopConfig => {
 	if (!raw || typeof raw !== "object") return defaults;
 
@@ -190,8 +236,15 @@ export const parseConfig = (raw: unknown): AislopConfig => {
 		const input = raw as Record<string, unknown>;
 		preMergeWeights(input);
 		return AislopConfigSchema.parse(input);
-	} catch {
-		// If validation fails, return defaults rather than crashing
+	} catch (error) {
+		// Validation failures fall back to defaults rather than crashing, but
+		// the fallback must be visible: a silently discarded config (or, worse,
+		// a silently discarded single field) reads as "it's configured" when it
+		// is not. See docs/rules.md for the bannedRoots case this guards.
+		process.stderr.write(
+			`  ⚠ Invalid aislop configuration: ${describeValidationError(error)}\n` +
+				`  ⚠ Using default configuration.\n`,
+		);
 		return defaults;
 	}
 };

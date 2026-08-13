@@ -25,6 +25,10 @@ security:
   audit: true
   auditTimeout: 25000
 
+aiSlop:
+  hardcodedUserPath:
+    bannedRoots: []
+
 scoring:
   weights:
     format: 0.3
@@ -71,6 +75,29 @@ Control what triggers code quality warnings:
 | `maxFileLoc` | 400 | Max lines per file |
 | `maxNesting` | 5 | Max control-flow nesting depth |
 | `maxParams` | 6 | Max function parameters |
+
+## Hardcoded user path roots
+
+`ai-slop/hardcoded-user-path` flags hardcoded home-directory paths (see
+[docs/rules.md](rules.md#hardcoded-user-paths-ai-slophardcoded-user-path)). It always checks the
+current process home directory (`os.homedir()`), unless that directory is a placeholder or CI
+service account. Add extra roots so the rule catches paths bound to accounts other than the one
+running the scan, for example a developer's home directory when scanning in CI:
+
+```yaml
+aiSlop:
+  hardcodedUserPath:
+    bannedRoots:
+      - /home/alice
+      - C:\Users\alice
+```
+
+Each entry must be an absolute path: a POSIX root starting with `/`, a Windows drive root
+(`C:\...` or `C:/...`), or a UNC root (`\\server\share...`). A relative or bare entry (`alice`,
+`home/alice`) is rejected rather than silently matched, because it would build a matcher with no
+path-boundary requirement and flag ordinary identifiers instead of hardcoded paths. A rejected
+entry falls the whole config back to defaults and prints a warning naming the offending value, the
+same way any other invalid config value does.
 
 ## Engine weights
 

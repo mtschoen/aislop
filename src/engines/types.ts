@@ -62,6 +62,11 @@ export interface EngineConfig {
 		audit: boolean;
 		auditTimeout: number;
 	};
+	aiSlop?: {
+		hardcodedUserPath?: {
+			bannedRoots: string[];
+		};
+	};
 	lint: {
 		typecheck: boolean;
 		expoDoctor: boolean;

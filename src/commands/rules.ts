@@ -93,6 +93,7 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/duplicate-import",
 			"ai-slop/hardcoded-url",
 			"ai-slop/hardcoded-id",
+			"ai-slop/hardcoded-user-path",
 			"ai-slop/python-bare-except",
 			"ai-slop/python-broad-except",
 			"ai-slop/python-mutable-default",

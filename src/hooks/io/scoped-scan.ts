@@ -124,6 +124,7 @@ export const runScopedScan = async (
 			// execution-capable project-local tools.
 			security: { audit: false, auditTimeout: 0 },
 			lint: { typecheck: false, expoDoctor: false },
+			aiSlop: config.aiSlop,
 			allowProjectLocalTools: false,
 			architectureRulesPath: config.engines.architecture ? rulesPath : undefined,
 		},

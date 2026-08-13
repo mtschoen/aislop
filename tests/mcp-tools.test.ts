@@ -74,6 +74,29 @@ describe("aislop_scan tool", () => {
 		expect(matches.length).toBeGreaterThan(0);
 	});
 
+	it("flags a hardcoded path under a configured banned root that is not the runtime home", async () => {
+		writeFile("package.json", JSON.stringify({ name: "banned-root" }));
+		writeFile(
+			".aislop/config.yml",
+			[
+				"version: 1",
+				"aiSlop:",
+				"  hardcodedUserPath:",
+				"    bannedRoots:",
+				"      - /home/mcp-review-target",
+			].join("\n"),
+		);
+		writeFile(
+			"src/launch.ts",
+			'const tool = "/home/mcp-review-target/project/tool";\n',
+		);
+
+		const result = await withCwd(tmpDir, () => handleAislopScan({ path: "." }));
+
+		const matches = result.findings.filter((f) => f.rule === "ai-slop/hardcoded-user-path");
+		expect(matches.length).toBeGreaterThan(0);
+	});
+
 	it("defaults the path argument to process.cwd when omitted", async () => {
 		const original = process.cwd();
 		try {

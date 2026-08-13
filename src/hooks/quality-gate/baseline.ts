@@ -116,6 +116,7 @@ export const captureBaseline = async (
 			quality: config.quality,
 			security: { audit: false, auditTimeout: 0 },
 			lint: { typecheck: false, expoDoctor: false },
+			aiSlop: config.aiSlop,
 			allowProjectLocalTools: false,
 		},
 	};

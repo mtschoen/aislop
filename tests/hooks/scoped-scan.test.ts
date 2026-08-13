@@ -176,6 +176,34 @@ describe("runScopedScan", () => {
 		expect(result.diagnostics).toEqual([]);
 	});
 
+	it("flags a hardcoded path under a configured banned root that is not the runtime home", async () => {
+		const root = makeTempProject();
+		fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "project" }));
+		fs.mkdirSync(path.join(root, ".aislop"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, ".aislop/config.yml"),
+			[
+				"version: 1",
+				"aiSlop:",
+				"  hardcodedUserPath:",
+				"    bannedRoots:",
+				"      - /home/hook-review-target",
+			].join("\n"),
+		);
+		fs.mkdirSync(path.join(root, "src"), { recursive: true });
+		const changedFile = path.join(root, "src/launch.ts");
+		fs.writeFileSync(changedFile, 'const tool = "/home/hook-review-target/project/tool";\n');
+
+		const result = await runScopedScan(root, [changedFile]);
+
+		expect(result.diagnostics).toEqual([
+			expect.objectContaining({
+				filePath: "src/launch.ts",
+				rule: "ai-slop/hardcoded-user-path",
+			}),
+		]);
+	});
+
 	it("respects disabled rule overrides", async () => {
 		const root = makeTempProject();
 		fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "project" }));
