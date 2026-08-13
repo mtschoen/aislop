@@ -48,7 +48,8 @@
 				"maxFunctionLoc": 80,
 				"maxFileLoc": 400,
 				"maxNesting": 5,
-				"maxParams": 6
+				"maxParams": 6,
+				"repeatedLiteralThreshold": 3
 			},
 			"type": "object",
 			"properties": {
@@ -71,6 +72,12 @@
 					"default": 6,
 					"type": "number",
 					"exclusiveMinimum": 0
+				},
+				"repeatedLiteralThreshold": {
+					"default": 3,
+					"type": "integer",
+					"exclusiveMinimum": 0,
+					"maximum": 9007199254740991
 				}
 			}
 		},

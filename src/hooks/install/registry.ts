@@ -70,6 +70,11 @@ interface AgentEntry {
 	isManaged?: (opts: HookInstallOpts) => boolean;
 }
 
+// Named so REGISTRY entries below repeat a constant rather than the
+// "runtime" / "rules-only" string literals (ai-slop/repeated-magic-literal).
+const AGENT_MODE_RUNTIME = "runtime" as const;
+const AGENT_MODE_RULES_ONLY = "rules-only" as const;
+
 const paths = {
 	claude: (opts: HookInstallOpts): string[] => {
 		const p = resolveClaudePaths(opts);
@@ -180,7 +185,7 @@ const hasManagedJsonHook = (
 
 export const REGISTRY: Record<AgentName, AgentEntry> = {
 	claude: {
-		mode: "runtime",
+		mode: AGENT_MODE_RUNTIME,
 		install: installClaude,
 		uninstall: uninstallClaude,
 		paths: paths.claude,
@@ -191,7 +196,7 @@ export const REGISTRY: Record<AgentName, AgentEntry> = {
 			),
 	},
 	cursor: {
-		mode: "runtime",
+		mode: AGENT_MODE_RUNTIME,
 		install: installCursor,
 		uninstall: uninstallCursor,
 		paths: paths.cursor,
@@ -202,7 +207,7 @@ export const REGISTRY: Record<AgentName, AgentEntry> = {
 			),
 	},
 	gemini: {
-		mode: "runtime",
+		mode: AGENT_MODE_RUNTIME,
 		install: installGemini,
 		uninstall: uninstallGemini,
 		paths: paths.gemini,
@@ -213,52 +218,52 @@ export const REGISTRY: Record<AgentName, AgentEntry> = {
 			),
 	},
 	pi: {
-		mode: "runtime",
+		mode: AGENT_MODE_RUNTIME,
 		install: installPi,
 		uninstall: uninstallPi,
 		paths: paths.pi,
 		isManaged: (options) => hasManagedPiHook(readIfExists(resolvePiPaths(options).extension)),
 	},
 	codex: {
-		mode: "runtime",
+		mode: AGENT_MODE_RUNTIME,
 		install: installCodex,
 		uninstall: uninstallCodex,
 		paths: paths.codex,
 		isManaged: (opts) => hasManagedCodexHook(readIfExists(resolveCodexPaths(opts).hooks)),
 	},
 	kimi: {
-		mode: "rules-only",
+		mode: AGENT_MODE_RULES_ONLY,
 		install: installKimi,
 		uninstall: uninstallKimi,
 		paths: paths.kimi,
 		isManaged: (opts) => hasManagedKimiRules(readIfExists(resolveKimiPaths(opts).rules)),
 	},
 	windsurf: {
-		mode: "rules-only",
+		mode: AGENT_MODE_RULES_ONLY,
 		install: installWindsurf,
 		uninstall: uninstallWindsurf,
 		paths: paths.windsurf,
 	},
 	cline: {
-		mode: "rules-only",
+		mode: AGENT_MODE_RULES_ONLY,
 		install: installCline,
 		uninstall: uninstallCline,
 		paths: paths.cline,
 	},
 	kilocode: {
-		mode: "rules-only",
+		mode: AGENT_MODE_RULES_ONLY,
 		install: installKilocode,
 		uninstall: uninstallKilocode,
 		paths: paths.kilocode,
 	},
 	antigravity: {
-		mode: "rules-only",
+		mode: AGENT_MODE_RULES_ONLY,
 		install: installAntigravity,
 		uninstall: uninstallAntigravity,
 		paths: paths.antigravity,
 	},
 	copilot: {
-		mode: "rules-only",
+		mode: AGENT_MODE_RULES_ONLY,
 		install: installCopilot,
 		uninstall: uninstallCopilot,
 		paths: paths.copilot,

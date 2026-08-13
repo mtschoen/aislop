@@ -220,6 +220,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config |
 | `ai-slop/hardcoded-id` | warning | Provider/project IDs hardcoded in production code instead of env/config |
 | `ai-slop/hardcoded-user-path` | warning | Configured or runtime home-directory paths hardcoded in source or tests instead of runtime APIs/config |
+| `ai-slop/repeated-magic-literal` | warning | The same name and value pair repeats more than `quality.repeatedLiteralThreshold` times in supported Python, JavaScript, or TypeScript source, regardless of surrounding structure |
 | `ai-slop/python-bare-except` | warning | Python `except:` blocks that catch everything without naming an exception type |
 | `ai-slop/python-broad-except` | warning | Python broad exception handlers with silent/pass-style bodies |
 | `ai-slop/python-mutable-default` | warning | Python function defaults such as `[]`, `{}`, or `set()` that are shared across calls |
@@ -258,6 +259,24 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/smart-punctuation` | info | Curly single/double quotes, horizontal ellipsis, arrows, non-breaking and zero-width spaces |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
+
+### Repeated magic literals (`ai-slop/repeated-magic-literal`)
+
+**What is reported.** The same literal value, appearing under the same name more than `quality.repeatedLiteralThreshold` times in one file, is reported once. The comparison is exclusive: a threshold of 3 first reports at 4 occurrences. This is a counting rule: it does not examine what encloses a literal. A value assigned in a plain statement, passed as a call argument, sitting in an object literal, or repeated across the rows of a lookup table all count the same way. A collection whose rows all repeat one value is reported deliberately, because that is one default written N times, not N independent decisions.
+
+**Supported structural sites.** In Python, the rule scans keyword arguments and plain assignments (`name = value`) at any nesting depth, over comment- and string-masked source, so occurrences inside comments or string literals are not counted.
+
+In JavaScript and TypeScript, the rule scans object property assignments, parameter defaults, variable-declaration initializers, class property initializers, and plain assignment expressions (`target = value`), at any nesting depth. Whether the enclosing structure is a call argument, a returned object, a standalone variable, or a row of an array or object table makes no difference.
+
+Supported JS/TS properties have static identifier, string, or numeric names. Supported values are finite numeric literals (including unary `+` and `-`) and non-empty string literals of at most 80 characters after parentheses and TypeScript assertion wrappers are removed. The numeric values -1, 0, 1, and 2 are treated as trivial and excluded.
+
+**Differing values never group.** Grouping is by name and value together, so a property whose value differs across rows of a table never groups on that property. A named-constant reference (`timeout=_DEFAULT_TIMEOUT_SECONDS`) contributes nothing to any group: only literal occurrences are counted.
+
+**Suppress above the reported line.** Where the repetition genuinely is data, or the values are meant to stay independently tunable, suppress it with a reason. The diagnostic is reported on the first occurrence in the group, so the directive goes above that line:
+
+```ts
+// aislop-ignore-next-line ai-slop/repeated-magic-literal -- per-state timeouts are independently tunable
+```
 
 ### Non-ASCII punctuation (`ai-slop/em-dash`, `ai-slop/smart-punctuation`)
 

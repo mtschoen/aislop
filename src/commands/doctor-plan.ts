@@ -9,6 +9,11 @@ import type { Language, ProjectInfo } from "../utils/discover.js";
 import { planSecurity } from "./doctor-security-plan.js";
 import { planFormat, planLint } from "./doctor-tool-plan.js";
 
+// Named so every "this tool is available and ready" result shares one
+// spelling instead of repeating the "ok" literal at each call site
+// (ai-slop/repeated-magic-literal).
+export const STATUS_OK = "ok" as const;
+
 export interface DoctorEngineRow {
 	engine: string;
 	tool: string;
@@ -96,14 +101,14 @@ const planCodeQuality = (ctx: PlanContext): ToolDecision => {
 		ctx.projectInfo.languages.includes("typescript") ||
 		ctx.projectInfo.languages.includes("javascript")
 	) {
-		return { tool: "knip (bundled)", status: "ok" };
+		return { tool: "knip (bundled)", status: STATUS_OK };
 	}
-	return { tool: "built-in", status: "ok" };
+	return { tool: "built-in", status: STATUS_OK };
 };
 
 const planAiSlop = (_ctx: PlanContext): ToolDecision => ({
 	tool: "built-in",
-	status: "ok",
+	status: STATUS_OK,
 });
 
 export const planSecurityForTest = (overrides: TestPlanOverrides): ToolDecision =>
@@ -121,7 +126,7 @@ const planArchitecture = (ctx: PlanContext): ToolDecision => {
 	if (rules.length === 0) {
 		return { tool: "opt-in", status: "skipped", skipReason: "rules file empty" };
 	}
-	return { tool: `custom rules (${rules.length} defined)`, status: "ok" };
+	return { tool: `custom rules (${rules.length} defined)`, status: STATUS_OK };
 };
 
 const ENGINE_PLANNERS: Record<EngineName, (ctx: PlanContext) => ToolDecision> = {

@@ -14,20 +14,25 @@ interface HomeCommand {
 	group: "Run" | "Setup" | "Learn" | "Utility";
 }
 
+// Named so the rows below repeat a constant rather than the "Run" / "Learn"
+// group-column literals (ai-slop/repeated-magic-literal).
+const GROUP_RUN = "Run" as const;
+const GROUP_LEARN = "Learn" as const;
+
 const HOME_COMMANDS: HomeCommand[] = [
-	{ command: "aislop scan", summary: "Score this project and show findings", group: "Run" },
+	{ command: "aislop scan", summary: "Score this project and show findings", group: GROUP_RUN },
 	{
 		command: "aislop agent",
 		summary: "Repair slop with your coding agent in an isolated worktree",
-		group: "Run",
+		group: GROUP_RUN,
 	},
 	{
 		command: "aislop fix",
 		summary: "Auto-fix the mechanical issues deterministically",
-		group: "Run",
+		group: GROUP_RUN,
 	},
-	{ command: "aislop ci", summary: "Run the quality gate for CI", group: "Run" },
-	{ command: "aislop doctor", summary: "Check which engines can run here", group: "Run" },
+	{ command: "aislop ci", summary: "Run the quality gate for CI", group: GROUP_RUN },
+	{ command: "aislop doctor", summary: "Check which engines can run here", group: GROUP_RUN },
 	{ command: "aislop init", summary: "Create config and optional CI workflow", group: "Setup" },
 	{
 		command: "aislop scaffold component",
@@ -39,15 +44,15 @@ const HOME_COMMANDS: HomeCommand[] = [
 		summary: "Run aislop after coding-agent edits",
 		group: "Setup",
 	},
-	{ command: "aislop rules", summary: "Explain every rule and fix mode", group: "Learn" },
-	{ command: "aislop trend", summary: "Show local score history", group: "Learn" },
+	{ command: "aislop rules", summary: "Explain every rule and fix mode", group: GROUP_LEARN },
+	{ command: "aislop trend", summary: "Show local score history", group: GROUP_LEARN },
 	{
 		command: "aislop badge",
 		summary: "Print a score badge URL and README markdown",
-		group: "Learn",
+		group: GROUP_LEARN,
 	},
 	{ command: "aislop commands", summary: "List all commands and major flags", group: "Utility" },
-	{ command: "aislop update", summary: "Check the latest npm version", group: "Learn" },
+	{ command: "aislop update", summary: "Check the latest npm version", group: GROUP_LEARN },
 	{ command: "aislop version", summary: "Print the installed version", group: "Utility" },
 ];
 

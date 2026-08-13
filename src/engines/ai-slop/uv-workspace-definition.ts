@@ -110,6 +110,11 @@ const readProjectName = (project: TomlTable): string | null => {
 	return hasValidProjectMetadata(project) ? project.name : null;
 };
 
+// Shared "malformed pyproject.toml" sentinel, named so the many early-return
+// guard clauses below repeat a constant rather than the "invalid" literal
+// (ai-slop/repeated-magic-literal).
+const INVALID_RESULT = { kind: "invalid" } as const;
+
 type UvWorkspaceDefinition =
 	| { kind: "none" | "unmanaged" | "invalid" }
 	| {
@@ -121,31 +126,31 @@ type UvWorkspaceDefinition =
 
 export const readUvWorkspaceDefinition = (rootDir: string): UvWorkspaceDefinition => {
 	const content = readPyproject(rootDir);
-	if (content === null) return { kind: "invalid" };
+	if (content === null) return INVALID_RESULT;
 	const document = parsePyproject(content);
-	if (!document) return { kind: "invalid" };
+	if (!document) return INVALID_RESULT;
 
 	const projectValue = document.project;
-	if (projectValue !== undefined && !isTomlTable(projectValue)) return { kind: "invalid" };
+	if (projectValue !== undefined && !isTomlTable(projectValue)) return INVALID_RESULT;
 	const rootProjectName = isTomlTable(projectValue) ? readProjectName(projectValue) : null;
-	if (isTomlTable(projectValue) && rootProjectName === null) return { kind: "invalid" };
+	if (isTomlTable(projectValue) && rootProjectName === null) return INVALID_RESULT;
 
 	const toolValue = document.tool;
 	if (toolValue === undefined) return { kind: "none" };
-	if (!isTomlTable(toolValue)) return { kind: "invalid" };
+	if (!isTomlTable(toolValue)) return INVALID_RESULT;
 	const uvValue = toolValue.uv;
 	if (uvValue === undefined) return { kind: "none" };
-	if (!isTomlTable(uvValue)) return { kind: "invalid" };
+	if (!isTomlTable(uvValue)) return INVALID_RESULT;
 	if (uvValue.managed !== undefined && typeof uvValue.managed !== "boolean") {
-		return { kind: "invalid" };
+		return INVALID_RESULT;
 	}
 	if (uvValue.managed === false) return { kind: "unmanaged" };
 	const workspaceValue = uvValue.workspace;
 	if (workspaceValue === undefined) return { kind: "none" };
-	if (!isTomlTable(workspaceValue)) return { kind: "invalid" };
+	if (!isTomlTable(workspaceValue)) return INVALID_RESULT;
 	const members = readStringArray(workspaceValue.members);
 	const exclude = readStringArray(workspaceValue.exclude);
-	if (!members || !exclude) return { kind: "invalid" };
+	if (!members || !exclude) return INVALID_RESULT;
 	return { kind: "workspace", members, exclude, rootProjectName };
 };
 
@@ -157,22 +162,22 @@ export const classifyUvWorkspaceMember = (directory: string): UvWorkspaceMemberA
 	const pyprojectPath = path.join(directory, "pyproject.toml");
 	if (!fs.existsSync(pyprojectPath)) return { kind: "missing" };
 	const content = readPyproject(directory);
-	if (content === null) return { kind: "invalid" };
+	if (content === null) return INVALID_RESULT;
 	const document = parsePyproject(content);
-	if (!document) return { kind: "invalid" };
+	if (!document) return INVALID_RESULT;
 	const toolValue = document.tool;
-	if (toolValue !== undefined && !isTomlTable(toolValue)) return { kind: "invalid" };
+	if (toolValue !== undefined && !isTomlTable(toolValue)) return INVALID_RESULT;
 	const uvValue = isTomlTable(toolValue) ? toolValue.uv : undefined;
-	if (uvValue !== undefined && !isTomlTable(uvValue)) return { kind: "invalid" };
+	if (uvValue !== undefined && !isTomlTable(uvValue)) return INVALID_RESULT;
 	if (isTomlTable(uvValue)) {
 		if (uvValue.managed !== undefined && typeof uvValue.managed !== "boolean") {
-			return { kind: "invalid" };
+			return INVALID_RESULT;
 		}
 		if (uvValue.managed === false) return { kind: "unmanaged" };
-		if (uvValue.workspace !== undefined) return { kind: "invalid" };
+		if (uvValue.workspace !== undefined) return INVALID_RESULT;
 	}
 	const projectValue = document.project;
-	if (!isTomlTable(projectValue)) return { kind: "invalid" };
+	if (!isTomlTable(projectValue)) return INVALID_RESULT;
 	const name = readProjectName(projectValue);
-	return name === null ? { kind: "invalid" } : { kind: "member", name };
+	return name === null ? INVALID_RESULT : { kind: "member", name };
 };

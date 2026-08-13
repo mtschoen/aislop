@@ -9,14 +9,20 @@ const CONTEXT_LINES = 3;
 const MAX_DIAGNOSTICS_PER_FILE = 10;
 const MAX_FILES = 20;
 
+// Discriminant tags for AgentConfig, named once so the registry below
+// repeats a constant rather than the "cli" string literal
+// (ai-slop/repeated-magic-literal).
+const AGENT_TYPE_CLI = "cli" as const;
+const AGENT_TYPE_EDITOR = "editor" as const;
+
 interface CliAgent {
-	type: "cli";
+	type: typeof AGENT_TYPE_CLI;
 	bin: string;
 	args: (prompt: string) => string[];
 }
 
 interface EditorAgent {
-	type: "editor";
+	type: typeof AGENT_TYPE_EDITOR;
 	bin: string;
 }
 
@@ -24,24 +30,24 @@ type AgentConfig = CliAgent | EditorAgent;
 
 const AGENT_CONFIGS: Record<string, AgentConfig> = {
 	// CLI agents — launch with prompt directly
-	claude: { type: "cli", bin: "claude", args: (p) => [p] },
-	codex: { type: "cli", bin: "codex", args: (p) => [p] },
-	amp: { type: "cli", bin: "amp", args: (p) => [p] },
-	antigravity: { type: "cli", bin: "antigravity", args: (p) => [p] },
-	"deep-agents": { type: "cli", bin: "deep-agents", args: (p) => [p] },
-	gemini: { type: "cli", bin: "gemini", args: (p) => [p] },
-	kimi: { type: "cli", bin: "kimi", args: (p) => [p] },
-	opencode: { type: "cli", bin: "opencode", args: (p) => ["run", p] },
-	warp: { type: "cli", bin: "warp", args: (p) => [p] },
-	aider: { type: "cli", bin: "aider", args: (p) => ["--message", p] },
-	goose: { type: "cli", bin: "goose", args: (p) => ["run", p] },
-	pi: { type: "cli", bin: "pi", args: (p) => ["-p", p] },
-	crush: { type: "cli", bin: "crush", args: (p) => ["run", p] },
+	claude: { type: AGENT_TYPE_CLI, bin: "claude", args: (p) => [p] },
+	codex: { type: AGENT_TYPE_CLI, bin: "codex", args: (p) => [p] },
+	amp: { type: AGENT_TYPE_CLI, bin: "amp", args: (p) => [p] },
+	antigravity: { type: AGENT_TYPE_CLI, bin: "antigravity", args: (p) => [p] },
+	"deep-agents": { type: AGENT_TYPE_CLI, bin: "deep-agents", args: (p) => [p] },
+	gemini: { type: AGENT_TYPE_CLI, bin: "gemini", args: (p) => [p] },
+	kimi: { type: AGENT_TYPE_CLI, bin: "kimi", args: (p) => [p] },
+	opencode: { type: AGENT_TYPE_CLI, bin: "opencode", args: (p) => ["run", p] },
+	warp: { type: AGENT_TYPE_CLI, bin: "warp", args: (p) => [p] },
+	aider: { type: AGENT_TYPE_CLI, bin: "aider", args: (p) => ["--message", p] },
+	goose: { type: AGENT_TYPE_CLI, bin: "goose", args: (p) => ["run", p] },
+	pi: { type: AGENT_TYPE_CLI, bin: "pi", args: (p) => ["-p", p] },
+	crush: { type: AGENT_TYPE_CLI, bin: "crush", args: (p) => ["run", p] },
 
 	// Editor agents — open editor + copy prompt to clipboard
-	cursor: { type: "editor", bin: "cursor" },
-	windsurf: { type: "editor", bin: "windsurf" },
-	vscode: { type: "editor", bin: "code" },
+	cursor: { type: AGENT_TYPE_EDITOR, bin: "cursor" },
+	windsurf: { type: AGENT_TYPE_EDITOR, bin: "windsurf" },
+	vscode: { type: AGENT_TYPE_EDITOR, bin: "code" },
 };
 
 const getCodeSnippet = (rootDirectory: string, diagnostic: Diagnostic): string | null => {

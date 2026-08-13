@@ -94,6 +94,7 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/hardcoded-url",
 			"ai-slop/hardcoded-id",
 			"ai-slop/hardcoded-user-path",
+			"ai-slop/repeated-magic-literal",
 			"ai-slop/python-bare-except",
 			"ai-slop/python-broad-except",
 			"ai-slop/python-mutable-default",

@@ -57,6 +57,7 @@ export interface EngineConfig {
 		maxFileLoc: number;
 		maxNesting: number;
 		maxParams: number;
+		repeatedLiteralThreshold?: number;
 	};
 	security: {
 		audit: boolean;

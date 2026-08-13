@@ -1,6 +1,6 @@
 import { resolveTrustedTscPath } from "../engines/lint/typecheck.js";
 import type { Language } from "../utils/discover.js";
-import type { PlanContext, ToolDecision } from "./doctor-plan.js";
+import { STATUS_OK, type PlanContext, type ToolDecision } from "./doctor-plan.js";
 import { projectEvaluationGate } from "./doctor-trust-plan.js";
 
 interface SystemToolSpec {
@@ -23,7 +23,7 @@ const systemToolDecision = (
 	spec: SystemToolSpec,
 ): ToolDecision =>
 	installed[spec.binary]
-		? { tool: `${spec.toolLabel} (system)`, status: "ok" }
+		? { tool: `${spec.toolLabel} (system)`, status: STATUS_OK }
 		: {
 				tool: `${spec.toolLabel} not found`,
 				status: "missing",
@@ -135,7 +135,7 @@ const hasJsLike = (languages: Language[]): boolean =>
 
 export const planFormat = (ctx: PlanContext): ToolDecision => {
 	const { languages, installedTools } = ctx.projectInfo;
-	if (hasJsLike(languages)) return { tool: "biome (bundled)", status: "ok" };
+	if (hasJsLike(languages)) return { tool: "biome (bundled)", status: STATUS_OK };
 	return (
 		applyProjectEvaluationGate(
 			ctx,
@@ -146,8 +146,8 @@ export const planFormat = (ctx: PlanContext): ToolDecision => {
 };
 
 const withTypecheckSuffix = (baseTool: string, ctx: PlanContext): ToolDecision => {
-	if (!ctx.config.lint?.typecheck) return { tool: baseTool, status: "ok" };
-	if (resolveTrustedTscPath()) return { tool: `${baseTool} + bundled tsc`, status: "ok" };
+	if (!ctx.config.lint?.typecheck) return { tool: baseTool, status: STATUS_OK };
+	if (resolveTrustedTscPath()) return { tool: `${baseTool} + bundled tsc`, status: STATUS_OK };
 	return {
 		tool: `${baseTool} + bundled tsc not found`,
 		status: "missing",

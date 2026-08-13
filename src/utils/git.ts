@@ -2,12 +2,13 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 
 const MAX_BUFFER = 50 * 1024 * 1024;
+const TEXT_ENCODING = "utf-8" as const;
 
 // Separates a missing/unfetched base ref from a genuine empty diff.
 export const baseRefExists = (cwd: string, ref: string): boolean => {
 	const result = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
 		cwd,
-		encoding: "utf-8",
+		encoding: TEXT_ENCODING,
 		maxBuffer: MAX_BUFFER,
 	});
 	return !result.error && result.status === 0;
@@ -17,14 +18,14 @@ export const getChangedFiles = (cwd: string, base?: string): string[] => {
 	const baseRef = base ?? "HEAD";
 	const diff = spawnSync("git", ["diff", "--name-only", "--diff-filter=ACMR", baseRef], {
 		cwd,
-		encoding: "utf-8",
+		encoding: TEXT_ENCODING,
 		maxBuffer: MAX_BUFFER,
 	});
 	if (diff.error || diff.status !== 0) return [];
 
 	const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], {
 		cwd,
-		encoding: "utf-8",
+		encoding: TEXT_ENCODING,
 		maxBuffer: MAX_BUFFER,
 	});
 
@@ -44,7 +45,7 @@ export const getChangedFiles = (cwd: string, base?: string): string[] => {
 export const getStagedFiles = (cwd: string): string[] => {
 	const result = spawnSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], {
 		cwd,
-		encoding: "utf-8",
+		encoding: TEXT_ENCODING,
 		maxBuffer: MAX_BUFFER,
 	});
 	if (result.error || result.status !== 0) return [];

@@ -6,6 +6,10 @@ import { symbols as defaultSymbols, type Symbols } from "./symbols.js";
 import { theme as defaultTheme, style, type Theme, type Token } from "./theme.js";
 import { padEnd } from "./width.js";
 
+// Named so callers building several NextStep rows repeat a constant rather
+// than the "primary" string literal (ai-slop/repeated-magic-literal).
+export const NEXT_STEP_EMPHASIS_PRIMARY = "primary" as const;
+
 export interface NextStep {
 	emphasis: "primary" | "muted";
 	text?: string;

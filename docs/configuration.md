@@ -20,6 +20,7 @@ quality:
   maxFileLoc: 400
   maxNesting: 5
   maxParams: 6
+  repeatedLiteralThreshold: 3
 
 security:
   audit: true
@@ -75,6 +76,7 @@ Control what triggers code quality warnings:
 | `maxFileLoc` | 400 | Max lines per file |
 | `maxNesting` | 5 | Max control-flow nesting depth |
 | `maxParams` | 6 | Max function parameters |
+| `repeatedLiteralThreshold` | 3 | Permitted occurrences of one named literal in one file; values are reported only when this threshold is exceeded (for example, 3 reports 4 or more occurrences) |
 
 ## Hardcoded user path roots
 

@@ -43,6 +43,10 @@ import { APP_VERSION } from "../version.js";
 // brief window to send before the process exits, then give up.
 const HOOK_FLUSH_TIMEOUT_MS = 1500;
 
+// Named so the agents that share the "rules file only, project scope" hint
+// repeat a constant rather than the string literal (ai-slop/repeated-magic-literal).
+const RULES_ONLY_PROJECT_HINT = "rules-only, project";
+
 const AGENT_LABELS: Record<AgentName, { label: string; hint: string }> = {
 	claude: { label: "Claude Code", hint: "PostToolUse, runtime" },
 	cursor: { label: "Cursor", hint: "afterFileEdit, runtime" },
@@ -50,11 +54,11 @@ const AGENT_LABELS: Record<AgentName, { label: string; hint: string }> = {
 	pi: { label: "pi", hint: "extension, runtime" },
 	codex: { label: "Codex CLI", hint: "PostToolUse, runtime" },
 	kimi: { label: "Kimi Code", hint: "rules-only" },
-	windsurf: { label: "Windsurf", hint: "rules-only, project" },
-	cline: { label: "Cline + Roo", hint: "rules-only, project" },
-	kilocode: { label: "Kilo Code", hint: "rules-only, project" },
-	antigravity: { label: "Antigravity", hint: "rules-only, project" },
-	copilot: { label: "GitHub Copilot", hint: "rules-only, project" },
+	windsurf: { label: "Windsurf", hint: RULES_ONLY_PROJECT_HINT },
+	cline: { label: "Cline + Roo", hint: RULES_ONLY_PROJECT_HINT },
+	kilocode: { label: "Kilo Code", hint: RULES_ONLY_PROJECT_HINT },
+	antigravity: { label: "Antigravity", hint: RULES_ONLY_PROJECT_HINT },
+	copilot: { label: "GitHub Copilot", hint: RULES_ONLY_PROJECT_HINT },
 };
 
 interface InstallFlags {

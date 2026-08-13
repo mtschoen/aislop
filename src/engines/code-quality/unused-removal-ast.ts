@@ -144,6 +144,10 @@ export interface NoneResult {
 	type: "none";
 }
 
+// Shared "no match" sentinel, named so the early-return guard clauses below
+// repeat a constant rather than the "none" literal (ai-slop/repeated-magic-literal).
+const NONE_RESULT: NoneResult = { type: "none" };
+
 export const matchStatement = (
 	sourceFile: ts.SourceFile,
 	statement: ts.Statement,
@@ -151,7 +155,7 @@ export const matchStatement = (
 	decl: UnusedDeclaration,
 ): MatchResult | SkipResult | NoneResult => {
 	const kind = kindOfStatement(statement);
-	if (!kind) return { type: "none" };
+	if (!kind) return NONE_RESULT;
 
 	// Match by name + location. We deliberately do NOT gate on `decl.kind`
 	// matching `kind` — upstream sources conflate kinds (knip reports an
@@ -160,7 +164,7 @@ export const matchStatement = (
 
 	if (ts.isVariableStatement(statement)) {
 		const varDecls = statement.declarationList.declarations;
-		if (varDecls.length === 0) return { type: "none" };
+		if (varDecls.length === 0) return NONE_RESULT;
 
 		const match = varDecls.find((vd) => {
 			const nameNode = vd.name;
@@ -168,7 +172,7 @@ export const matchStatement = (
 			if (nameNode.text !== decl.name) return false;
 			return nodeContainsLine(sourceFile, vd, decl.line);
 		});
-		if (!match) return { type: "none" };
+		if (!match) return NONE_RESULT;
 
 		if (varDecls.length > 1) {
 			return {
@@ -191,9 +195,9 @@ export const matchStatement = (
 	}
 
 	if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
-		if (!statement.name) return { type: "none" };
-		if (statement.name.text !== decl.name) return { type: "none" };
-		if (!nodeContainsLine(sourceFile, statement, decl.line)) return { type: "none" };
+		if (!statement.name) return NONE_RESULT;
+		if (statement.name.text !== decl.name) return NONE_RESULT;
+		if (!nodeContainsLine(sourceFile, statement, decl.line)) return NONE_RESULT;
 		const range = computeRemovalRange(sourceFile, statement, content);
 		return { type: "match", removal: { ...range, declaration: decl } };
 	}
@@ -203,13 +207,13 @@ export const matchStatement = (
 		ts.isInterfaceDeclaration(statement) ||
 		ts.isEnumDeclaration(statement)
 	) {
-		if (statement.name.text !== decl.name) return { type: "none" };
-		if (!nodeContainsLine(sourceFile, statement, decl.line)) return { type: "none" };
+		if (statement.name.text !== decl.name) return NONE_RESULT;
+		if (!nodeContainsLine(sourceFile, statement, decl.line)) return NONE_RESULT;
 		const range = computeRemovalRange(sourceFile, statement, content);
 		return { type: "match", removal: { ...range, declaration: decl } };
 	}
 
-	return { type: "none" };
+	return NONE_RESULT;
 };
 
 export const applyRemovals = (content: string, removals: PendingRemoval[]): string => {

@@ -8,6 +8,7 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
 	architecture: 1.0,
 	security: 1.5,
 };
+const DEFAULT_JB_SEVERITY_FLOOR = "WARNING" as const;
 
 const EnginesSchema = z.object({
 	format: z.boolean().default(true),
@@ -23,13 +24,16 @@ const QualitySchema = z.object({
 	maxFileLoc: z.number().positive().default(400),
 	maxNesting: z.number().positive().default(5),
 	maxParams: z.number().positive().default(6),
+	repeatedLiteralThreshold: z.number().int().positive().default(3),
 });
 
 const CsharpLintSchema = z.object({
 	projectEvaluation: z.boolean().default(false),
 	jb: z.boolean().default(true),
 	roslynator: z.boolean().default(true),
-	jbSeverityFloor: z.enum(["ERROR", "WARNING", "SUGGESTION", "HINT"]).default("WARNING"),
+	jbSeverityFloor: z
+		.enum(["ERROR", "WARNING", "SUGGESTION", "HINT"])
+		.default(DEFAULT_JB_SEVERITY_FLOOR),
 	jbExcludeTypes: z.array(z.string()).default(() => ["InconsistentNaming"]),
 	jbProjects: z.string().optional(),
 });
@@ -40,7 +44,9 @@ const CppLintSchema = z.object({
 	cppcheckEnable: z.string().default("warning,performance,portability"),
 	jb: z.boolean().default(false),
 	jbProjects: z.string().optional(),
-	jbSeverityFloor: z.enum(["ERROR", "WARNING", "SUGGESTION", "HINT"]).default("WARNING"),
+	jbSeverityFloor: z
+		.enum(["ERROR", "WARNING", "SUGGESTION", "HINT"])
+		.default(DEFAULT_JB_SEVERITY_FLOOR),
 	jbExcludeTypes: z.array(z.string()).default(() => []),
 });
 
@@ -55,7 +61,7 @@ const LintConfigSchema = z.object({
 		projectEvaluation: false,
 		jb: true,
 		roslynator: true,
-		jbSeverityFloor: "WARNING" as const,
+		jbSeverityFloor: DEFAULT_JB_SEVERITY_FLOOR,
 		jbExcludeTypes: ["InconsistentNaming"],
 	})),
 	cpp: CppLintSchema.default(() => ({
@@ -63,7 +69,7 @@ const LintConfigSchema = z.object({
 		clangTidy: true,
 		cppcheckEnable: "warning,performance,portability",
 		jb: false,
-		jbSeverityFloor: "WARNING" as const,
+		jbSeverityFloor: DEFAULT_JB_SEVERITY_FLOOR,
 		jbExcludeTypes: [],
 	})),
 });
@@ -145,6 +151,7 @@ const AislopConfigSchema = z.object({
 		maxFileLoc: 400,
 		maxNesting: 5,
 		maxParams: 6,
+		repeatedLiteralThreshold: 3,
 	})),
 	lint: LintConfigSchema.default(() => ({
 		typecheck: false,
@@ -153,7 +160,7 @@ const AislopConfigSchema = z.object({
 			projectEvaluation: false,
 			jb: true,
 			roslynator: true,
-			jbSeverityFloor: "WARNING" as const,
+			jbSeverityFloor: DEFAULT_JB_SEVERITY_FLOOR,
 			jbExcludeTypes: ["InconsistentNaming"],
 		},
 		cpp: {
@@ -161,7 +168,7 @@ const AislopConfigSchema = z.object({
 			clangTidy: true,
 			cppcheckEnable: "warning,performance,portability",
 			jb: false,
-			jbSeverityFloor: "WARNING" as const,
+			jbSeverityFloor: DEFAULT_JB_SEVERITY_FLOOR,
 			jbExcludeTypes: [],
 		},
 	})),

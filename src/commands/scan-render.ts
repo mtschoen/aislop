@@ -5,6 +5,7 @@ import { renderHeader } from "../ui/header.js";
 import { detectInvocation } from "../ui/invocation.js";
 import {
 	type BreakdownSummary,
+	NEXT_STEP_EMPHASIS_PRIMARY,
 	type NextStep,
 	renderCleanRun,
 	renderStarCta,
@@ -64,13 +65,13 @@ const buildScanNextSteps = (input: {
 	if (input.errors + input.warnings > 0) {
 		nextSteps.push(
 			{
-				emphasis: "primary",
+				emphasis: NEXT_STEP_EMPHASIS_PRIMARY,
 				label: "Agent",
 				command: `${input.invocation} agent`,
 				detail: "run a local worktree repair session",
 			},
 			{
-				emphasis: "primary",
+				emphasis: NEXT_STEP_EMPHASIS_PRIMARY,
 				label: "Provider",
 				command: `${input.invocation} agent --provider codex`,
 				detail: "or use --provider claude/opencode",
@@ -85,7 +86,7 @@ const buildScanNextSteps = (input: {
 	}
 	if (input.fixable > 0) {
 		nextSteps.push({
-			emphasis: "primary",
+			emphasis: NEXT_STEP_EMPHASIS_PRIMARY,
 			label: "Auto-fix",
 			command: `${input.invocation} fix`,
 			detail: `auto-fix ${input.fixable} issue${input.fixable === 1 ? "" : "s"}`,
@@ -93,7 +94,7 @@ const buildScanNextSteps = (input: {
 	}
 	if (input.hasVulnerableDeps) {
 		nextSteps.push({
-			emphasis: "primary",
+			emphasis: NEXT_STEP_EMPHASIS_PRIMARY,
 			label: "Force",
 			command: `${input.invocation} fix -f`,
 			detail: "aggressive fixes: dependency audit, unused files, framework alignment",

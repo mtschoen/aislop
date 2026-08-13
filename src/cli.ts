@@ -27,6 +27,8 @@ import { maybeNotifyUpdate } from "./update-notifier.js";
 import { killActiveChildren } from "./utils/subprocess.js";
 import { APP_VERSION } from "./version.js";
 
+const DEFAULT_DIRECTORY = ".";
+
 // Reap any scanner still running before exiting: on POSIX the tools are spawned
 // in their own process groups, so a Ctrl-C to the CLI's group would otherwise
 // leave them orphaned (win32 children share the console and get Ctrl-C anyway).
@@ -123,7 +125,7 @@ program
 		commaSeparatedParser,
 		[],
 	)
-	.action(async (directory = ".", _flags, command) => {
+	.action(async (directory = DEFAULT_DIRECTORY, _flags, command) => {
 		await runScan(directory, command.optsWithGlobals() as ScanFlags);
 	});
 
@@ -140,7 +142,7 @@ const fixProgram = program
 
 for (const a of FIX_AGENT_FLAGS) fixProgram.option(`--${a.flag}`, a.help);
 
-fixProgram.action(async (directory = ".", _flags, command) => {
+fixProgram.action(async (directory = DEFAULT_DIRECTORY, _flags, command) => {
 	const flags = command.optsWithGlobals() as Record<string, boolean | undefined>;
 	const { exitCode } = await fixCommand(directory, loadConfig(directory), {
 		verbose: Boolean(flags.verbose),
@@ -164,7 +166,7 @@ program
 		"--strict",
 		"write an enterprise-grade default config: all engines, typecheck on, CI failBelow 85, workflow included",
 	)
-	.action(async (directory = ".", _flags, command) => {
+	.action(async (directory = DEFAULT_DIRECTORY, _flags, command) => {
 		const flags = command.optsWithGlobals() as { strict?: boolean };
 		await withCommandLifecycle(
 			{ command: "init", config: loadConfig(directory).telemetry },
@@ -201,7 +203,7 @@ program
 program
 	.command("doctor [directory]")
 	.description("Check toolchain coverage for this project")
-	.action(async (directory = ".") => {
+	.action(async (directory = DEFAULT_DIRECTORY) => {
 		await withCommandLifecycle(
 			{ command: "doctor", config: loadConfig(directory).telemetry },
 			async () => {
@@ -223,7 +225,7 @@ const CI_OPTIONS: [flag: string, description: string][] = [
 ];
 for (const [flag, description] of CI_OPTIONS) ciProgram.option(flag, description);
 
-ciProgram.action(async (directory = ".", _flags, command) => {
+ciProgram.action(async (directory = DEFAULT_DIRECTORY, _flags, command) => {
 	const flags = command.optsWithGlobals() as {
 		changes?: boolean;
 		staged?: boolean;
