@@ -11,7 +11,7 @@ import { isNonProductionPath } from "./non-production-paths.js";
 const PLAN_REFERENCE_RES: RegExp[] = [
 	// A numbered marker followed by a delimiter is plan narration; a bare numbered step
 	// mid-sentence is domain usage (a UI wizard), not AI narration.
-	/^(?:stage|step|phase)\s+\d+\s*[:.\-–—]/i,
+	/^(?:stage|step|phase)\s+\d+\s*[:.\-\u2013\u2014]/i,
 	/\bstep\s+\d+\s+of\s+the\s+plan\b/i,
 	/\bas\s+(?:per|requested)\s+(?:the\s+)?(?:requirements?|spec|task|ticket|prompt|instructions?)\b/i,
 	/\bper\s+the\s+(?:spec|requirements?|task|ticket|plan|prompt|instructions?)\b/i,

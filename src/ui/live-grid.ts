@@ -32,7 +32,7 @@ interface GridDeps {
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 const fmtElapsed = (ms?: number): string =>
-	ms === undefined ? "—" : ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+	ms === undefined ? "-" : ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 
 const glyphFor = (row: GridRow, s: Symbols, frame: number): { glyph: string; token: Token } => {
 	if (row.status === "skipped") return { glyph: s.neutral, token: "muted" };

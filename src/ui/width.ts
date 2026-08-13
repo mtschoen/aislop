@@ -28,7 +28,7 @@ export const padStart = (s: string, target: number, fill = " "): string => {
 	return fill.repeat(target - w) + s;
 };
 
-export const truncate = (s: string, max: number, ellipsis = "…"): string => {
+export const truncate = (s: string, max: number, ellipsis = "..."): string => {
 	if (stringWidth(s) <= max) return s;
 	const limit = Math.max(0, max - stringWidth(ellipsis));
 	let out = "";

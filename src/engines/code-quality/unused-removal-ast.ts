@@ -57,7 +57,7 @@ const initializerHasSideEffects = (node: ts.Expression | undefined): boolean => 
 			return;
 		}
 
-		// Don't recurse into function/arrow bodies — the body only runs when called.
+		// Don't recurse into function/arrow bodies - the body only runs when called.
 		if (
 			ts.isArrowFunction(n) ||
 			ts.isFunctionExpression(n) ||
@@ -158,8 +158,8 @@ export const matchStatement = (
 	if (!kind) return NONE_RESULT;
 
 	// Match by name + location. We deliberately do NOT gate on `decl.kind`
-	// matching `kind` — upstream sources conflate kinds (knip reports an
-	// exported interface as "Unused type: …", for example). The name must
+	// matching `kind` - upstream sources conflate kinds (knip reports an
+	// exported interface as "Unused type: ...", for example). The name must
 	// be unique within a top-level file anyway, so name + line is enough.
 
 	if (ts.isVariableStatement(statement)) {

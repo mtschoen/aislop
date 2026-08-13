@@ -58,19 +58,19 @@ describe("live-grid", () => {
 		expect(out).toMatch(/✓ Security\s+0 issues\s+2\.1s/);
 	});
 
-	it("renders skipped rows with neutral glyph and em-dash elapsed", () => {
+	it("renders skipped rows with a neutral glyph and hyphen elapsed placeholder", () => {
 		const out = strip(
 			renderGridFrame(
 				{ rows: [{ label: "Architecture", status: "skipped", summary: "skipped" }] },
 				opts,
 			),
 		);
-		expect(out).toMatch(/─ Architecture\s+skipped\s+—/);
+		expect(out).toMatch(/─ Architecture\s+skipped\s+-/);
 	});
 
 	it("renders queued rows with pending glyph", () => {
 		const out = strip(renderGridFrame({ rows: [{ label: "Linting", status: "queued" }] }, opts));
-		expect(out).toMatch(/• Linting\s+queued\s+—/);
+		expect(out).toMatch(/• Linting\s+queued\s+-/);
 	});
 
 	it("renders live progress as a compact single line", () => {
@@ -116,6 +116,6 @@ describe("live-grid", () => {
 		expect(raw.endsWith("\r\x1B[2K")).toBe(true);
 		expect(stripped).toContain("Scan 0/2 engines · starting");
 		expect(stripped).toContain("Scan 1/2 engines · finishing");
-		expect(stripped).not.toMatch(/Formatting\s+queued\s+—\n.*Linting/s);
+		expect(stripped).not.toMatch(/Formatting\s+queued\s+-\n.*Linting/s);
 	});
 });

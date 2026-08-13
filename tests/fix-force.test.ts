@@ -119,7 +119,7 @@ describe("isDowngrade", () => {
 		expect(isDowngrade("^11.0.0", "^7.2.0")).toBe(true); // mocha
 	});
 
-	it("flags downgrades from x-wildcard specs (`^11.x.x` → `^7.2.0`)", () => {
+	it("flags downgrades from x-wildcard specs (`^11.x.x` -> `^7.2.0`)", () => {
 		expect(isDowngrade("^11.x.x", "^7.2.0")).toBe(true);
 		expect(isDowngrade("^4.x", "^3.0.0")).toBe(true);
 	});
@@ -150,7 +150,7 @@ describe("guardOverrides", () => {
 		const installed = new Map([["firebase", "7.1.0"]]);
 		const { safe, skipped } = guardOverrides({ "firebase@<4.9.0": "^4.9.0" }, installed);
 		expect(safe).toEqual({});
-		expect(skipped).toEqual(["firebase 7.1.0 → ^4.9.0"]);
+		expect(skipped).toEqual(["firebase 7.1.0 -> ^4.9.0"]);
 	});
 
 	it("keeps an override that is a genuine upgrade", () => {
@@ -170,7 +170,7 @@ describe("guardOverrides", () => {
 		const installed = new Map([["@scope/pkg", "5.0.0"]]);
 		const { safe, skipped } = guardOverrides({ "@scope/pkg@<2.0.0": "^2.0.0" }, installed);
 		expect(safe).toEqual({});
-		expect(skipped).toEqual(["@scope/pkg 5.0.0 → ^2.0.0"]);
+		expect(skipped).toEqual(["@scope/pkg 5.0.0 -> ^2.0.0"]);
 	});
 });
 

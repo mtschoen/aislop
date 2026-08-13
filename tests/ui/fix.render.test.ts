@@ -10,7 +10,7 @@ describe("fix render", () => {
 				steps: [
 					{ status: "done", label: "Removed 12 unused imports" },
 					{ status: "done", label: "Applied 4 lint autofixes" },
-					{ status: "active", label: "Formatting…" },
+					{ status: "active", label: "Formatting..." },
 				],
 				fixed: 18,
 				remaining: 3,
@@ -20,9 +20,9 @@ describe("fix render", () => {
 		expect(out).toContain("Fix run");
 		expect(out).toContain("my-app");
 		expect(out).toContain("◆ Removed 12 unused imports");
-		expect(out).toContain("◇ Formatting…");
+		expect(out).toContain("◇ Formatting...");
 		expect(out).toContain("└  Done · 18 fixed · 3 remain");
-		expect(out).toContain("→ Run aislop fix --claude");
+		expect(out).toContain("-> Run aislop fix --claude");
 	});
 
 	it("omits the agent hint when remaining is zero", () => {

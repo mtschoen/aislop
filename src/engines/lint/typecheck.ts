@@ -105,7 +105,7 @@ export const runTypecheck = async (context: EngineContext): Promise<Diagnostic[]
 				rule: `typescript/TS${code}`,
 				severity: severity === "error" ? "error" : "warning",
 				message,
-				help: `Fix the underlying type — TS${code} is a hard contract violation, not a style nit.`,
+				help: `Fix the underlying type - TS${code} is a hard contract violation, not a style nit.`,
 				line: Number.parseInt(lineStr, 10),
 				column: Number.parseInt(colStr, 10),
 				category: "TypeScript",

@@ -30,7 +30,7 @@ export const fixExpoDependencies = async (
 
 /**
  * Run expo-doctor to detect packages that should not be installed directly,
- * then uninstall them. No hardcoded list — expo-doctor is the source of truth.
+ * then uninstall them. No hardcoded list - expo-doctor is the source of truth.
  */
 const removeDisallowedExpoPackages = async (
 	rootDir: string,
@@ -58,6 +58,6 @@ const removeDisallowedExpoPackages = async (
 			timeout: INSTALL_TIMEOUT,
 		});
 	} catch {
-		// Best-effort — don't fail the step
+		// Best-effort - don't fail the step
 	}
 };

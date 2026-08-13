@@ -7,7 +7,7 @@ type AmbientSource = (typeof AMBIENT_GLOBAL_DEPS)[number];
 const SST_PLATFORM_REF_RE =
 	/\/\/\/\s*<reference\s+path=["'][^"']*sst[\\/]+platform[\\/]+config\.d\.ts["']/;
 const ICON_AUTOIMPORT_RE = /^Icon[A-Z]/;
-const NO_UNDEF_IDENT_RE = /^['‘"`]([^'’"`]+)['’"`]/;
+const NO_UNDEF_IDENT_RE = /^['\u2018"`]([^'\u2019"`]+)['\u2019"`]/;
 const SUPABASE_FUNCTION_PATH_RE = /(?:^|\/)supabase\/functions\/[^/]+\/.+\.[cm]?[jt]sx?$/;
 
 export const detectAmbientSources = (rootDir: string): Set<AmbientSource> => {

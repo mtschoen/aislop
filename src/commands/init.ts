@@ -108,7 +108,7 @@ const promptForConfigChoices = async (): Promise<InitChoices | null> => {
 	if (isCancel(enginesSelection)) return null;
 
 	const failBelowRaw = await text({
-		message: "CI quality gate — fail the build when the score drops below (0-100)",
+		message: "CI quality gate - fail the build when the score drops below (0-100)",
 		initialValue: "70",
 		validate: (v) => {
 			const n = Number(v);
@@ -131,7 +131,7 @@ const promptForConfigChoices = async (): Promise<InitChoices | null> => {
 	const workflowChoice = await select<"yes" | "no">({
 		message: "Add a GitHub Actions workflow to run aislop on every push and PR?",
 		options: [
-			{ value: "yes", label: "Yes — writes .github/workflows/aislop.yml" },
+			{ value: "yes", label: "Yes - writes .github/workflows/aislop.yml" },
 			{ value: "no", label: "No, I'll wire CI myself" },
 		],
 		initialValue: "yes",

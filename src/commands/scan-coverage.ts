@@ -6,14 +6,14 @@ import { APP_VERSION } from "../version.js";
 
 export const coverageReason = (c: Coverage): string => {
 	if (c.supportedFiles === 0 && c.dominantUnsupported) {
-		return `This repository is ${c.dominantUnsupported} (${c.unsupportedFiles} files), which aislop does not analyze. No score — it would not reflect this code.`;
+		return `This repository is ${c.dominantUnsupported} (${c.unsupportedFiles} files), which aislop does not analyze. No score - it would not reflect this code.`;
 	}
 	if (c.supportedFiles === 0) {
 		return "No files in a language aislop analyzes (TypeScript, JavaScript, Python, Go, Rust, Ruby, PHP, Java). Nothing to score.";
 	}
 	const lang = c.dominantUnsupported ?? "an unsupported language";
 	const files = `${c.supportedFiles} supported file${c.supportedFiles === 1 ? "" : "s"}`;
-	return `This repository is mostly ${lang} (${c.unsupportedFiles} files); aislop analyzed only ${files}. Score withheld — it would represent a sliver of the codebase.`;
+	return `This repository is mostly ${lang} (${c.unsupportedFiles} files); aislop analyzed only ${files}. Score withheld - it would represent a sliver of the codebase.`;
 };
 
 export const renderCoverageNotice = (projectInfo: ProjectInfo, includeHeader: boolean): string => {

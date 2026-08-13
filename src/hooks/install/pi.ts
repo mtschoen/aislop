@@ -22,7 +22,7 @@ export const resolvePiPaths = (opts: HookInstallOpts): PiPaths => {
 };
 
 // pi has no declarative command-hook, so the integration ships as an ESM extension.
-export const PI_EXTENSION_SOURCE = `// aislop — auto-generated pi extension. Do not edit by hand.
+export const PI_EXTENSION_SOURCE = `// aislop - auto-generated pi extension. Do not edit by hand.
 // Reinstall with: aislop hook install --pi
 import { spawn } from "node:child_process";
 

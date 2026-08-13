@@ -164,7 +164,7 @@ export const runClaudeFileChangedHook = async (
 			schema: "aislop.hook.v2",
 			event: "file_changed",
 			file: changed,
-			message: `Watched file changed (${changed}). aislop refreshed the baseline — score: ${result.score}.`,
+			message: `Watched file changed (${changed}). aislop refreshed the baseline - score: ${result.score}.`,
 			baseline: { score: result.score, fileCount: result.fileCount },
 		});
 		const envelope = renderClaudeOutput(additional);

@@ -63,13 +63,13 @@ const classifyBindingElement = (
 		if (bindingElement.propertyName !== undefined && bindingElement.name === identifier) {
 			return { kind: "aliasedDestructure", identifier };
 		}
-		// Shorthand destructure: `{ foo }` — propertyName is undefined
+		// Shorthand destructure: `{ foo }` - propertyName is undefined
 		if (bindingElement.propertyName === undefined && bindingElement.name === identifier) {
 			return { kind: "shorthandDestructure", identifier };
 		}
 	}
 
-	// Array binding: `const [x] = …` — rename in place
+	// Array binding: `const [x] = ...` - rename in place
 	if (ts.isArrayBindingPattern(pattern) && bindingElement.name === identifier) {
 		return { kind: "arrayBindingElement", identifier };
 	}
@@ -88,7 +88,7 @@ export const classifyIdentifier = (identifier: ts.Identifier): BindingShape => {
 		return classifyBindingElement(identifier, parent);
 	}
 
-	// Catch clause: `catch (e)` — variableDeclaration.name is the identifier.
+	// Catch clause: `catch (e)` - variableDeclaration.name is the identifier.
 	if (
 		ts.isVariableDeclaration(parent) &&
 		parent.parent &&

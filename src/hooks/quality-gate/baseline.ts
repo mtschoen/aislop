@@ -71,7 +71,7 @@ export const readBaseline = (cwd: string): Baseline | null => {
 	if (!raw) return null;
 	try {
 		const parsed = JSON.parse(raw) as Partial<Baseline> & { schema?: string };
-		// Accept both schemas. v1 lacks findingFingerprints — return [] so callers
+		// Accept both schemas. v1 lacks findingFingerprints - return [] so callers
 		// can still compute newSinceBaseline (it'll be empty until the next capture).
 		if (parsed.schema !== "aislop.baseline.v2" && parsed.schema !== "aislop.baseline.v1") {
 			return null;

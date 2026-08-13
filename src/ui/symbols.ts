@@ -20,7 +20,7 @@ const TTY: Symbols = {
 	rail: "│",
 	railEnd: "└",
 	bullet: "●",
-	hint: "→",
+	hint: "->",
 	pass: "✓",
 	fail: "✗",
 	warn: "!",

@@ -72,8 +72,8 @@ describe("summary", () => {
 				opts,
 			),
 		);
-		expect(out).toContain("→ Run aislop fix to auto-fix 2 issues");
-		expect(out).toContain("→ Run aislop fix --agent to hand off");
+		expect(out).toContain("-> Run aislop fix to auto-fix 2 issues");
+		expect(out).toContain("-> Run aislop fix --agent to hand off");
 	});
 
 	it("renders command next-steps as an aligned action plan", () => {

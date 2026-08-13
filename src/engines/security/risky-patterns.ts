@@ -42,19 +42,19 @@ const csharpRisk = (
 export const RISKY_PATTERNS: RiskyPattern[] = [
 	{
 		// Negative lookbehind skips method-call forms (`.eval(`, `->eval(`, `::eval(`, `\eval(`)
-		// which are not the global eval — common in PHP (Redis Lua), Ruby (binding.eval), JS (custom methods).
+		// which are not the global eval - common in PHP (Redis Lua), Ruby (binding.eval), JS (custom methods).
 		pattern: new RegExp(`(?<![\\w.>:\\\\])\\b${ev}\\s*\\(`, "g"),
 		extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rb", ".php"],
 		name: "eval",
 		message: `Use of ${ev}() is a security risk`,
-		help: `Avoid ${ev} — use safer alternatives like JSON.parse, Function constructor, or AST-based approaches`,
+		help: `Avoid ${ev} - use safer alternatives like JSON.parse, Function constructor, or AST-based approaches`,
 	},
 	{
 		pattern: new RegExp(`new\\s+${Fn}\\s*\\(`, "g"),
 		extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
 		name: "new-function",
 		message: `Use of new ${Fn}() is similar to ${ev} and can be a security risk`,
-		help: "Avoid dynamic code execution — refactor to use static code paths",
+		help: "Avoid dynamic code execution - refactor to use static code paths",
 	},
 	{
 		pattern: new RegExp(`\\.inner${""}HTML\\s*=`, "g"),
@@ -74,23 +74,23 @@ export const RISKY_PATTERNS: RiskyPattern[] = [
 		pattern: /pickle\.loads?\s*\(/g,
 		extensions: [".py"],
 		name: "pickle-load",
-		message: "pickle.load can execute arbitrary code — unsafe deserialization",
+		message: "pickle.load can execute arbitrary code - unsafe deserialization",
 		help: "Use JSON, MessagePack, or other safe serialization formats for untrusted data",
 	},
 	{
 		// Negative lookbehind skips method-call forms (`.exec(`, `->exec(`, `::exec(`, `\exec(`)
-		// which are not the builtin exec — e.g. SQLModel's session.exec(stmt) or RegExp.exec.
+		// which are not the builtin exec - e.g. SQLModel's session.exec(stmt) or RegExp.exec.
 		pattern: new RegExp(`(?<![\\w.>:\\\\])\\b${"ex" + "ec"}\\s*\\(`, "g"),
 		extensions: [".py"],
 		name: "python-exec",
 		message: "Use of exec() can execute arbitrary code",
-		help: "Avoid exec — use safer alternatives",
+		help: "Avoid exec - use safer alternatives",
 	},
 	{
 		pattern: /(?:child_process|subprocess|os\.system|exec|spawn)\s*\([^)]*\$\{/g,
 		extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py"],
 		name: "shell-injection",
-		message: "Possible shell injection — user input in command execution",
+		message: "Possible shell injection - user input in command execution",
 		help: "Use parameterized commands or a safe shell execution library",
 	},
 	{
@@ -100,7 +100,7 @@ export const RISKY_PATTERNS: RiskyPattern[] = [
 		),
 		extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
 		name: "sql-injection",
-		message: "Possible SQL injection — template literal in query",
+		message: "Possible SQL injection - template literal in query",
 		help: "Use parameterized queries or an ORM instead of string interpolation",
 	},
 	{
@@ -110,7 +110,7 @@ export const RISKY_PATTERNS: RiskyPattern[] = [
 		),
 		extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
 		name: "sql-injection",
-		message: "Possible SQL injection — string concatenation in query",
+		message: "Possible SQL injection - string concatenation in query",
 		help: "Use parameterized queries or an ORM instead of string concatenation",
 	},
 	csharpRisk(

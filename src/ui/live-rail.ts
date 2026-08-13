@@ -39,7 +39,7 @@ export class LiveRail {
 			}, 80);
 			this.timer.unref();
 		}
-		// In non-TTY, wait for complete() — we don't show "running" at all.
+		// In non-TTY, wait for complete() - we don't show "running" at all.
 	}
 
 	/** Resolve the active step with its final state. */
@@ -84,7 +84,7 @@ export class LiveRail {
 	/**
 	 * Update the label of the currently active step in place. Use this to
 	 * announce long sub-operations (e.g. "Dependency audit fixes · running
-	 * pnpm install — can take a minute") so the user knows what aislop is
+	 * pnpm install - can take a minute") so the user knows what aislop is
 	 * doing. No-op if there is no active step.
 	 */
 	setActiveLabel(label: string): void {
@@ -93,7 +93,7 @@ export class LiveRail {
 		if (this.tty) this.drawActive(true);
 	}
 
-	/** Abort the active step without emitting a final row. Rare — use if a fatal error happens mid-step. */
+	/** Abort the active step without emitting a final row. Rare - use if a fatal error happens mid-step. */
 	abort(): void {
 		if (this.timer) {
 			clearInterval(this.timer);
@@ -111,6 +111,6 @@ export class LiveRail {
 			this.write("\x1B[1F\x1B[2K");
 		}
 		const glyph = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length];
-		this.write(` ${style(this.theme, "info", glyph)} ${this.activeLabel}…\n`);
+		this.write(` ${style(this.theme, "info", glyph)} ${this.activeLabel}...\n`);
 	}
 }

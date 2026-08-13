@@ -46,18 +46,18 @@ export const runOneFixStep = async (
 
 export const describeStep = (result: FixStepResult): string => {
 	if (result.failed) {
-		return `${result.name} — failed (${result.afterIssues} remain)`;
+		return `${result.name} - failed (${result.afterIssues} remain)`;
 	}
 	if (result.beforeIssues === 0) {
-		return `${result.name} — 0 issues`;
+		return `${result.name} - 0 issues`;
 	}
 	if (result.afterIssues === 0) {
-		return `${result.name} — ${result.resolvedIssues} resolved`;
+		return `${result.name} - ${result.resolvedIssues} resolved`;
 	}
 	if (result.resolvedIssues > 0) {
-		return `${result.name} — ${result.resolvedIssues} resolved, ${result.afterIssues} remaining`;
+		return `${result.name} - ${result.resolvedIssues} resolved, ${result.afterIssues} remaining`;
 	}
-	return `${result.name} — ${result.afterIssues} remain`;
+	return `${result.name} - ${result.afterIssues} remain`;
 };
 
 export const statusFor = (s: FixStepResult): RailStep["status"] => {

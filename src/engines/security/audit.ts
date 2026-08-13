@@ -117,7 +117,7 @@ const auditSkippedDiagnostic = (source: JsAuditSource, help: string): Diagnostic
 	filePath: "package.json",
 	engine: "security",
 	rule: "security/dependency-audit-skipped",
-	severity: "info",
+	severity: "warning",
 	message: `Dependency audit did not complete (${source})`,
 	help,
 	line: 0,
@@ -126,13 +126,144 @@ const auditSkippedDiagnostic = (source: JsAuditSource, help: string): Diagnostic
 	fixable: false,
 });
 
+export const isPathWithin = (parentDirectory: string, candidatePath: string): boolean => {
+	const pathOperations =
+		path.win32.isAbsolute(parentDirectory) || path.win32.isAbsolute(candidatePath)
+			? path.win32
+			: path;
+	const relativePath = pathOperations.relative(parentDirectory, candidatePath);
+	return (
+		relativePath === "" ||
+		(!pathOperations.isAbsolute(relativePath) &&
+			!relativePath.startsWith(`..${pathOperations.sep}`) &&
+			relativePath !== "..")
+	);
+};
+
+const resolveWindowsPackageManager = (
+	packageManager: "npm" | "pnpm",
+	rootDirectory: string,
+): string | undefined => {
+	const pathValue = process.env.PATH;
+	if (!pathValue) return undefined;
+
+	const executableExtensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+		.split(";")
+		.map((extension) => extension.trim().toLowerCase())
+		.filter((extension) => /^\.[a-z0-9]+$/.test(extension));
+	const absoluteRoot = path.resolve(rootDirectory);
+	const canonicalRoot = fs.realpathSync(rootDirectory);
+
+	for (const rawDirectory of pathValue.split(path.delimiter)) {
+		const directory = rawDirectory.trim().replace(/^"(.*)"$/, "$1");
+		if (!directory || !path.isAbsolute(directory)) continue;
+
+		for (const extension of executableExtensions) {
+			const candidatePath = path.join(directory, `${packageManager}${extension}`);
+			if (isPathWithin(absoluteRoot, path.resolve(candidatePath))) continue;
+			if (!fs.existsSync(candidatePath)) continue;
+			try {
+				const canonicalCandidate = fs.realpathSync(candidatePath);
+				if (isPathWithin(canonicalRoot, canonicalCandidate)) continue;
+				if (!fs.statSync(canonicalCandidate).isFile()) continue;
+				return canonicalCandidate;
+			} catch {
+				// A PATH entry may disappear between discovery and inspection.
+			}
+		}
+	}
+
+	return undefined;
+};
+
+const runPackageManagerAudit = (
+	packageManager: "npm" | "pnpm",
+	rootDirectory: string,
+	timeout: number,
+) => {
+	const auditArguments = ["audit", "--json"];
+	if (process.platform !== "win32") {
+		return runSubprocess(packageManager, auditArguments, { cwd: rootDirectory, timeout });
+	}
+
+	const executablePath = resolveWindowsPackageManager(packageManager, rootDirectory);
+	if (!executablePath) {
+		throw new Error(`${packageManager} was not found in a safe absolute PATH entry`);
+	}
+	const executableExtension = path.extname(executablePath).toLowerCase();
+	if (executableExtension === ".exe" || executableExtension === ".com") {
+		return runSubprocess(executablePath, auditArguments, { cwd: rootDirectory, timeout });
+	}
+
+	const commandInterpreter =
+		process.env.ComSpec ??
+		(process.env.SystemRoot
+			? path.win32.join(process.env.SystemRoot, "System32", "cmd.exe")
+			: undefined);
+	if (!commandInterpreter || !path.win32.isAbsolute(commandInterpreter)) {
+		throw new Error("Windows command interpreter path is unavailable");
+	}
+	return runSubprocess(commandInterpreter, ["/d", "/c", executablePath, ...auditArguments], {
+		cwd: rootDirectory,
+		timeout,
+	});
+};
+
+interface PackageManagerAuditPayloadState {
+	recognized: boolean;
+	reportsError: boolean;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isAuditCollection = (value: unknown): boolean =>
+	isRecord(value) &&
+	(Object.keys(value).length === 0 || Object.values(value).some((entry) => isRecord(entry)));
+
+const inspectPackageManagerAuditPayload = (output: string): PackageManagerAuditPayloadState => {
+	try {
+		const parsed: unknown = JSON.parse(output);
+		if (!isRecord(parsed)) return { recognized: false, reportsError: false };
+		const reportsError = isRecord(parsed.error);
+		return {
+			recognized:
+				reportsError ||
+				isAuditCollection(parsed.vulnerabilities) ||
+				isAuditCollection(parsed.advisories),
+			reportsError,
+		};
+	} catch {
+		return { recognized: false, reportsError: false };
+	}
+};
+
+const parsePackageManagerAuditResult = (
+	result: Awaited<ReturnType<typeof runSubprocess>>,
+	source: JsAuditSource,
+): Diagnostic[] => {
+	const payloadState = inspectPackageManagerAuditPayload(result.stdout);
+	if (!payloadState.recognized) {
+		const detail = result.stderr || (result.stdout ? "invalid JSON output" : "no JSON output");
+		return [auditSkippedDiagnostic(source, `Failed to run ${source}: ${detail}`)];
+	}
+
+	const diagnostics = parseJsAudit(result.stdout, source);
+	if ((payloadState.reportsError || result.exitCode !== 0) && diagnostics.length === 0) {
+		return [
+			auditSkippedDiagnostic(
+				source,
+				`Failed to run ${source}: ${result.stderr || `exit code ${result.exitCode ?? "unknown"}`}`,
+			),
+		];
+	}
+	return diagnostics;
+};
+
 const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
 	try {
-		const result = await runSubprocess("npm", ["audit", "--json"], {
-			cwd: rootDir,
-			timeout,
-		});
-		return parseJsAudit(result.stdout, "npm audit");
+		const result = await runPackageManagerAudit("npm", rootDir, timeout);
+		return parsePackageManagerAuditResult(result, "npm audit");
 	} catch (error) {
 		return [
 			auditSkippedDiagnostic("npm audit", `Failed to run npm audit: ${errorMessageOf(error)}`),
@@ -170,11 +301,8 @@ const runPnpmAuditWithFallback = async (
 	const canFallbackToNpm = fs.existsSync(path.join(rootDir, "package-lock.json"));
 
 	try {
-		const result = await runSubprocess("pnpm", ["audit", "--json"], {
-			cwd: rootDir,
-			timeout,
-		});
-		const diagnostics = parseJsAudit(result.stdout, "pnpm audit");
+		const result = await runPackageManagerAudit("pnpm", rootDir, timeout);
+		const diagnostics = parsePackageManagerAuditResult(result, "pnpm audit");
 		const hasAuditFailure = diagnostics.some((d) => d.rule === "security/dependency-audit-skipped");
 		if (hasAuditFailure) {
 			if (canFallbackToNpm) {

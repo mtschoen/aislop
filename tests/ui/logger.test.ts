@@ -39,7 +39,7 @@ describe("logger", () => {
 	it("emits a hint line with the arrow glyph", () => {
 		const { log, out } = mkLogger();
 		log.hint("Run aislop init");
-		expect(strip(out.join(""))).toContain("→ Run aislop init");
+		expect(strip(out.join(""))).toContain("-> Run aislop init");
 	});
 
 	it("emits an info line with the info glyph", () => {
@@ -79,9 +79,9 @@ describe("renderHintLine", () => {
 			theme: createTheme({ color: "truecolor", tty: true }),
 			symbols: createSymbols({ plain: false }),
 		});
-		expect(strip(line)).toBe(" → Run npx aislop scan\n");
+		expect(strip(line)).toBe(" -> Run npx aislop scan\n");
 		// Accent-green truecolor escape must appear around the arrow and command token.
-		expect(line).toContain("\x1B[38;2;34;197;94m→\x1B[39m");
+		expect(line).toContain("\x1B[38;2;34;197;94m->\x1B[39m");
 		expect(line).toContain("\x1B[38;2;34;197;94maislop\x1B[39m scan");
 	});
 

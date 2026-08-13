@@ -60,7 +60,7 @@ const resolveReadyProvider = async (
 			return null;
 		}
 		// Run the connect flow inline (it runs the provider's interactive login), then re-check.
-		log.muted(`${selected.provider.label} is not signed in — connecting…`);
+		log.muted(`${selected.provider.label} is not signed in - connecting...`);
 		await agentConnectCommand(selected.provider.id, { dryRun: false });
 		selected = resolveProvider(selected.provider.id);
 		if (!selected || selected.authenticated === false) {

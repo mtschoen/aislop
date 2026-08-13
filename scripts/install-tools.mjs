@@ -372,7 +372,7 @@ const printNextSteps = () => {
 	info("Installed. Next:");
 	info("  aislop scan     score this repo for AI slop");
 	info("  aislop agent    run a coding agent and auto-scan its work");
-	info("  Gate every PR for your team, free → https://scanaislop.com");
+	info("  Gate every PR for your team, free -> https://scanaislop.com");
 };
 
 main().catch((error) => {

@@ -137,7 +137,7 @@ const parseBiomeJsonOutput = (output: string, rootDir: string): Diagnostic[] => 
 		for (const entry of parsed.diagnostics) {
 			const rawPath = entry.location?.path;
 			if (!rawPath) continue;
-			// Formatting issues are always warnings — they're auto-fixable style issues, not bugs
+			// Formatting issues are always warnings - they're auto-fixable style issues, not bugs
 			const severity = "warning" as const;
 			const rawMessage = entry.message ?? "";
 			const message =

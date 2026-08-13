@@ -11,7 +11,7 @@ const AI_SLOP_ERRORS = new Set<string>(["ai-slop/hallucinated-import"]);
 
 const AI_SLOP_INFO = new Set<string>(["ai-slop/em-dash", "ai-slop/smart-punctuation"]);
 
-const SECURITY_INFO = new Set<string>(["security/dependency-audit-skipped"]);
+const SECURITY_WARNINGS = new Set<string>(["security/dependency-audit-skipped"]);
 
 export const toRuleEntry = (engine: string, ruleId: string): RuleEntry => {
 	if (engine === "format") {
@@ -21,7 +21,7 @@ export const toRuleEntry = (engine: string, ruleId: string): RuleEntry => {
 		return {
 			id: ruleId,
 			engine,
-			severity: SECURITY_INFO.has(ruleId) ? "info" : "error",
+			severity: SECURITY_WARNINGS.has(ruleId) ? "warning" : "error",
 			fixable: false,
 		};
 	}

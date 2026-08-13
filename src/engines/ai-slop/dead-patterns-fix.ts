@@ -36,7 +36,7 @@ const findStatementSpan = (lines: string[], startIndex: number): Set<number> => 
 
 /**
  * Patterns that indicate a console.log is communicating an error or important
- * status to the user — should be upgraded to console.error, not removed.
+ * status to the user - should be upgraded to console.error, not removed.
  */
 const ERROR_MESSAGE_PATTERNS = [
 	/\b(?:error|err|fail|failed|failure|fatal|crash|exception)\b/i,

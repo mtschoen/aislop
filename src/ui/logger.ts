@@ -14,7 +14,7 @@ interface HintLineDeps {
 }
 
 /**
- * Render a single accent-green `→` hint line, consistent across every command.
+ * Render a single accent-green `->` hint line, consistent across every command.
  * Callers typically do: `process.stdout.write(renderHintLine("Run ..."))`.
  */
 export const renderHintLine = (hint: string, deps: HintLineDeps = {}): string => {

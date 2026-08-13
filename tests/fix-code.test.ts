@@ -111,7 +111,7 @@ describe("printPrompt", () => {
 		}
 
 		const output = chunks.join("");
-		expect(output).toContain("→");
+		expect(output).toContain("->");
 		expect(output).toContain("line10");
 	});
 

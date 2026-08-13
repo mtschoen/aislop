@@ -69,7 +69,7 @@ const aggregateToDiagnostic = (agg: VulnAggregate, source: JsAuditSource): Diagn
 	const recs = [...agg.recommendations];
 	const best = cleanRecommendation(pickBestRecommendation(recs));
 	const countLabel = agg.advisories > 1 ? ` (${agg.advisories} advisories)` : "";
-	const recLabel = best ? ` — ${best}` : "";
+	const recLabel = best ? ` - ${best}` : "";
 	return {
 		filePath: "package.json",
 		engine: "security",
@@ -160,9 +160,9 @@ const parseModernVulnerabilities = (
 		if (fixAvailable === false) {
 			recommendation = isDirect
 				? "no automatic fix"
-				: "transitive — needs override or parent upgrade";
+				: "transitive - needs override or parent upgrade";
 		} else if (!isDirect && fixAvailable === true) {
-			recommendation = "transitive — may need override or parent upgrade";
+			recommendation = "transitive - may need override or parent upgrade";
 		} else if (isRecord(fixAvailable)) {
 			const name = readString(fixAvailable, "name");
 			const version = readString(fixAvailable, "version");
@@ -193,7 +193,7 @@ export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[
 					filePath: "package.json",
 					engine: "security",
 					rule: "security/dependency-audit-skipped",
-					severity: "info",
+					severity: "warning",
 					message: `Dependency audit skipped (${source}): lockfile is missing`,
 					help:
 						errorDetail ??
@@ -211,7 +211,7 @@ export const parseJsAudit = (output: string, source: JsAuditSource): Diagnostic[
 					filePath: "package.json",
 					engine: "security",
 					rule: "security/dependency-audit-skipped",
-					severity: "info",
+					severity: "warning",
 					message: `Dependency audit did not complete (${source})`,
 					help:
 						errorDetail ??

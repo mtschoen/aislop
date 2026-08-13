@@ -128,7 +128,7 @@ export const aislopScanInputSchema = z.object({
 export const aislopScanTool = {
 	name: "aislop_scan",
 	description:
-		"Scan a project with aislop. Runs the deterministic engines (format, lint, code-quality, ai-slop, security, architecture), returns a 0–100 score and the top findings. Use this before deciding whether the agent's recent changes are ready to ship.",
+		"Scan a project with aislop. Runs the deterministic engines (format, lint, code-quality, ai-slop, security, architecture), returns a 0-100 score and the top findings. Use this before deciding whether the agent's recent changes are ready to ship.",
 	inputSchema: aislopScanInputSchema,
 };
 
@@ -169,7 +169,7 @@ const runAislopFix = (cwd: string, force: boolean): Promise<SpawnOk> => {
 	const args = ["fix"];
 	if (force) args.push("--force");
 	return new Promise((resolve) => {
-		// spawn() args bypass the shell — no injection surface. We hardcode "latest" anyway.
+		// spawn() args bypass the shell - no injection surface. We hardcode "latest" anyway.
 		const child = spawn("npx", ["--yes", "aislop@latest", ...args], {
 			cwd,
 			env: { ...process.env, NO_COLOR: "1" },
@@ -191,7 +191,7 @@ const runAislopFix = (cwd: string, force: boolean): Promise<SpawnOk> => {
 export const aislopFixTool = {
 	name: "aislop_fix",
 	description:
-		"Apply mechanical fixes (formatting, unused imports, narrative comments, duplicate imports, etc.). Returns counts before/after so the agent can see how many issues remain. Use BEFORE handing off to the agent — saves tokens by clearing what the CLI handles deterministically.",
+		"Apply mechanical fixes (formatting, unused imports, narrative comments, duplicate imports, etc.). Returns counts before/after so the agent can see how many issues remain. Use BEFORE handing off to the agent - saves tokens by clearing what the CLI handles deterministically.",
 	inputSchema: aislopFixInputSchema,
 };
 

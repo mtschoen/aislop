@@ -29,7 +29,7 @@ interface EditorAgent {
 type AgentConfig = CliAgent | EditorAgent;
 
 const AGENT_CONFIGS: Record<string, AgentConfig> = {
-	// CLI agents — launch with prompt directly
+	// CLI agents - launch with prompt directly
 	claude: { type: AGENT_TYPE_CLI, bin: "claude", args: (p) => [p] },
 	codex: { type: AGENT_TYPE_CLI, bin: "codex", args: (p) => [p] },
 	amp: { type: AGENT_TYPE_CLI, bin: "amp", args: (p) => [p] },
@@ -44,7 +44,7 @@ const AGENT_CONFIGS: Record<string, AgentConfig> = {
 	pi: { type: AGENT_TYPE_CLI, bin: "pi", args: (p) => ["-p", p] },
 	crush: { type: AGENT_TYPE_CLI, bin: "crush", args: (p) => ["run", p] },
 
-	// Editor agents — open editor + copy prompt to clipboard
+	// Editor agents - open editor + copy prompt to clipboard
 	cursor: { type: AGENT_TYPE_EDITOR, bin: "cursor" },
 	windsurf: { type: AGENT_TYPE_EDITOR, bin: "windsurf" },
 	vscode: { type: AGENT_TYPE_EDITOR, bin: "code" },
@@ -68,7 +68,7 @@ const getCodeSnippet = (rootDirectory: string, diagnostic: Diagnostic): string |
 	const snippet: string[] = [];
 	for (let i = startLine; i < endLine; i++) {
 		const lineNum = i + 1;
-		const marker = lineNum === diagnostic.line ? "→" : " ";
+		const marker = lineNum === diagnostic.line ? "->" : " ";
 		snippet.push(`${marker} ${String(lineNum).padStart(4)} │ ${lines[i]}`);
 	}
 
@@ -188,7 +188,7 @@ export const launchAgent = (
 	score: number,
 ): void => {
 	if (diagnostics.length === 0) {
-		log.success("No remaining issues — nothing to hand off.");
+		log.success("No remaining issues - nothing to hand off.");
 		return;
 	}
 
@@ -220,7 +220,7 @@ export const launchAgent = (
 			log.warn("Could not copy to clipboard. Use fix --prompt to print it instead.");
 		}
 		log.raw(
-			`  ${style(theme, "info", "→")} Opening ${style(theme, "bold", agent)}... paste the prompt into the agent chat.`,
+			`  ${style(theme, "info", "->")} Opening ${style(theme, "bold", agent)}... paste the prompt into the agent chat.`,
 		);
 		log.break();
 
@@ -231,10 +231,10 @@ export const launchAgent = (
 		return;
 	}
 
-	// CLI agent — launch with prompt directly
+	// CLI agent - launch with prompt directly
 	log.break();
 	log.raw(
-		`  ${style(theme, "info", "→")} Opening ${style(theme, "bold", agent)} with ${diagnostics.length} issue${diagnostics.length === 1 ? "" : "s"}...`,
+		`  ${style(theme, "info", "->")} Opening ${style(theme, "bold", agent)} with ${diagnostics.length} issue${diagnostics.length === 1 ? "" : "s"}...`,
 	);
 	log.break();
 
@@ -250,7 +250,7 @@ export const printPrompt = (
 	score: number,
 ): void => {
 	if (diagnostics.length === 0) {
-		log.success("No remaining issues — nothing to generate.");
+		log.success("No remaining issues - nothing to generate.");
 		return;
 	}
 

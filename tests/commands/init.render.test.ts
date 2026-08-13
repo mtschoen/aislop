@@ -17,7 +17,7 @@ describe("init render", () => {
 		expect(out).toContain("Wrote .aislop/config.yml");
 		expect(out).toContain("Wrote .github/workflows/aislop.yml");
 		expect(out).toContain("Done · wrote 2 files");
-		expect(out).toContain("→ Try aislop scan");
+		expect(out).toContain("-> Try aislop scan");
 	});
 
 	it("renders a single-file footer when only one file was written", () => {

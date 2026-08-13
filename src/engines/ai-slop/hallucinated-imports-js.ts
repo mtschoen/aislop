@@ -103,7 +103,7 @@ const stripImportQuery = (spec: string): string => {
 	return idx === -1 ? spec : spec.slice(0, idx);
 };
 
-// Filter out import-shaped substrings inside template literals or error messages — these chars never appear in real package names.
+// Filter out import-shaped substrings inside template literals or error messages - these chars never appear in real package names.
 const TEMPLATE_PLACEHOLDER_RE = /\$\{/;
 const isLikelyRealImportSpec = (spec: string): boolean => {
 	if (spec.length === 0) return false;
@@ -214,7 +214,7 @@ export const checkJsImport = (
 	if (jsDeps.has(pkg)) return null;
 	if (isTransitiveJsImport(pkg, jsDeps)) return null;
 	if (isScopedFamilyImport(spec, jsDeps)) return null;
-	// Allow @types/X if X itself is in deps (the runtime impl) — common pattern.
+	// Allow @types/X if X itself is in deps (the runtime impl) - common pattern.
 	if (pkg.startsWith("@types/")) {
 		const realPkg = pkg.slice("@types/".length);
 		if (jsDeps.has(realPkg)) return null;

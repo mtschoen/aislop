@@ -42,7 +42,7 @@ export const detectUnsafeTypePatterns = (
 				unsafeTypeDiagnostic(relativePath, i + 1, {
 					rule: "ai-slop/ts-directive",
 					severity: "info",
-					message: "@ts-ignore/@ts-expect-error suppresses type checking — review if still needed",
+					message: "@ts-ignore/@ts-expect-error suppresses type checking - review if still needed",
 					help: "Fix the underlying type issue instead of suppressing the error",
 				}),
 			);

@@ -92,7 +92,7 @@ for (const login of await fetchMergedPrAuthors()) {
 }
 
 if (collected.size === 0) {
-	console.error("no contributors resolved — check overrides + token");
+	console.error("no contributors resolved - check overrides + token");
 	process.exit(1);
 }
 

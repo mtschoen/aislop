@@ -142,7 +142,7 @@ const buildSuggestedActions = (
 	if (archErrors.length > 0) {
 		actions.push({
 			id: "review_finding",
-			label: `Review ${archErrors.length} architecture rule violation${archErrors.length === 1 ? "" : "s"} — these can't be auto-fixed.`,
+			label: `Review ${archErrors.length} architecture rule violation${archErrors.length === 1 ? "" : "s"} - these can't be auto-fixed.`,
 			rationale:
 				"Architecture rules encode intentional project structure decisions. The fix usually means moving code, not editing it.",
 			ruleIds: Array.from(new Set(archErrors.map((f) => f.ruleId))),
@@ -158,7 +158,7 @@ const buildSuggestedActions = (
 		if (top.length > 0) {
 			actions.push({
 				id: "review_finding",
-				label: `Score dropped ${Math.abs(delta as number)} points — review the top ${top.length} finding${top.length === 1 ? "" : "s"} from this edit.`,
+				label: `Score dropped ${Math.abs(delta as number)} points - review the top ${top.length} finding${top.length === 1 ? "" : "s"} from this edit.`,
 				rationale:
 					"None of these are auto-fixable. Read each one against the source and decide whether the fix is to change the code or to add a justified suppression with a reason.",
 				ruleIds: top.map((f) => f.ruleId),

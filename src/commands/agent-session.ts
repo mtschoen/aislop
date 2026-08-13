@@ -209,7 +209,7 @@ export const runAgentSession = async (
 			await tui.finish({ footer: `Score ${afterFix.score ?? "?"}/100 · nothing to repair` });
 			log.success(
 				atTarget
-					? `Already at ${afterFix.score ?? "?"}/100 — nothing to do.`
+					? `Already at ${afterFix.score ?? "?"}/100 - nothing to do.`
 					: `Score ${afterFix.score ?? "?"}/100. No agent-fixable findings; run \`aislop fix\` for any auto-fixable issues.`,
 			);
 			return {

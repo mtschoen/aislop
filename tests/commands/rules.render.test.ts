@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildRuleDetailRender, buildRulesRender } from "../../src/commands/rules.js";
+import { toRuleEntry } from "../../src/commands/rules-entry.js";
 import { stripAnsi as strip } from "../helpers/ansi.js";
 
 describe("rules render", () => {
+	it("catalogs a skipped dependency audit as a warning", () => {
+		expect(toRuleEntry("security", "security/dependency-audit-skipped").severity).toBe("warning");
+	});
+
 	it("groups rules by engine, sorted by id", () => {
 		const out = strip(
 			buildRulesRender({

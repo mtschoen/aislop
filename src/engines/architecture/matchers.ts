@@ -29,7 +29,7 @@ const minimatch = (filePath: string, pattern: string): boolean => {
 			regex += "[^/]";
 			i++;
 		} else if (ch === "[") {
-			// Character class — pass through until ]
+			// Character class - pass through until ]
 			const closeIndex = pattern.indexOf("]", i + 1);
 			if (closeIndex === -1) {
 				regex += "\\[";

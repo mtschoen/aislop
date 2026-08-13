@@ -7,7 +7,7 @@ export { parseDotnetAudit, runDotnetAudit } from "./audit-dotnet.js";
 
 const withFixHint = (rest: string): string => {
 	const invocation = detectInvocation();
-	const suffix = rest ? ` — ${rest}` : "";
+	const suffix = rest ? ` - ${rest}` : "";
 	return `Run \`${invocation} fix -f\` to apply this fix${suffix}`;
 };
 

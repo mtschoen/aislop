@@ -64,7 +64,7 @@ export const removeUnusedDeclarations = (
 			} else if (matched.type === "skip") {
 				pendingSkips.push({ declaration: matched.declaration, reason: matched.reason });
 			} else {
-				// Not found at top level — probably inside a namespace/module or
+				// Not found at top level - probably inside a namespace/module or
 				// already removed. Skip quietly.
 				pendingSkips.push({ declaration: decl, reason: "declaration not found at top level" });
 			}

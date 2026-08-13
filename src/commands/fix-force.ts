@@ -107,7 +107,7 @@ const revertDowngrades = (rootDir: string, before: Map<string, string>): string[
 			if (!prior) continue;
 			if (isDowngrade(prior, version)) {
 				deps[name] = prior;
-				reverted.push(`${name} ${version} → ${prior}`);
+				reverted.push(`${name} ${version} -> ${prior}`);
 			}
 		}
 	}
@@ -132,7 +132,7 @@ const runNpmAuditFix = async (
 		timeout: INSTALL_TIMEOUT,
 	});
 
-	// npm audit fix exits non-zero when vulns remain — that's expected.
+	// npm audit fix exits non-zero when vulns remain - that's expected.
 	if (result.exitCode !== 0 && !result.stdout && !result.stderr) {
 		throw new Error("npm audit fix failed");
 	}
@@ -276,7 +276,7 @@ export const guardOverrides = (
 	for (const [key, target] of Object.entries(overrides)) {
 		const current = installed.get(overrideName(key));
 		if (current && isDowngrade(current, target)) {
-			skipped.push(`${overrideName(key)} ${current} → ${target}`);
+			skipped.push(`${overrideName(key)} ${current} -> ${target}`);
 			continue;
 		}
 		safe[key] = target;
@@ -381,7 +381,7 @@ const tryPnpmOverrides = async (
 		if (isPnpmAuditRetired(auditResult.stdout ?? "", auditResult.stderr ?? "")) {
 			return false;
 		}
-		// No output and no identifiable retirement signal — treat as a clean run.
+		// No output and no identifiable retirement signal - treat as a clean run.
 		return auditResult.exitCode === 0;
 	}
 

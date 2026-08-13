@@ -24,14 +24,14 @@ describe("error", () => {
 		);
 		expect(out).toContain("✗ Config not found");
 		expect(out).toContain("│ Looked in: ./.aislop/config.yml");
-		expect(out).toContain("→ Run aislop init to create one");
-		expect(out).toContain("→ Docs: https://aislop.dev/docs/config");
+		expect(out).toContain("-> Run aislop init to create one");
+		expect(out).toContain("-> Docs: https://aislop.dev/docs/config");
 	});
 
 	it("omits cause, hints, and docs when not provided", () => {
 		const out = strip(renderError({ message: "Boom" }, opts));
 		expect(out).toContain("✗ Boom");
 		expect(out).not.toContain("│");
-		expect(out).not.toContain("→");
+		expect(out).not.toContain("->");
 	});
 });

@@ -116,6 +116,17 @@ describe("parseJsAudit — modern vulnerabilities", () => {
 
 		expect(diagnostics).toHaveLength(2);
 	});
+
+	it("reports package-manager audit errors as warnings", () => {
+		const diagnostics = parseJsAudit(
+			JSON.stringify({ error: { code: "ERR_PNPM_AUDIT", summary: "registry unavailable" } }),
+			"pnpm audit",
+		);
+
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0].rule).toBe("security/dependency-audit-skipped");
+		expect(diagnostics[0].severity).toBe("warning");
+	});
 });
 
 describe("parseDotnetAudit - dotnet list package --vulnerable", () => {

@@ -48,7 +48,7 @@ export const renderRailStep = (step: RailStep, deps: RailDeps = {}): string => {
 };
 
 /**
- * Render a single vertical rail connector line — used between steps and
+ * Render a single vertical rail connector line - used between steps and
  * between the last step and the footer.
  */
 export const renderRailConnector = (deps: RailDeps = {}): string => {

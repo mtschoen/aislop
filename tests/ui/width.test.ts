@@ -28,7 +28,7 @@ describe("width", () => {
 	});
 
 	it("truncates with ellipsis when over max", () => {
-		expect(truncate("abcdefgh", 5)).toBe("abcd…");
+		expect(truncate("abcdefgh", 5)).toBe("ab...");
 	});
 
 	it("returns input unchanged when within max", () => {

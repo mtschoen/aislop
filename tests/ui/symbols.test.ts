@@ -11,7 +11,7 @@ describe("symbols", () => {
 		expect(s.pass).toBe("✓");
 		expect(s.fail).toBe("✗");
 		expect(s.warn).toBe("!");
-		expect(s.hint).toBe("→");
+		expect(s.hint).toBe("->");
 		expect(s.engineActive).toBe("⏵");
 		expect(s.neutral).toBe("─");
 	});

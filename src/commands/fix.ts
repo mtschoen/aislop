@@ -222,7 +222,7 @@ const runFixBody = async (
 	if (!options.agent && !options.prompt) {
 		if (totalResolved > 0) {
 			const t = defaultTheme;
-			const arrow = style(t, "muted", "→");
+			const arrow = style(t, "muted", "->");
 			process.stdout.write(
 				`\n ${style(t, "success", `Resolved ${totalResolved} issue${totalResolved === 1 ? "" : "s"}`)} ${arrow} ${style(t, "success", `${scoreResult.score} / 100 ${scoreResult.label}`)}\n`,
 			);

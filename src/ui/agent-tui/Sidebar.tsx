@@ -44,7 +44,7 @@ export const Sidebar = ({ state }: { state: AgentSessionState }) => {
 					value={
 						state.score != null && state.score >= state.targetScore
 							? `${state.score} ✓`
-							: `${state.score ?? "--"} → ${state.targetScore}`
+							: `${state.score ?? "--"} -> ${state.targetScore}`
 					}
 					color={scoreColor(state.score, state.targetScore)}
 				/>

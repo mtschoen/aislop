@@ -22,7 +22,7 @@ describe("rail", () => {
 					steps: [
 						{ status: "done", label: "Removed 12 unused imports" },
 						{ status: "done", label: "Applied 4 lint autofixes" },
-						{ status: "active", label: "Formatting…" },
+						{ status: "active", label: "Formatting..." },
 					],
 					footer: "Done · 18 fixed · 3 remain",
 				},
@@ -31,7 +31,7 @@ describe("rail", () => {
 		);
 		expect(out).toContain("◆ Removed 12 unused imports");
 		expect(out).toContain("◆ Applied 4 lint autofixes");
-		expect(out).toContain("◇ Formatting…");
+		expect(out).toContain("◇ Formatting...");
 		expect(out).toContain("└  Done · 18 fixed · 3 remain");
 		expect(out.match(/│/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
 	});
@@ -49,20 +49,20 @@ describe("rail", () => {
 			),
 		);
 		expect(out).toContain("✗ ruff not found");
-		expect(out).toContain("│ → Install: brew install ruff");
+		expect(out).toContain("│ -> Install: brew install ruff");
 	});
 
 	it("renders warn status with the ! glyph and warn color", () => {
 		const out = strip(
 			renderRail(
 				{
-					steps: [{ status: "warn", label: "Lint fixes (js/ts) — 4 remain" }],
+					steps: [{ status: "warn", label: "Lint fixes (js/ts) - 4 remain" }],
 					footer: "Done",
 				},
 				opts,
 			),
 		);
-		expect(out).toContain("! Lint fixes (js/ts) — 4 remain");
+		expect(out).toContain("! Lint fixes (js/ts) - 4 remain");
 	});
 
 	it("renders skipped steps with neutral glyph", () => {
@@ -118,7 +118,7 @@ describe("rail helpers", () => {
 			),
 		);
 		expect(out).toContain("✗ ruff not found\n");
-		expect(out).toContain("│ → Install: brew install ruff\n");
+		expect(out).toContain("│ -> Install: brew install ruff\n");
 	});
 
 	it("renderRailConnector renders a single │ line", () => {

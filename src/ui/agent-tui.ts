@@ -115,7 +115,7 @@ export class AgentTui {
 		this.streamedChars += line.length;
 		this.store.setEstimatedTokens(Math.round(this.streamedChars / 4));
 		const entry = classify(line);
-		// Drop low-signal lifecycle events (thread/turn/item.*) — the Steps panel
+		// Drop low-signal lifecycle events (thread/turn/item.*) - the Steps panel
 		// and sidebar already carry session state; only show what the agent did.
 		if (entry.kind === "event") return;
 		// Providers re-emit each command (on start, then in the completion summary),
