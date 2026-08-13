@@ -7,6 +7,21 @@ import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { CONFIG_DIR, CONFIG_FILE, findConfigDir, loadConfig } from "../src/config/index.js";
 import { parseConfig } from "../src/config/schema.js";
 
+const withStderr = (run: () => void): string => {
+	const chunks: string[] = [];
+	const originalWrite = process.stderr.write.bind(process.stderr);
+	process.stderr.write = (chunk: unknown) => {
+		chunks.push(String(chunk));
+		return true;
+	};
+	try {
+		run();
+	} finally {
+		process.stderr.write = originalWrite;
+	}
+	return chunks.join("");
+};
+
 // ─── parseConfig ──────────────────────────────────────────────────────────────
 
 describe("parseConfig", () => {
@@ -24,6 +39,17 @@ describe("parseConfig", () => {
 		expect(parseConfig("string")).toEqual(DEFAULT_CONFIG);
 		expect(parseConfig(42)).toEqual(DEFAULT_CONFIG);
 		expect(parseConfig(true)).toEqual(DEFAULT_CONFIG);
+	});
+
+	it("reports an invalid array root before using defaults", () => {
+		let result = parseConfig({});
+		const stderr = withStderr(() => {
+			result = parseConfig([]);
+		});
+
+		expect(result).toEqual(DEFAULT_CONFIG);
+		expect(stderr).toContain("(root) = []");
+		expect(stderr).toContain("Using default configuration");
 	});
 
 	it("returns defaults when called with an empty object", () => {
@@ -52,11 +78,63 @@ describe("parseConfig", () => {
 		expect(result.security.auditTimeout).toBe(DEFAULT_CONFIG.security.auditTimeout);
 	});
 
-	it("falls back to defaults when ci.format is an invalid value", () => {
+	it("uses the default when ci.format is an invalid value", () => {
 		const result = parseConfig({ ci: { format: "sarif" } });
-		// "sarif" is not a valid format, so zod validation falls back to defaults
+		// "sarif" is not a valid format, so only that field uses its default.
 		expect(result.ci.format).toBe("json");
 		expect(result.ci.failBelow).toBe(DEFAULT_CONFIG.ci.failBelow);
+	});
+
+	it("keeps valid fields when one nested field is invalid", () => {
+		let result = parseConfig({});
+		const stderr = withStderr(() => {
+			result = parseConfig({
+				ci: { failBelow: 92, format: "sarif" },
+				engines: { lint: false },
+				exclude: ["generated"],
+				quality: { maxFunctionLoc: 50 },
+			});
+		});
+
+		expect(result.ci.format).toBe(DEFAULT_CONFIG.ci.format);
+		expect(result.ci.failBelow).toBe(92);
+		expect(result.engines.lint).toBe(false);
+		expect(result.exclude).toEqual(["generated"]);
+		expect(result.quality.maxFunctionLoc).toBe(50);
+		expect(stderr).toContain("ci.format");
+		expect(stderr).toContain(JSON.stringify("sarif"));
+		expect(stderr).not.toContain("Using default configuration");
+	});
+
+	it("reports every rejected field by path and value", () => {
+		let result = parseConfig({});
+		const stderr = withStderr(() => {
+			result = parseConfig({
+				aiSlop: {
+					hardcodedUserPath: {
+						bannedRoots: ["alice", "/home/alice", "home/bob"],
+					},
+				},
+				ci: { format: "sarif" },
+				quality: { maxNesting: 0 },
+			});
+		});
+
+		expect(result.aiSlop.hardcodedUserPath.bannedRoots).toEqual(["/home/alice"]);
+		expect(stderr).toContain('aiSlop.hardcodedUserPath.bannedRoots.0 = "alice"');
+		expect(stderr).toContain('aiSlop.hardcodedUserPath.bannedRoots.2 = "home/bob"');
+		expect(stderr).toContain('ci.format = "sarif"');
+		expect(stderr).toContain("quality.maxNesting = 0");
+	});
+
+	it("reports an unusual rejected value without throwing", () => {
+		let result = parseConfig({});
+		const stderr = withStderr(() => {
+			result = parseConfig({ version: 1n });
+		});
+
+		expect(result.version).toBe(DEFAULT_CONFIG.version);
+		expect(stderr).toContain("version = 1n");
 	});
 
 	it("overrides engine toggles", () => {
@@ -77,6 +155,19 @@ describe("parseConfig", () => {
 		expect(result.scoring.weights.security).toBe(3.0);
 		// Other weights keep defaults
 		expect(result.scoring.weights.format).toBe(DEFAULT_CONFIG.scoring.weights.format);
+	});
+
+	it("uses the default for a rejected scoring weight", () => {
+		let result = parseConfig({});
+		const stderr = withStderr(() => {
+			result = parseConfig({
+				scoring: { weights: { format: 2, lint: "heavy" } },
+			});
+		});
+
+		expect(result.scoring.weights.format).toBe(2);
+		expect(result.scoring.weights.lint).toBe(DEFAULT_CONFIG.scoring.weights.lint);
+		expect(stderr).toContain('scoring.weights.lint = "heavy"');
 	});
 
 	it("overrides scoring thresholds", () => {
@@ -109,8 +200,7 @@ describe("parseConfig", () => {
 
 	it("requires explicit opt-in before evaluating C# project files", () => {
 		expect(
-			parseConfig({ lint: { csharp: { projectEvaluation: true } } }).lint.csharp
-				.projectEvaluation,
+			parseConfig({ lint: { csharp: { projectEvaluation: true } } }).lint.csharp.projectEvaluation,
 		).toBe(true);
 	});
 
@@ -149,21 +239,6 @@ describe("parseConfig", () => {
 // ─── aiSlop.hardcodedUserPath.bannedRoots ─────────────────────────────────────
 
 describe("parseConfig bannedRoots validation", () => {
-	const withStderr = (run: () => void): string => {
-		const chunks: string[] = [];
-		const originalWrite = process.stderr.write.bind(process.stderr);
-		process.stderr.write = (chunk: unknown) => {
-			chunks.push(String(chunk));
-			return true;
-		};
-		try {
-			run();
-		} finally {
-			process.stderr.write = originalWrite;
-		}
-		return chunks.join("");
-	};
-
 	it("defaults bannedRoots to an empty array", () => {
 		expect(parseConfig({}).aiSlop.hardcodedUserPath.bannedRoots).toEqual([]);
 	});
@@ -183,23 +258,18 @@ describe("parseConfig bannedRoots validation", () => {
 		["home/alice", "relative path"],
 		["", "empty string"],
 		["./relative", "dot-relative path"],
-	])(
-		"rejects a non-absolute root (%s: %s) and falls back to defaults with a visible message",
-		(root) => {
-			let cfg = parseConfig({});
-			const stderr = withStderr(() => {
-				cfg = parseConfig({ aiSlop: { hardcodedUserPath: { bannedRoots: [root] } } });
-			});
+	])("rejects a non-absolute root (%s: %s) with a visible message", (root) => {
+		let cfg = parseConfig({});
+		const stderr = withStderr(() => {
+			cfg = parseConfig({ aiSlop: { hardcodedUserPath: { bannedRoots: [root] } } });
+		});
 
-			// The whole config falls back to defaults, not just the bad entry -
-			// same behavior as any other schema validation failure in this file.
-			expect(cfg.aiSlop.hardcodedUserPath.bannedRoots).toEqual([]);
-			expect(stderr).toContain("Invalid aislop configuration");
-			expect(stderr).toContain("bannedRoots");
-			expect(stderr).toContain(JSON.stringify(root));
-			expect(stderr).toContain("Using default configuration");
-		},
-	);
+		expect(cfg.aiSlop.hardcodedUserPath.bannedRoots).toEqual([]);
+		expect(stderr).toContain("Invalid aislop configuration");
+		expect(stderr).toContain("bannedRoots");
+		expect(stderr).toContain(JSON.stringify(root));
+		expect(stderr).not.toContain("Using default configuration");
+	});
 });
 
 // ─── DEFAULT_CONFIG ────────────────────────────────────────────────────────────
@@ -375,6 +445,76 @@ describe("loadConfig", () => {
 		const result = loadConfig(tmpDir);
 		expect(result.ci.format).toBe("json");
 		expect(result.ci.failBelow).toBe(70);
+	});
+
+	it("keeps valid fields from a file containing one invalid field", () => {
+		const aislopDir = path.join(tmpDir, CONFIG_DIR);
+		fs.mkdirSync(aislopDir);
+		fs.writeFileSync(
+			path.join(aislopDir, CONFIG_FILE),
+			[
+				"ci:",
+				"  failBelow: 92",
+				"  format: sarif",
+				"engines:",
+				"  lint: false",
+				"exclude:",
+				"  - generated",
+				"quality:",
+				"  maxFunctionLoc: 50",
+			].join("\n"),
+			"utf-8",
+		);
+
+		let result = DEFAULT_CONFIG;
+		const stderr = withStderr(() => {
+			result = loadConfig(tmpDir);
+		});
+
+		expect(result.ci.format).toBe(DEFAULT_CONFIG.ci.format);
+		expect(result.ci.failBelow).toBe(92);
+		expect(result.engines.lint).toBe(false);
+		expect(result.exclude).toEqual(["generated"]);
+		expect(result.quality.maxFunctionLoc).toBe(50);
+		expect(stderr).toContain('ci.format = "sarif"');
+	});
+
+	it("reports a non-finite rejected value from a config file", () => {
+		const aislopDir = path.join(tmpDir, CONFIG_DIR);
+		fs.mkdirSync(aislopDir);
+		fs.writeFileSync(
+			path.join(aislopDir, CONFIG_FILE),
+			"quality:\n  maxNesting: .nan\nci:\n  failBelow: 92\n",
+			"utf-8",
+		);
+
+		let result = DEFAULT_CONFIG;
+		const stderr = withStderr(() => {
+			result = loadConfig(tmpDir);
+		});
+
+		expect(result.quality.maxNesting).toBe(DEFAULT_CONFIG.quality.maxNesting);
+		expect(result.ci.failBelow).toBe(92);
+		expect(stderr).toContain("quality.maxNesting = NaN");
+	});
+
+	it.each([
+		["array", "- item\n", '["item"]'],
+		["scalar", "42\n", "42"],
+		["null", "null\n", "null"],
+	])("reports an invalid %s config root by path and value", (_, contents, displayedValue) => {
+		const aislopDir = path.join(tmpDir, CONFIG_DIR);
+		fs.mkdirSync(aislopDir);
+		fs.writeFileSync(path.join(aislopDir, CONFIG_FILE), contents, "utf-8");
+
+		let result = parseConfig({ version: 2 });
+		const stderr = withStderr(() => {
+			result = loadConfig(tmpDir);
+		});
+
+		expect(result).toEqual(DEFAULT_CONFIG);
+		expect(stderr).toContain(`(root) = ${displayedValue}`);
+		expect(stderr).toContain("Using default configuration");
 	});
 
 	it("allows nested package config to extend a shared config above the package root", () => {

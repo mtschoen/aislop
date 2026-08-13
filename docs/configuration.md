@@ -52,6 +52,10 @@ telemetry:
   enabled: true          # set to false to opt out
 ```
 
+When a field has an invalid value, aislop reports its path and value, drops only that field, and
+keeps the rest of the configuration in effect. Invalid YAML and non-mapping document roots cannot
+be recovered field by field, so they use the full default configuration.
+
 ## Engines
 
 Each engine can be enabled or disabled individually:
@@ -97,9 +101,9 @@ aiSlop:
 Each entry must be an absolute path: a POSIX root starting with `/`, a Windows drive root
 (`C:\...` or `C:/...`), or a UNC root (`\\server\share...`). A relative or bare entry (`alice`,
 `home/alice`) is rejected rather than silently matched, because it would build a matcher with no
-path-boundary requirement and flag ordinary identifiers instead of hardcoded paths. A rejected
-entry falls the whole config back to defaults and prints a warning naming the offending value, the
-same way any other invalid config value does.
+path-boundary requirement and flag ordinary identifiers instead of hardcoded paths. Each rejected
+entry is dropped and reported by path and value; valid entries and all other valid configuration
+fields remain in effect.
 
 ## Engine weights
 

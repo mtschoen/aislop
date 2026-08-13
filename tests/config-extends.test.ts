@@ -27,6 +27,14 @@ describe("loadConfigChain", () => {
 		expect(loadConfigChain(p)).toEqual({});
 	});
 
+	it.each([
+		["document markers", "---\n...\n"],
+		["comments", "# intentionally empty\n"],
+	])("returns an empty object for a file containing only %s", (_, contents) => {
+		const p = write("empty.yml", contents);
+		expect(loadConfigChain(p)).toEqual({});
+	});
+
 	it("returns the file content when no extends present", () => {
 		const p = write("plain.yml", "engines:\n  format: false\nquality:\n  maxFunctionLoc: 50");
 		const merged = loadConfigChain(p);

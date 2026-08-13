@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
+import YAML, { isScalar } from "yaml";
+import { formatConfigValue } from "./format-value.js";
 
 const MAX_DEPTH = 5;
 const MAX_CONFIG_BYTES = 1024 * 1024;
@@ -16,6 +17,14 @@ type LoadConfigChainState = Required<LoadConfigChainOptions> & {
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
+
+const isEmptyYamlDocument = (raw: string): boolean => {
+	const contents = YAML.parseDocument(raw).contents;
+	return (
+		contents === null ||
+		(isScalar(contents) && contents.source === "" && contents.tag === undefined)
+	);
+};
 
 // child wins on scalar conflict, plain objects deep-merge, arrays replace.
 const deepMerge = (...sources: Record<string, unknown>[]): Record<string, unknown> => {
@@ -104,7 +113,13 @@ const loadConfigChainInner = (
 	const nextState = { ...state, visited: new Set(state.visited).add(absPath) };
 
 	const raw = fs.readFileSync(absPath, "utf-8");
-	const parsed = (YAML.parse(raw) ?? {}) as Record<string, unknown>;
+	const parsedValue = YAML.parse(raw);
+	const parsed = parsedValue === null && isEmptyYamlDocument(raw) ? {} : parsedValue;
+	if (!isPlainObject(parsed)) {
+		throw new Error(
+			`Invalid aislop configuration field (root) = ${formatConfigValue(parsed)}: expected a YAML mapping`,
+		);
+	}
 
 	const refs = normalizeExtends(parsed.extends);
 	const fromDir = path.dirname(absPath);

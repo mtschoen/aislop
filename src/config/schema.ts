@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { formatConfigValue } from "./format-value.js";
 
 const DEFAULT_WEIGHTS: Record<string, number> = {
 	format: 0.3,
@@ -208,50 +209,114 @@ export type AislopConfig = z.infer<typeof AislopConfigSchema>;
 
 const defaults: AislopConfig = AislopConfigSchema.parse({});
 
-/**
- * Pre-merge scoring weights so partial overrides extend the defaults
- * rather than replacing them entirely (z.record replaces by default).
- */
-const preMergeWeights = (raw: Record<string, unknown>): void => {
-	const scoring = raw.scoring as Record<string, unknown> | undefined;
-	if (!scoring) return;
+const mergeScoringWeightDefaults = (configuration: AislopConfig): AislopConfig => ({
+	...configuration,
+	scoring: {
+		...configuration.scoring,
+		weights: { ...DEFAULT_WEIGHTS, ...configuration.scoring.weights },
+	},
+});
 
-	const userWeights = scoring.weights as Record<string, number> | undefined;
-	if (!userWeights || typeof userWeights !== "object") return;
+interface ValidationIssue {
+	readonly message: string;
+	readonly path: PropertyKey[];
+}
 
-	scoring.weights = { ...DEFAULT_WEIGHTS, ...userWeights };
+const valueAtPath = (input: unknown, issuePath: readonly PropertyKey[]): unknown => {
+	let value = input;
+	for (const segment of issuePath) {
+		if (!value || typeof value !== "object") return undefined;
+		value = (value as Record<PropertyKey, unknown>)[segment];
+	}
+	return value;
 };
 
-/**
- * Renders a thrown validation error as a one-line, per-issue summary naming
- * the offending field and why it was rejected, rather than the raw
- * JSON-stringified issue array `ZodError#message` produces by default.
- */
-const describeValidationError = (error: unknown): string => {
-	if (error instanceof z.ZodError) {
-		return error.issues
-			.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-			.join("; ");
+const reportValidationIssues = (input: unknown, issues: readonly ValidationIssue[]): void => {
+	for (const issue of issues) {
+		const fieldPath = issue.path.join(".") || "(root)";
+		const rejectedValue = formatConfigValue(valueAtPath(input, issue.path));
+		process.stderr.write(
+			`  ⚠ Invalid aislop configuration field ${fieldPath} = ${rejectedValue}: ${issue.message}\n`,
+		);
 	}
-	return error instanceof Error ? error.message : String(error);
+};
+
+interface RemovalResult {
+	readonly input: unknown;
+	readonly removed: boolean;
+}
+
+const removeValueAtPath = (input: unknown, issuePath: readonly PropertyKey[]): RemovalResult => {
+	const [segment, ...remainingPath] = issuePath;
+	if (segment === undefined || !input || typeof input !== "object") {
+		return { input, removed: false };
+	}
+
+	if (Array.isArray(input)) {
+		if (typeof segment !== "number" || segment < 0 || segment >= input.length) {
+			return { input, removed: false };
+		}
+		const copy = [...input];
+		if (remainingPath.length === 0) {
+			copy.splice(segment, 1);
+			return { input: copy, removed: true };
+		}
+		const childResult = removeValueAtPath(copy[segment], remainingPath);
+		if (!childResult.removed) return { input, removed: false };
+		copy[segment] = childResult.input;
+		return { input: copy, removed: true };
+	}
+
+	const record = input as Record<PropertyKey, unknown>;
+	if (!Object.hasOwn(record, segment)) return { input, removed: false };
+	const copy = { ...record };
+	if (remainingPath.length === 0) {
+		delete copy[segment];
+		return { input: copy, removed: true };
+	}
+	const childResult = removeValueAtPath(copy[segment], remainingPath);
+	if (!childResult.removed) return { input, removed: false };
+	copy[segment] = childResult.input;
+	return { input: copy, removed: true };
+};
+
+const orderPathsForRemoval = (left: ValidationIssue, right: ValidationIssue): number => {
+	const leftParent = left.path.slice(0, -1);
+	const rightParent = right.path.slice(0, -1);
+	const sameParent =
+		leftParent.length === rightParent.length &&
+		leftParent.every((segment, index) => segment === rightParent[index]);
+	const leftLast = left.path.at(-1);
+	const rightLast = right.path.at(-1);
+	if (sameParent && typeof leftLast === "number" && typeof rightLast === "number") {
+		return rightLast - leftLast;
+	}
+	return right.path.length - left.path.length;
 };
 
 export const parseConfig = (raw: unknown): AislopConfig => {
 	if (!raw || typeof raw !== "object") return defaults;
 
-	try {
-		const input = raw as Record<string, unknown>;
-		preMergeWeights(input);
-		return AislopConfigSchema.parse(input);
-	} catch (error) {
-		// Validation failures fall back to defaults rather than crashing, but
-		// the fallback must be visible: a silently discarded config (or, worse,
-		// a silently discarded single field) reads as "it's configured" when it
-		// is not. See docs/rules.md for the bannedRoots case this guards.
-		process.stderr.write(
-			`  ⚠ Invalid aislop configuration: ${describeValidationError(error)}\n` +
-				`  ⚠ Using default configuration.\n`,
-		);
-		return defaults;
+	let input: unknown = Array.isArray(raw) ? [...raw] : { ...(raw as Record<string, unknown>) };
+	while (true) {
+		const result = AislopConfigSchema.safeParse(input);
+		if (result.success) return mergeScoringWeightDefaults(result.data);
+
+		reportValidationIssues(input, result.error.issues);
+		if (result.error.issues.some((issue) => issue.path.length === 0)) {
+			process.stderr.write("  ⚠ Using default configuration.\n");
+			return defaults;
+		}
+
+		let removedAny = false;
+		for (const issue of [...result.error.issues].sort(orderPathsForRemoval)) {
+			const removal = removeValueAtPath(input, issue.path);
+			input = removal.input;
+			removedAny ||= removal.removed;
+		}
+		if (!removedAny) {
+			process.stderr.write("  ⚠ Using default configuration.\n");
+			return defaults;
+		}
 	}
 };
