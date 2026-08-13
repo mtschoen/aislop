@@ -139,6 +139,58 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 - Do not merge PRs, publish releases, or promote branches unless explicitly asked in the current task.
 - Verify package installs in a clean temp environment before reporting a published package as working.
 
+## Rule design: state a closed decision surface
+
+Before writing a detector, write down the question it answers and check that the
+question has a finite, enumerable answer. A rule that decides **semantics from
+syntax over an open-ended input space cannot be finished by iteration**: a
+reviewer probing it adversarially will always find two more real
+misclassifications, each fix will be correct, and the defect count will not
+converge. Three detectors stalled this way, accumulating 17 review rounds
+between them with no quality improvement, until the guessing subsystems were
+deleted rather than refined.
+
+Signs the surface is open, and the rule needs rescoping rather than another fix:
+
+- The detector infers intent ("is this configuration, or data?", "is this a
+  route, or a filesystem path?"). Intent has no syntactic answer.
+- It assigns meaning to context instead of asking a closed structural question:
+  what surrounding declarations mean or what an identifier was bound to. Reading
+  bounded neighboring syntax or following AST parent nodes is still structural
+  when the resulting question has a definite answer.
+- Each review round fixes the named case and surfaces a different case on the
+  same axis.
+
+What a closed surface looks like: a literal list you can read in one sitting, a
+single-line pattern, or a structural query with a definite answer. A closed list
+can be under-inclusive or over-inclusive, and a reviewer can probe it
+exhaustively and stop. That is the property that makes a rule finishable.
+
+Concrete guidance:
+
+- **Python detectors must be structurally decidable without reconstructing Python
+  semantics.** No import tracking, alias resolution, scope stacks, or decorator
+  scope. `python-patterns.ts` is the house pattern: match explicit spellings and
+  bounded lexical shapes such as one line, a fixed neighboring window, a
+  delimited signature, or a literal whole-file marker. Treat unrecognized aliases
+  and bindings as documented non-detections. Modelling Python binding semantics
+  with regexes and no parser does not work.
+- **JS/TS detectors may use TypeScript AST state**, because structural queries
+  (is this node a property assignment?) have definite answers. Inferring meaning
+  from surrounding syntax does not become sound just because an AST is available.
+- **Under-reporting is acceptable; misfiring on valid code is not.** A rule that
+  fires on ordinary application code gets the whole engine switched off, which
+  costs more than every finding it would ever produce.
+- **Record the bounds in `docs/rules.md` when the rule lands**, not after someone
+  rediscovers them. State what is deliberately not detected and why. A
+  documented non-detection is a design decision; an undocumented one reads as a
+  bug, and a doc that claims more coverage than the code delivers turns a correct
+  diagnostic into an apparent misfire.
+- **Let the author express intent, not the detector guess it.** The inline
+  suppression `// aislop-ignore-next-line <rule> -- reason` exists for the case
+  the rule cannot decide. Reach for it instead of growing an exclusion list,
+  because a growing exclusion list is the open surface coming back.
+
 ## Adding new AI slop rules
 
 1. Pick the right file in `src/engines/ai-slop/` (or create a new one)
