@@ -61,7 +61,18 @@ scripts portable:
 - **Version injection**: `tsdown.config.ts` reads `package.json` version and injects it via `env.VERSION`. Access it in source via `process.env.VERSION`.
 - **vitest** for testing with a 30-second timeout
 - **pnpm** as the package manager (pnpm-workspace.yaml, pnpm-lock.yaml)
-- **Node >= 20 required**. `tsdown`/`rolldown` uses `node:util.styleText` which requires Node 20.12+
+- **Two different Node floors. Do not conflate them.**
+  - *Runtime* (running the built CLI): Node >= 20, as `engines.node` declares. The
+    bundle targets node18, so an npm install of a published release runs fine on 20.
+  - *Build* (anything that runs `tsdown`: `pnpm build`, `pnpm test`, and the
+    `prepare` script that fires on every git/source install): Node `^22.18 || >=24.11`,
+    because tsdown 0.22 calls `Promise.withResolvers`, which landed in Node 22.
+    On Node 20 the build dies with `TypeError: Promise.withResolvers is not a function`.
+    CI matrixes here are 22/24 for this reason.
+
+  This bites consumers that clone the fork and build it in CI, since `engines.node`
+  advertises only the runtime floor. Any CI that builds aislop from source needs
+  Node 22+, not 20.
 
 ## Project structure
 
