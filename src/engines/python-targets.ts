@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getSourceFiles } from "../utils/source-files.js";
+import { getSourceFiles, getTestFiles } from "../utils/source-files.js";
 import type { EngineContext } from "./types.js";
 
 const PYTHON_EXTENSIONS = new Set([".py", ".pyi"]);
@@ -23,6 +23,12 @@ export const getPythonTargets = (context: EngineContext): string[] => {
 
 	return [...new Set(targets)];
 };
+
+export const getPythonLintTargets = (context: EngineContext): string[] =>
+	getPythonTargets({
+		...context,
+		files: [...getSourceFiles(context), ...getTestFiles(context)],
+	});
 
 export const getRuffDiagnosticPath = (rootDirectory: string, filePath: string): string => {
 	const normalizedPath = stripAnsi(filePath).replace(/^a\//, "");

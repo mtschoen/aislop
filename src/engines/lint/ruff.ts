@@ -1,6 +1,6 @@
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveToolBinary } from "../../utils/tooling.js";
-import { getPythonTargets, getRuffDiagnosticPath } from "../python-targets.js";
+import { getPythonLintTargets, getRuffDiagnosticPath } from "../python-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
 interface RuffDiagnostic {
@@ -15,7 +15,7 @@ export const runRuffLint = async (
 	context: EngineContext,
 	ruffBinary = resolveToolBinary("ruff"),
 ): Promise<Diagnostic[]> => {
-	const targets = getPythonTargets(context);
+	const targets = getPythonLintTargets(context);
 	if (targets.length === 0) return [];
 
 	try {

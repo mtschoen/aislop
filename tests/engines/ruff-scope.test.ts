@@ -24,7 +24,7 @@ const writeFakeRuff = (rootDirectory: string): string => {
 const path = require("node:path");
 const targets = process.argv.slice(2).filter((arg) => !arg.startsWith("-") && arg !== "check");
 const diagnostics = targets
-  .filter((target) => path.basename(target) === "bad.py")
+  .filter((target) => path.basename(target).endsWith("bad.py"))
   .map((target) => ({
     code: "F401",
     message: "\`definitely_unused\` imported but unused",
@@ -41,11 +41,16 @@ process.exit(diagnostics.length > 0 ? 1 : 0);
 	return ruffPath;
 };
 
-const buildContext = (rootDirectory: string, files?: string[]): EngineContext => ({
+const buildContext = (
+	rootDirectory: string,
+	files?: string[],
+	testFiles?: string[],
+): EngineContext => ({
 	rootDirectory,
 	languages: ["python"],
 	frameworks: [],
 	files,
+	testFiles,
 	installedTools: { ruff: true },
 	config: {
 		quality: DEFAULT_CONFIG.quality,
@@ -88,5 +93,26 @@ describe.skipIf(process.platform === "win32")("ruff scope", () => {
 		const diagnostics = await runRuffLint(buildContext(tmpDir, [badFile]), fakeRuffPath);
 
 		expect(diagnostics.some((diagnostic) => diagnostic.rule === "ruff/F401")).toBe(true);
+	});
+
+	it("lints Python tests when the selected source files belong to another language", async () => {
+		const sourceFile = writeFile(tmpDir, "web/app.ts", "export const app = true;\n");
+		const badTest = writeFile(
+			tmpDir,
+			"packages/pr_crew/tests/test_bad.py",
+			"import definitely_unused\n",
+		);
+
+		const diagnostics = await runRuffLint(
+			buildContext(tmpDir, [sourceFile], [badTest]),
+			fakeRuffPath,
+		);
+
+		expect(diagnostics).toEqual([
+			expect.objectContaining({
+				filePath: "packages/pr_crew/tests/test_bad.py",
+				rule: "ruff/F401",
+			}),
+		]);
 	});
 });
