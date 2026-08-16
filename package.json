@@ -89,7 +89,7 @@
     "url": "https://github.com/scanaislop/aislop/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^22.18.0 || >=24.11.0"
   },
   "packageManager": "pnpm@10.28.0",
   "dependencies": {
