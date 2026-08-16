@@ -141,6 +141,7 @@ const analyzeJbTarget = async (
 	parseOptions: JbParseOptions,
 	coarseFloor: JbSeverity,
 	projectScope: string | undefined,
+	includeCsharp: boolean,
 	includeCpp: boolean,
 	target: string,
 ): Promise<Diagnostic[]> => {
@@ -160,8 +161,17 @@ const analyzeJbTarget = async (
 		];
 		if (settings) args.push(`--settings=${settings}`);
 		if (projectScope) args.push(`--project=${projectScope}`);
-		// C++ inspection does not require an MSBuild build pass.
-		if (includeCpp) args.push("--no-build");
+		if (includeCsharp) {
+			// Solution-wide analysis ensures cross-project symbol usage is indexed,
+			// preventing spurious UnusedAutoPropertyAccessor.Global / UnusedMember.Global
+			// findings on cold caches.
+			args.push("--swea");
+		}
+		// C++-only inspection does not require an MSBuild build pass.
+		// C# inspections require the build pass for project model and intermediate assemblies.
+		if (includeCpp && !includeCsharp) {
+			args.push("--no-build");
+		}
 		// jb is slow (solution-wide, with build): allow up to 10 minutes.
 		await runSubprocess(jb, args, { cwd: context.rootDirectory, timeout: 600000 });
 
@@ -233,6 +243,7 @@ export const runJbLint = async (
 				parseOptions,
 				coarseFloor,
 				projectScope,
+				options.includeCsharp,
 				options.includeCpp,
 				target,
 			)),

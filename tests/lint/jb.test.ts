@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lintEngine } from "../../src/engines/lint/index.js";
 import {
 	buildJbProjectScope,
@@ -10,6 +10,12 @@ import {
 	runJbLint,
 } from "../../src/engines/lint/jb.js";
 import type { EngineContext } from "../../src/engines/types.js";
+
+const { runSubprocessMock } = vi.hoisted(() => ({ runSubprocessMock: vi.fn() }));
+vi.mock("../../src/utils/subprocess.js", async (importOriginal) => {
+	const original = await importOriginal<typeof import("../../src/utils/subprocess.js")>();
+	return { ...original, runSubprocess: runSubprocessMock };
+});
 
 const fixture = (): string =>
 	fs.readFileSync(path.join(__dirname, "../fixtures/dotnet/jb-output.xml"), "utf-8");
@@ -196,3 +202,53 @@ describe("lintEngine C# selection", () => {
 		expect(result.skipped).toBe(true); // both passes disabled -> no promises -> skipped
 	});
 });
+
+describe("runJbLint inspectcode CLI options", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-jb-args-"));
+		fs.writeFileSync(path.join(tmpDir, "App.sln"), "");
+		runSubprocessMock.mockReset();
+		runSubprocessMock.mockImplementation(async (_bin: string, args: string[]) => {
+			const outputArg = args.find((a) => a.startsWith("--output="));
+			if (outputArg) {
+				const outputPath = outputArg.slice("--output=".length);
+				fs.writeFileSync(
+					outputPath,
+					'<Report ToolsVersion="2026.1"><Issues><Project Name="App" /></Issues></Report>',
+				);
+			}
+			return { exitCode: 0, stdout: "", stderr: "" };
+		});
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("passes --swea and omits --no-build when analyzing C#", async () => {
+		await runJbLint(ctx(tmpDir), { includeCsharp: true, includeCpp: false });
+		expect(runSubprocessMock).toHaveBeenCalledTimes(1);
+		const args = runSubprocessMock.mock.calls[0][1] as string[];
+		expect(args).toContain("--swea");
+		expect(args).not.toContain("--no-build");
+	});
+
+	it("passes --swea and omits --no-build when analyzing mixed C# and C++", async () => {
+		await runJbLint(ctx(tmpDir), { includeCsharp: true, includeCpp: true });
+		expect(runSubprocessMock).toHaveBeenCalledTimes(1);
+		const args = runSubprocessMock.mock.calls[0][1] as string[];
+		expect(args).toContain("--swea");
+		expect(args).not.toContain("--no-build");
+	});
+
+	it("passes --no-build and omits --swea when analyzing only C++", async () => {
+		await runJbLint(ctx(tmpDir), { includeCsharp: false, includeCpp: true });
+		expect(runSubprocessMock).toHaveBeenCalledTimes(1);
+		const args = runSubprocessMock.mock.calls[0][1] as string[];
+		expect(args).toContain("--no-build");
+		expect(args).not.toContain("--swea");
+	});
+});
+
