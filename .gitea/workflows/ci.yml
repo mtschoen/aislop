@@ -28,7 +28,8 @@
 # to a bundled 7zr.exe that exits 2 on this runner (actions/setup-node#1147)
 # - every windows-latest leg that uses it fails outright, independent of
 # anything in this repo. The llamabox-windows VM has one Node LTS
-# preinstalled (satisfies aislop's engines.node >=20 floor), so the windows
+# preinstalled (satisfies aislop's engines.node ^22.18 || >=24.11 floor,
+# which tsdown's Promise.withResolvers usage requires anyway), so the windows
 # job uses that directly and does not run an OS/version matrix (there is
 # only the one host Node to test against). pnpm on that leg comes from
 # Corepack - bundled with Node, activated straight from package.json's
