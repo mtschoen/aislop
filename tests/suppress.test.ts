@@ -167,6 +167,109 @@ describe("applySuppressions", () => {
 		);
 		expect(suppressedCount).toBe(0);
 	});
+
+	it("suppresses all rules on next line when directive has a reason clause without rule", () => {
+		write("a.ts", "// aislop-ignore-next-line -- reason explaining why all rules are ignored\nconst x = 1;\n");
+		const { results, suppressedCount } = applySuppressions(
+			wrap([diag("a.ts", 2, "ai-slop/empty-fallback"), diag("a.ts", 2, "ai-slop/other")]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(2);
+		expect(results[0].diagnostics).toHaveLength(0);
+	});
+
+	it("suppresses all findings in file for bare aislop-ignore-file without rule or reason", () => {
+		write("a.ts", "// aislop-ignore-file\nconst a = 1;\nconst b = 2;\n");
+		const { results, suppressedCount } = applySuppressions(
+			wrap([
+				diag("a.ts", 2, "ai-slop/empty-fallback"),
+				diag("a.ts", 3, "ai-slop/csharp-suppressed-warning"),
+			]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(2);
+		expect(results[0].diagnostics).toHaveLength(0);
+	});
+
+	it("suppresses all findings in file for aislop-ignore-file with reason clause but no rule", () => {
+		write("a.ts", "// aislop-ignore-file -- entire legacy fixture is uninspected\nconst a = 1;\nconst b = 2;\n");
+		const { results, suppressedCount } = applySuppressions(
+			wrap([
+				diag("a.ts", 2, "ai-slop/empty-fallback"),
+				diag("a.ts", 3, "ai-slop/csharp-suppressed-warning"),
+			]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(2);
+		expect(results[0].diagnostics).toHaveLength(0);
+	});
+
+	it("suppresses and tallies named rule on same line with and without reason", () => {
+		write(
+			"a.ts",
+			"const x = 1; // aislop-ignore-line ai-slop/empty-fallback\nconst y = 2; // aislop-ignore-line ai-slop/empty-fallback -- known legacy\n",
+		);
+		const { results, suppressedCount } = applySuppressions(
+			wrap([
+				diag("a.ts", 1, "ai-slop/empty-fallback"),
+				diag("a.ts", 1, "ai-slop/other"),
+				diag("a.ts", 2, "ai-slop/empty-fallback"),
+				diag("a.ts", 2, "ai-slop/other"),
+			]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(2);
+		expect(results[0].diagnostics.map((d) => d.rule)).toEqual(["ai-slop/other", "ai-slop/other"]);
+	});
+
+	it("suppresses all rules on same line when directive has a reason clause without rule", () => {
+		write("a.ts", "const x = 1; // aislop-ignore-line -- ignore everything on this line\n");
+		const { results, suppressedCount } = applySuppressions(
+			wrap([diag("a.ts", 1, "ai-slop/empty-fallback"), diag("a.ts", 1, "ai-slop/other")]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(2);
+		expect(results[0].diagnostics).toHaveLength(0);
+	});
+
+	it("suppresses multiple rules listed in a single directive", () => {
+		write(
+			"a.ts",
+			"// aislop-ignore-next-line empty-fallback other\nconst x = 1;\n// aislop-ignore-next-line empty-fallback, other -- with reason\nconst y = 2;\n",
+		);
+		const { results, suppressedCount } = applySuppressions(
+			wrap([
+				diag("a.ts", 2, "ai-slop/empty-fallback"),
+				diag("a.ts", 2, "ai-slop/other"),
+				diag("a.ts", 2, "ai-slop/third-rule"),
+				diag("a.ts", 4, "ai-slop/empty-fallback"),
+				diag("a.ts", 4, "ai-slop/other"),
+				diag("a.ts", 4, "ai-slop/third-rule"),
+			]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(4);
+		expect(results[0].diagnostics.map((d) => d.line)).toEqual([2, 4]);
+		expect(results[0].diagnostics.map((d) => d.rule)).toEqual([
+			"ai-slop/third-rule",
+			"ai-slop/third-rule",
+		]);
+	});
+
+	it("treats prose without -- as rule tokens so it does not match unmentioned rules", () => {
+		// If reason text is provided without '--', words are parsed as rule names.
+		// It will not match rules not named in the text, but adding '--' makes it match all rules.
+		write(
+			"a.ts",
+			"// aislop-ignore-next-line intentional bypass for migration\nconst x = 1;\n",
+		);
+		const { results, suppressedCount } = applySuppressions(
+			wrap([diag("a.ts", 2, "ai-slop/empty-fallback")]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(0);
+		expect(results[0].diagnostics).toHaveLength(1);
+	});
 });
 
 describe("aislop directive lines are invisible to comment blocks", () => {
