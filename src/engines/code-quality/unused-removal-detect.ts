@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- the oxlint and knip result loops build similar Diagnostic objects but extract the unused-declaration name and kind through source-specific logic (regex parsing of oxlint messages versus a static lookup table for knip rule ids), so the two loops stay separate rather than sharing a generic extractor
 
 import { runOxlint } from "../lint/oxlint.js";
 import type { Diagnostic, EngineContext } from "../types.js";

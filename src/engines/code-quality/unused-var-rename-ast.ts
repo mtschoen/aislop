@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- renameIdentifierInPlace and shorthandToAliased both build a PendingEdit from an identifier's start and end, but they are the two rewrite strategies selected by computeEdit's switch over BindingShape and produce different replacement text, so keeping them as separate small functions matches the shape they are dispatched on
 import ts from "typescript";
 
 /**

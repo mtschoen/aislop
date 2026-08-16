@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- runNpmAudit, runBunAudit, and runPnpmAuditWithFallback are per-package-manager audit runners; bun emits a different JSON shape than npm/pnpm (hence its own parser) and pnpm has an npm fallback path the others do not, so the similar try/catch wrapping reflects three distinct external tools rather than one tool called three times
 import fs from "node:fs";
 import path from "node:path";
 import { isDependencyAuditInputFile } from "../../utils/source-file-selection.js";

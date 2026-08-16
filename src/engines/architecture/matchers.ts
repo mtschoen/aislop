@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- applyForbidImport, applyForbidImportFromPath, and applyRequirePattern each build a Diagnostic for one architecture rule type dispatched by applyRule; the near-identical object literals are one per enumerated rule type, not copy-paste drift
 import fs from "node:fs";
 import path from "node:path";
 import { relativePosix } from "../../utils/paths.js";

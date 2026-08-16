@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- TTY and PLAIN are parallel glyph tables sharing the same Symbols keys for two rendering modes (a real terminal versus plain or no-color output); this mirrors the parallel color-capability tables in theme.ts
 export interface Symbols {
 	stepActive: string;
 	stepDone: string;

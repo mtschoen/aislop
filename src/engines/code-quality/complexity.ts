@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- checkFileDiagnostics and checkFunctionDiagnostics each push a near-identical Diagnostic literal per complexity axis (file size, function length, nesting depth, parameter count); the axes have independent thresholds and messages so collapsing them into a loop would hide which limit fired
 import fs from "node:fs";
 import path from "node:path";
 import { relativePosix } from "../../utils/paths.js";

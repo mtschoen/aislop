@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- buildHookGroup, buildStopHookGroup, and buildFileChangedHookGroup each assemble a Claude Code settings.json hook entry for a different lifecycle event (PostToolUse, Stop, FileChanged) with its own matcher and command string, so the near-identical object shape is one block per hook type rather than a copy-paste table
 import path from "node:path";
 import { AISLOP_MD_BODY } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";

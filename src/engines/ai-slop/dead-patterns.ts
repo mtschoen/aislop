@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- the three diagnostic-push blocks in detectDeadCodePatterns (unreachable code, constant condition, empty function) each carry distinct guard conditions, so a shared data-driven loop would bury the per-pattern logic instead of clarifying it
 import fs from "node:fs";
 import path from "node:path";
 import { relativePosix } from "../../utils/paths.js";

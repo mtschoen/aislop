@@ -1,4 +1,4 @@
-// aislop-ignore-file duplicate-block
+// aislop-ignore-file duplicate-block -- TRUECOLOR, C256, and NONE are parallel paint tables sharing the same Token keys for three terminal color-capability tiers; the escape sequences legitimately differ per tier, so generating the table would trade a readable lookup for indirection with no real reduction in duplication
 import pc from "picocolors";
 
 type ColorMode = "truecolor" | "256" | "none" | "auto";
