@@ -217,7 +217,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/double-type-assertion` | warning | `as unknown as X` pattern |
 | `ai-slop/ts-directive` | info | `@ts-ignore` / `@ts-expect-error` usage |
 | `ai-slop/duplicate-import` | warning | Multiple imports from the same module that should be merged |
-| `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config |
+| `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config; Python docstring content is exempt (see notes below the table) |
 | `ai-slop/hardcoded-id` | warning | Provider/project IDs hardcoded in production code instead of env/config |
 | `ai-slop/hardcoded-user-path` | warning | Configured or runtime home-directory paths hardcoded in source or tests instead of runtime APIs/config |
 | `ai-slop/repeated-magic-literal` | warning | The same name and value pair repeats more than `quality.repeatedLiteralThreshold` times in supported Python, JavaScript, or TypeScript source, regardless of surrounding structure |
@@ -420,6 +420,15 @@ parentheses, including f-string replacement fields that nest same-quote
 strings (PEP 701, Python 3.12+); the one accepted approximation is a `#`
 comment inside a multi-line replacement field, which is treated as expression
 text because `#` is also a format-spec character.
+
+**`ai-slop/hardcoded-url` and Python docstrings.** URLs inside Python
+docstrings are documentation examples, not deployment targets, and are exempt.
+A triple-quoted literal counts as a docstring only when docstring-positioned:
+its opening delimiter (after optional prefix letters) is the first thing on
+its line, making the string a bare expression statement - PEP 257
+first-statement docstrings, attribute docstrings, and block-comment strings,
+including the single-line form. An assigned or call-wrapped triple-quoted
+value is a runtime value and stays scanned.
 
 ## Security
 
