@@ -217,7 +217,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/double-type-assertion` | warning | `as unknown as X` pattern |
 | `ai-slop/ts-directive` | info | `@ts-ignore` / `@ts-expect-error` usage |
 | `ai-slop/duplicate-import` | warning | Multiple imports from the same module that should be merged |
-| `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config. URLs inside Python docstrings are exempt; a triple-quoted literal counts as a docstring only when docstring-positioned (its opening delimiter, after optional prefix letters, starts the line - PEP 257 first-statement docstrings, attribute docstrings, and block-comment strings), including the single-line form. An assigned or call-wrapped triple-quoted value is a runtime value and stays scanned |
+| `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config; Python docstring content is exempt (see notes below the table) |
 | `ai-slop/hardcoded-id` | warning | Provider/project IDs hardcoded in production code instead of env/config |
 | `ai-slop/python-bare-except` | warning | Python `except:` blocks that catch everything without naming an exception type |
 | `ai-slop/python-broad-except` | warning | Python broad exception handlers with silent/pass-style bodies |
@@ -255,6 +255,17 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/cpp-endl-in-stream` | warning | `<< std::endl` flushes the stream on every call; prefer `'\n'` |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
+
+### Rule notes
+
+**`ai-slop/hardcoded-url` and Python docstrings.** URLs inside Python
+docstrings are documentation examples, not deployment targets, and are exempt.
+A triple-quoted literal counts as a docstring only when docstring-positioned:
+its opening delimiter (after optional prefix letters) is the first thing on
+its line, making the string a bare expression statement - PEP 257
+first-statement docstrings, attribute docstrings, and block-comment strings,
+including the single-line form. An assigned or call-wrapped triple-quoted
+value is a runtime value and stays scanned.
 
 ## Security
 
