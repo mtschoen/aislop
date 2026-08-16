@@ -422,8 +422,14 @@ describe("loadConfig", () => {
 		const aislopDir = path.join(tmpDir, CONFIG_DIR);
 		fs.mkdirSync(aislopDir);
 		fs.writeFileSync(path.join(aislopDir, CONFIG_FILE), "{ invalid yaml: [", "utf-8");
-		const result = loadConfig(tmpDir);
+		let result = DEFAULT_CONFIG;
+		const stderr = withStderr(() => {
+			result = loadConfig(tmpDir);
+		});
+
 		expect(result).toEqual(DEFAULT_CONFIG);
+		expect(stderr).toContain(`Failed to parse ${path.join(aislopDir, CONFIG_FILE)}`);
+		expect(stderr).toContain("Using default configuration");
 	});
 
 	it("returns DEFAULT_CONFIG when config.yml is empty", () => {
