@@ -78,8 +78,10 @@ const flagRedundantDoc = (lines: readonly string[], relPath: string, out: Diagno
 
 const PRAGMA_DISABLE_RE = /#pragma\s+warning\s+disable\b/;
 const PRAGMA_RESTORE_RE = /#pragma\s+warning\s+restore\b/;
-const SUPPRESS_MESSAGE_RE = /\bSuppressMessage\s*\(/;
-const JUSTIFICATION_RE = /Justification\s*=\s*"([^"]*)"/i;
+const SUPPRESS_MESSAGE_CALL_RE = /\bSuppressMessage(?:Attribute)?\s*\(/g;
+const JUSTIFICATION_ARG_RE = /\bJustification\s*=/i;
+const JUSTIFICATION_VALUE_RE =
+	/\bJustification\s*=\s*(?:@\$?|\$@?)?(?:"""([\s\S]*?)"""|"([^"\\]*(?:\\.[^"\\]*)*)"|@?"((?:[^"]|"")*)")/i;
 // Justifications the IDE/agents auto-insert that carry no real reason.
 const PLACEHOLDER_JUSTIFICATION_RE = /^(?:<pending>|pending|todo|)$/i;
 
@@ -94,6 +96,65 @@ const precededByComment = (lines: readonly string[], lineIndex: number): boolean
 		return trimmed.startsWith("//");
 	}
 	return false;
+};
+
+// Extract the argument slice of `(...)` across single- or multi-line attribute declarations.
+// In source.code, string bodies and comments are masked to spaces, so parenthesis depth
+// tracks true syntax structure without false matches inside literals or comments.
+const extractParenthesizedSpan = (
+	source: CSharpSourceLines,
+	startLine: number,
+	openParenthesisColumn: number,
+): { codeBody: string; rawBody: string; endLine: number } => {
+	let depth = 0;
+	let endLine = startLine;
+	let endColumn = -1;
+
+	for (let lineIndex = startLine; lineIndex < source.code.length; lineIndex++) {
+		const line = source.code[lineIndex];
+		const startColumn = lineIndex === startLine ? openParenthesisColumn : 0;
+		for (let column = startColumn; column < line.length; column++) {
+			if (line[column] === "(") {
+				depth++;
+			} else if (line[column] === ")") {
+				depth--;
+				if (depth === 0) {
+					endLine = lineIndex;
+					endColumn = column;
+					break;
+				}
+			}
+		}
+		if (depth === 0) break;
+	}
+
+	if (endColumn === -1) {
+		endLine = Math.min(startLine + 20, source.code.length - 1);
+		endColumn = source.code[endLine].length;
+	}
+
+	if (startLine === endLine) {
+		return {
+			codeBody: source.code[startLine].slice(openParenthesisColumn + 1, endColumn),
+			rawBody: source.raw[startLine].slice(openParenthesisColumn + 1, endColumn),
+			endLine,
+		};
+	}
+
+	const codeParts: string[] = [source.code[startLine].slice(openParenthesisColumn + 1)];
+	const rawParts: string[] = [source.raw[startLine].slice(openParenthesisColumn + 1)];
+	for (let lineIndex = startLine + 1; lineIndex < endLine; lineIndex++) {
+		codeParts.push(source.code[lineIndex]);
+		rawParts.push(source.raw[lineIndex]);
+	}
+	codeParts.push(source.code[endLine].slice(0, endColumn));
+	rawParts.push(source.raw[endLine].slice(0, endColumn));
+
+	return {
+		codeBody: codeParts.join("\n"),
+		rawBody: rawParts.join("\n"),
+		endLine,
+	};
 };
 
 // Suppressing a warning without saying why is the canonical move to make a
@@ -122,18 +183,36 @@ const flagSuppressedWarnings = (
 			continue;
 		}
 
-		if (SUPPRESS_MESSAGE_RE.test(line)) {
-			const match = JUSTIFICATION_RE.exec(rawLine);
-			const justified = match !== null && !PLACEHOLDER_JUSTIFICATION_RE.test(match[1].trim());
-			if (justified) continue;
-			pushFinding(
-				out,
-				relPath,
-				"ai-slop/csharp-suppressed-warning",
-				i,
-				"`[SuppressMessage]` has no real Justification - it hides the analyzer finding.",
-				"Fix the underlying issue, or fill Justification with the actual reason the suppression is safe (not the `<Pending>` placeholder).",
-			);
+		SUPPRESS_MESSAGE_CALL_RE.lastIndex = 0;
+		let match: RegExpExecArray | null;
+		while ((match = SUPPRESS_MESSAGE_CALL_RE.exec(line)) !== null) {
+			const openParenthesisColumn = match.index + match[0].length - 1;
+			const { codeBody, rawBody } = extractParenthesizedSpan(source, i, openParenthesisColumn);
+			if (!JUSTIFICATION_ARG_RE.test(codeBody)) {
+				pushFinding(
+					out,
+					relPath,
+					"ai-slop/csharp-suppressed-warning",
+					i,
+					"`[SuppressMessage]` has no real Justification - it hides the analyzer finding.",
+					"Fix the underlying issue, or fill Justification with the actual reason the suppression is safe (not the `<Pending>` placeholder).",
+				);
+				continue;
+			}
+			const justificationMatch = JUSTIFICATION_VALUE_RE.exec(rawBody);
+			const justificationValue = justificationMatch
+				? (justificationMatch[1] ?? justificationMatch[2] ?? justificationMatch[3] ?? "").trim()
+				: "";
+			if (justificationValue === "" || PLACEHOLDER_JUSTIFICATION_RE.test(justificationValue)) {
+				pushFinding(
+					out,
+					relPath,
+					"ai-slop/csharp-suppressed-warning",
+					i,
+					"`[SuppressMessage]` has no real Justification - it hides the analyzer finding.",
+					"Fix the underlying issue, or fill Justification with the actual reason the suppression is safe (not the `<Pending>` placeholder).",
+				);
+			}
 		}
 	}
 };

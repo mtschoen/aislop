@@ -209,12 +209,133 @@ describe("csharp-patterns: suppressed-warning", () => {
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
 	});
 
+	it("flags [SuppressMessage] with no Justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Usage", "CA2200")]\nclass A { }\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
+	it("flags [SuppressMessage] with no Justification wrapped across lines", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[\n  SuppressMessage(\n    "Usage",\n    "CA2200"\n  )\n]\nclass A { }\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
+	it("flags multi-line [SuppressMessage] with a <Pending> placeholder justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711",\n    Justification = "<Pending>")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
+	it("flags multi-line [SuppressMessage] where Justification = is on one line and <Pending> is on the next", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711",\n    Justification =\n        "<Pending>")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
+	it("flags fully-qualified [System.Diagnostics.CodeAnalysis.SuppressMessage] with a <Pending> placeholder justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "<Pending>")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(true);
+	});
+
 	it("does NOT flag [SuppressMessage] with a real justification", async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
 		write(
 			root,
 			"A.cs",
 			'[SuppressMessage("Usage", "CA2200", Justification = "rethrow preserves the original frame")]\nclass A { }\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag [SuppressMessage] wrapped across multiple lines with a real justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711",\n    Justification = "Flags suffix is conventional here; renaming breaks consumers.")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag [SuppressMessage] where Justification = is on one line and real justification is on the next line", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix",\n    Justification =\n        "MatchFlags is a [Flags] enum on the public API; the Flags suffix is conventional for flag enums.")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag fully-qualified [System.Diagnostics.CodeAnalysis.SuppressMessage] wrapped across lines with real justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[System.Diagnostics.CodeAnalysis.SuppressMessage(\n    "Naming",\n    "CA1711",\n    Justification = "Flags suffix is conventional here"\n)]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag [SuppressMessage] with other arguments preceding or following Justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711",\n    Scope = "member",\n    Justification = "Flags suffix is conventional here",\n    Target = "~M:MatchFlags")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag [SuppressMessage] with verbatim string justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711",\n    Justification = @"Flags suffix is conventional here")]\npublic enum MatchFlags : uint\n',
+		);
+		const diags = await detectCSharpPatterns(ctx(root));
+		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
+	});
+
+	it("does NOT flag [SuppressMessage] with raw string justification", async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-csp-"));
+		write(
+			root,
+			"A.cs",
+			'[SuppressMessage("Naming", "CA1711",\n    Justification = """Flags suffix is conventional here""")]\npublic enum MatchFlags : uint\n',
 		);
 		const diags = await detectCSharpPatterns(ctx(root));
 		expect(diags.some((d) => d.rule === "ai-slop/csharp-suppressed-warning")).toBe(false);
