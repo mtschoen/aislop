@@ -116,6 +116,12 @@ export const AI_SLOP_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"ai-slop/tautological-test": standard(
 		"Literal-success assertions are high-confidence test gaps but do not break production directly.",
 	),
+	"ai-slop/test-sleep": maintainability(
+		"Fixed test delays trade wall-clock time for a race that only shows up intermittently.",
+	),
+	"ai-slop/test-wall-clock-assertion": maintainability(
+		"Clock-dependent assertions make a suite flaky under load without indicating a production defect.",
+	),
 
 	"ai-slop/csharp-not-implemented": standard(
 		"NotImplementedException stubs usually indicate unfinished behavior.",

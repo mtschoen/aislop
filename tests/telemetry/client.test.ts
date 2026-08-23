@@ -121,6 +121,7 @@ describe("flushTelemetry — bounded flush (per-edit hook path)", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		resetTelemetryForTests();
 		process.env = { ...originalEnv };
@@ -134,9 +135,15 @@ describe("flushTelemetry — bounded flush (per-edit hook path)", () => {
 		);
 		track({ event: "hook_scan_completed", config: { enabled: true } });
 
-		const start = Date.now();
-		await flushTelemetry(50);
-		expect(Date.now() - start).toBeLessThan(500);
+		// The stubbed request never settles, so the cap's own timer is the only
+		// thing that can release the flush. Driving that timer directly proves the
+		// cap is what fired; measuring elapsed wall-clock time only ever proved
+		// that the machine was not busy.
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const flushed = flushTelemetry(50);
+		await vi.advanceTimersByTimeAsync(50);
+
+		await expect(flushed).resolves.toBeUndefined();
 	});
 
 	it("delivers the queued event when the request resolves in time", async () => {

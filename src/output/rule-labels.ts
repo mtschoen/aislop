@@ -76,6 +76,8 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/cpp-endl-in-stream": "std::endl flushes; prefer '\\n'",
 	"ai-slop/hallucinated-import": "Import not in package.json",
 	"ai-slop/tautological-test": "Test assertion cannot fail",
+	"ai-slop/test-sleep": "Fixed sleep in a test",
+	"ai-slop/test-wall-clock-assertion": "Assertion on real elapsed time",
 	"ai-slop/em-dash": "Non-ASCII dash character",
 	"ai-slop/smart-punctuation": "Non-ASCII smart punctuation",
 	"security/hardcoded-secret": "Possible hardcoded secret",
@@ -172,6 +174,9 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/rust-todo-stub": "Rust todo!/unimplemented! leaves behavior unfinished.",
 	"ai-slop/hallucinated-import": "Import names a package not declared by the project.",
 	"ai-slop/tautological-test": "Test compares fixed literals and therefore cannot fail.",
+	"ai-slop/test-sleep": "Test waits a fixed delay instead of polling or mocking the clock.",
+	"ai-slop/test-wall-clock-assertion":
+		"Test assertion reads the real clock, so load decides whether it passes.",
 	"ai-slop/em-dash": "Em dash or another non-ASCII dash where a plain hyphen would do.",
 	"ai-slop/smart-punctuation":
 		"Curly quotes, ellipsis, arrows, or invisible spacing that ASCII already covers.",

@@ -234,6 +234,8 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/rust-todo-stub` | warning | Rust `todo!()` stubs in production code |
 | `ai-slop/hallucinated-import` | error | Imports of JS/TS packages that are not declared in the project manifest |
 | `ai-slop/tautological-test` | warning | JavaScript/TypeScript assertions comparing equal fixed literals, plus standalone Python `assert True` statements, which cannot fail |
+| `ai-slop/test-sleep` | warning | A fixed-duration delay written directly inside a test file, outside any loop (see the bounds below the table) |
+| `ai-slop/test-wall-clock-assertion` | warning | A test assertion that reads the real clock on the same line (see the bounds below the table) |
 | `ai-slop/csharp-not-implemented` | warning | C# `throw new NotImplementedException()` stubs the agent forgot to fill in |
 | `ai-slop/csharp-redundant-doc-comment` | warning | C# XML-doc `<summary>` that just restates the member (`Gets or sets the X`) without adding information |
 | `ai-slop/csharp-async-void` | warning | C# `async void` methods that aren't event handlers (can't be awaited; exceptions crash the process) |
@@ -277,6 +279,95 @@ Supported JS/TS properties have static identifier, string, or numeric names. Sup
 ```ts
 // aislop-ignore-next-line ai-slop/repeated-magic-literal -- per-state timeouts are independently tunable
 ```
+
+### Test timing (`ai-slop/test-sleep`, `ai-slop/test-wall-clock-assertion`)
+
+Both rules run only over the files the scan classifies as tests, and both read source with
+string and comment interiors blanked, so a spelling quoted inside a fixture or shown in a
+comment is never reported.
+
+**Languages covered.** Python (`.py`), JavaScript/TypeScript (`.ts`, `.tsx`, `.js`, `.jsx`,
+`.mjs`, `.cjs`), C# (`.cs`), Go (`.go`), PHP (`.php`), and C/C++ (`.c`, `.cc`, `.cpp`, `.cxx`,
+`.h`, `.hh`, `.hpp`, `.hxx`). Java and Rust are deliberately not covered: aislop has no
+string/comment masker for those extensions, so a sleep spelling inside a string literal could
+not be told apart from real code. Ruby is deliberately not covered: `ai-slop/test-sleep`
+relies on brace blocks for loop analysis (which Ruby closes with `end`), and
+`ai-slop/test-wall-clock-assertion` shares the same masked test file loader so the two rules
+cover the same languages.
+
+#### Fixed sleeps (`ai-slop/test-sleep`)
+
+**What is reported.** One of a closed list of sleep spellings, with a fixed non-zero duration,
+that is not inside a loop:
+
+| Language | Reported spellings |
+| --- | --- |
+| Python | `time.sleep(<number>)`, `asyncio.sleep(<number>)` |
+| JavaScript/TypeScript | `setTimeout(<identifier>, <number>)` on a line that also builds a `new Promise(`; `await setTimeout(<number>)` (the `node:timers/promises` form) |
+| C# | `Thread.Sleep(...)` and `Task.Delay(...)` taking a number or `TimeSpan.From*(<number>)` |
+| Go | `time.Sleep(<number> * time.<Unit>)` and `time.Sleep(time.<Unit>)` |
+| PHP | `sleep(<number>)`, `usleep(<number>)` |
+| C/C++ | `sleep_for(chrono::<unit>(<number>))` |
+
+**A delay inside a loop is not reported.** Polling a condition on an interval until a deadline
+is the recommended replacement for a fixed sleep, and it is written as a delay inside a loop.
+Every block enclosing the delay is walked outward and asked one question: does its header begin
+with `for`, `while`, `do`, `foreach`, or `loop`? Python uses its own block rule, indentation,
+to find those headers. A loop whose body is a single unbraced statement is recognised from the
+one preceding statement.
+
+**A zero duration is not reported.** `setTimeout(resolve, 0)` and `asyncio.sleep(0)` yield to
+the scheduler; they do not wait on the wall clock.
+
+**Deliberate non-detections.**
+
+- **A delay reached through a helper.** `await sleep(50)`, `await delay(50)`, and
+  `self._wait(50)` are not reported. Deciding that a name refers to a sleep would mean
+  resolving imports and local bindings, and the rule stops at literal spellings.
+- **A delay whose duration is not a literal.** `setTimeout(resolve, milliseconds)` and
+  `time.sleep(timeout)` are not reported. This is what keeps a shared helper such as
+  `const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))`
+  out of the results; its callers pass the literal, and those call sites are not reported
+  either, per the point above.
+- **A delay spread over several lines.** Only the single-line spellings above are matched. A
+  `new Promise` whose `setTimeout` sits on the next line is not reported.
+- **Python `sleep(...)` imported bare.** `from time import sleep` followed by `sleep(2)` is not
+  reported, because only the module-qualified spelling is matched.
+
+Where a delay genuinely is what the test exercises, say so in place rather than reshaping the
+rule:
+
+```ts
+// aislop-ignore-next-line ai-slop/test-sleep -- the debounce window under test is 200ms
+await new Promise((resolve) => setTimeout(resolve, 250));
+```
+
+#### Clock-dependent assertions (`ai-slop/test-wall-clock-assertion`)
+
+**What is reported.** A single line that both makes an assertion and reads the real clock. Both
+halves are closed lists:
+
+| Language | Assertion forms | Clock reads |
+| --- | --- | --- |
+| JavaScript/TypeScript | `expect(`, `assert(`, `assert.<name>(` | `Date.now()`, `performance.now()`, `hrtime` |
+| Python | a line-leading `assert `, `.assert<Name>(` | `time.time()`, `time.monotonic()`, `time.perf_counter()`, `time.process_time()`, `datetime.now(`, `datetime.utcnow(` |
+| C# | `Assert.<Name>(`, `.Should()` | `DateTime[Offset].Now`, `.UtcNow`, `.Elapsed*`, `Environment.TickCount`, `Stopwatch.GetTimestamp(` |
+| Go | `assert.<Name>(`, `require.<Name>(` | `time.Now(`, `time.Since(` |
+| PHP | `->assert<Name>(`, `assert(` | `microtime(`, `hrtime(`, `time()` |
+| C/C++ | `EXPECT_*(`, `ASSERT_*(` | `chrono::duration_cast`, `*clock::now()`, `clock()` |
+
+**Deliberate non-detections.**
+
+- **Elapsed time computed on an earlier line.** `const elapsed = Date.now() - start;` followed
+  by `expect(elapsed).toBeLessThan(500)` is not reported. Connecting the two would mean
+  tracking what a variable was bound to, which is the open-ended surface this rule avoids;
+  only what is visible on the assertion line itself is used.
+- **Whether the clock is mocked.** The rule does not look for `vi.useFakeTimers()`,
+  `freezegun`, or an injected clock, and it does not try to decide whether a mock is in scope
+  at the assertion. A test that has genuinely frozen the clock and still reads it in an
+  assertion is reported; suppress it in place with a reason.
+- **Go's plain `if` assertions.** `if time.Since(start) > limit { t.Fatal(...) }` is not
+  reported, because only the testify-style assertion helpers are listed.
 
 ### Non-ASCII punctuation (`ai-slop/em-dash`, `ai-slop/smart-punctuation`)
 

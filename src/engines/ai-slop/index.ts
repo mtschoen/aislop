@@ -19,6 +19,8 @@ import { detectPythonPatterns } from "./python-patterns.js";
 import { detectRustPatterns } from "./rust-patterns.js";
 import { detectSilentRecovery } from "./silent-recovery.js";
 import { detectTautologicalTests } from "./test-quality.js";
+import { detectTestSleeps } from "./test-sleep.js";
+import { detectTestWallClockAssertions } from "./test-wall-clock.js";
 import { detectUnusedCss } from "./unused-css.js";
 import { detectUnusedImports } from "./unused-imports.js";
 
@@ -50,6 +52,8 @@ export const aiSlopEngine: Engine = {
 			detectCppPatterns(context),
 			detectUnusedCss(context),
 			detectTautologicalTests(context),
+			detectTestSleeps(context),
+			detectTestWallClockAssertions(context),
 			detectNonAsciiPunctuation(context),
 		]);
 

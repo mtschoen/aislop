@@ -108,6 +108,8 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/rust-todo-stub",
 			"ai-slop/hallucinated-import",
 			"ai-slop/tautological-test",
+			"ai-slop/test-sleep",
+			"ai-slop/test-wall-clock-assertion",
 			"ai-slop/csharp-not-implemented",
 			"ai-slop/csharp-redundant-doc-comment",
 			"ai-slop/csharp-async-void",
