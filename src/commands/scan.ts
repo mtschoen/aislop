@@ -11,10 +11,16 @@ import { type EngineCounts, withCommandLifecycle } from "../telemetry/index.js";
 import { renderDisplayRows } from "../ui/display.js";
 import { renderHeader } from "../ui/header.js";
 import { log } from "../ui/logger.js";
-import { detectSourceLanguages, discoverProject, type Language } from "../utils/discover.js";
+import {
+	detectManifestLanguages,
+	detectSourceLanguages,
+	discoverProject,
+	type Language,
+} from "../utils/discover.js";
 import { readAislopIgnorePatterns } from "../utils/source-files.js";
 import { applySuppressions } from "../utils/suppress.js";
 import { APP_VERSION } from "../version.js";
+import { languageLabelFor } from "./doctor-plan.js";
 import { renderCoverageNotice } from "./scan-coverage.js";
 import { runEnginesWithProgress } from "./scan-engine-runner.js";
 import { computeScanExitCode } from "./scan-exit-code.js";
@@ -59,10 +65,12 @@ export const scanCommand = async (
 	});
 	const discoveredProject = await discoverProject(resolvedDir, excludePatterns, {
 		includePatterns: config.include,
+		sourceFiles: scanScope.files,
 	});
+	const sourceLanguages = detectSourceLanguages([...scanScope.files, ...scanScope.testFiles]);
 	const projectInfo = {
 		...discoveredProject,
-		languages: detectSourceLanguages([...scanScope.files, ...scanScope.testFiles]),
+		languages: sourceLanguages.length > 0 ? sourceLanguages : discoveredProject.languages,
 	};
 
 	return withCommandLifecycle(
@@ -79,7 +87,7 @@ export const scanCommand = async (
 				options,
 				projectInfo,
 				scanScope,
-				discoveredProject.languages,
+				detectManifestLanguages(resolvedDir),
 			),
 	);
 };
@@ -96,7 +104,7 @@ const runScanBody = async (
 	const showHeader = options.showHeader !== false;
 	const machineOutput = isMachineOutput(options);
 	const projectName = projectInfo.projectName ?? "project";
-	const language = projectInfo.languages[0] ?? "unknown";
+	const language = languageLabelFor(projectInfo);
 	const printedHumanHeader = !machineOutput && showHeader;
 	const {
 		dependencyAuditFiles,

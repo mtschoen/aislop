@@ -36,11 +36,13 @@ const firstMatching = (
 	specs: LangToolSpec[],
 ): MatchedToolDecision | null => {
 	let firstLanguageMatch: LangToolSpec | null = null;
-	for (const spec of specs) {
-		if (!languages.includes(spec.language)) continue;
-		if (firstLanguageMatch === null) firstLanguageMatch = spec;
-		if (installed[spec.binary]) {
-			return { language: spec.language, decision: systemToolDecision(installed, spec) };
+	for (const lang of languages) {
+		for (const spec of specs) {
+			if (spec.language !== lang) continue;
+			if (firstLanguageMatch === null) firstLanguageMatch = spec;
+			if (installed[spec.binary]) {
+				return { language: spec.language, decision: systemToolDecision(installed, spec) };
+			}
 		}
 	}
 	return firstLanguageMatch
@@ -58,6 +60,9 @@ const applyProjectEvaluationGate = (
 ): ToolDecision | null => {
 	if (matched?.language !== "csharp" || ctx.config.lint.csharp?.projectEvaluation === true) {
 		return matched?.decision ?? null;
+	}
+	if (hasJsLike(ctx.projectInfo.languages)) {
+		return null;
 	}
 	const fallback = firstMatching(
 		ctx.projectInfo.languages,
@@ -135,14 +140,15 @@ const hasJsLike = (languages: Language[]): boolean =>
 
 export const planFormat = (ctx: PlanContext): ToolDecision => {
 	const { languages, installedTools } = ctx.projectInfo;
-	if (hasJsLike(languages)) return { tool: "biome (bundled)", status: STATUS_OK };
-	return (
-		applyProjectEvaluationGate(
-			ctx,
-			firstMatching(languages, installedTools, FORMAT_SPECS),
-			FORMAT_SPECS,
-		) ?? { tool: "no formatter", status: "skipped", skipReason: "no supported language" }
-	);
+	for (const lang of languages) {
+		if (lang === "typescript" || lang === "javascript") {
+			return { tool: "biome (bundled)", status: STATUS_OK };
+		}
+		const matched = firstMatching([lang], installedTools, FORMAT_SPECS);
+		const decision = applyProjectEvaluationGate(ctx, matched, FORMAT_SPECS);
+		if (decision) return decision;
+	}
+	return { tool: "no formatter", status: "skipped", skipReason: "no supported language" };
 };
 
 const withTypecheckSuffix = (baseTool: string, ctx: PlanContext): ToolDecision => {
@@ -161,12 +167,13 @@ export const planLint = (ctx: PlanContext): ToolDecision => {
 	if (frameworks.includes("expo") && ctx.config.lint?.expoDoctor) {
 		return withTypecheckSuffix("expo-doctor + oxlint (bundled)", ctx);
 	}
-	if (hasJsLike(languages)) return withTypecheckSuffix("oxlint (bundled)", ctx);
-	return (
-		applyProjectEvaluationGate(
-			ctx,
-			firstMatching(languages, installedTools, LINT_SPECS),
-			LINT_SPECS,
-		) ?? { tool: "no linter", status: "skipped", skipReason: "no supported language" }
-	);
+	for (const lang of languages) {
+		if (lang === "typescript" || lang === "javascript") {
+			return withTypecheckSuffix("oxlint (bundled)", ctx);
+		}
+		const matched = firstMatching([lang], installedTools, LINT_SPECS);
+		const decision = applyProjectEvaluationGate(ctx, matched, LINT_SPECS);
+		if (decision) return decision;
+	}
+	return { tool: "no linter", status: "skipped", skipReason: "no supported language" };
 };

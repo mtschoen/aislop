@@ -19,11 +19,12 @@ interface AuditSpec {
 }
 
 const AUDIT_SPECS: AuditSpec[] = [
-	{ files: ["pnpm-lock.yaml"], bundled: "pnpm audit" },
-	{ files: ["bun.lock", "bun.lockb"], bundled: "bun audit" },
-	{ files: ["package-lock.json"], bundled: "npm audit" },
+	{ files: ["pnpm-lock.yaml"], languages: ["typescript", "javascript"], bundled: "pnpm audit" },
+	{ files: ["bun.lock", "bun.lockb"], languages: ["typescript", "javascript"], bundled: "bun audit" },
+	{ files: ["package-lock.json"], languages: ["typescript", "javascript"], bundled: "npm audit" },
 	{
 		files: ["requirements.txt", "poetry.lock", "Pipfile.lock"],
+		languages: ["python"],
 		systemTool: {
 			binary: "pip-audit",
 			toolLabel: "pip-audit",
@@ -32,6 +33,7 @@ const AUDIT_SPECS: AuditSpec[] = [
 	},
 	{
 		files: ["Cargo.toml"],
+		languages: ["rust"],
 		systemTool: {
 			binary: "cargo-audit",
 			toolLabel: "cargo audit",
@@ -41,6 +43,7 @@ const AUDIT_SPECS: AuditSpec[] = [
 	},
 	{
 		files: ["go.mod"],
+		languages: ["go"],
 		systemTool: {
 			binary: "govulncheck",
 			toolLabel: "govulncheck",
@@ -64,19 +67,37 @@ export const planSecurity = (ctx: PlanContext): ToolDecision => {
 	const hasFile = (relativePath: string): boolean =>
 		fs.existsSync(path.join(rootDirectory, relativePath));
 
-	for (const spec of AUDIT_SPECS) {
-		const filesMatch = spec.files.some(hasFile);
-		const languageMatch = spec.languages?.some((language) =>
-			projectInfo.languages.includes(language),
-		);
-		if (!filesMatch && !languageMatch) continue;
-		if (
-			languageMatch &&
-			spec.languages?.includes("csharp") &&
-			ctx.config.lint.csharp?.projectEvaluation !== true
-		) {
-			return projectEvaluationGate();
+	// First match against project languages in priority order
+	for (const lang of projectInfo.languages) {
+		for (const spec of AUDIT_SPECS) {
+			if (!spec.languages?.includes(lang)) continue;
+			const filesMatch = spec.files.length === 0 || spec.files.some(hasFile);
+			if (!filesMatch) continue;
+			if (
+				lang === "csharp" &&
+				ctx.config.lint.csharp?.projectEvaluation !== true
+			) {
+				return projectEvaluationGate();
+			}
+			if (spec.bundled) return { tool: spec.bundled, status: "ok" };
+			if (spec.systemTool) {
+				const required = spec.systemTool.requiresBinaries ?? [spec.systemTool.binary];
+				const allPresent = required.every((binary) => installedTools[binary]);
+				return allPresent
+					? { tool: `${spec.systemTool.toolLabel} (system)`, status: "ok" }
+					: {
+							tool: `${spec.systemTool.toolLabel} not found`,
+							status: "missing",
+							remediation: spec.systemTool.remediation,
+						};
+			}
 		}
+	}
+
+	// Fallback to checking manifest files if language did not match
+	for (const spec of AUDIT_SPECS) {
+		const filesMatch = spec.files.length > 0 && spec.files.some(hasFile);
+		if (!filesMatch) continue;
 		if (spec.bundled) return { tool: spec.bundled, status: "ok" };
 		if (spec.systemTool) {
 			const required = spec.systemTool.requiresBinaries ?? [spec.systemTool.binary];

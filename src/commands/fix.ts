@@ -10,8 +10,14 @@ import { renderHeader } from "../ui/header.js";
 import { LiveRail } from "../ui/live-rail.js";
 import { log } from "../ui/logger.js";
 import { theme as defaultTheme, style } from "../ui/theme.js";
-import { discoverProject } from "../utils/discover.js";
+import {
+	detectSourceLanguages,
+	discoverProject,
+} from "../utils/discover.js";
+import { resetGitIgnoreSnapshots } from "../utils/git-ignore.js";
+import { readAislopIgnorePatterns } from "../utils/source-files.js";
 import { APP_VERSION } from "../version.js";
+import { languageLabelFor } from "./doctor-plan.js";
 import { launchAgent, printPrompt } from "./fix-code.js";
 import { createEngineContext } from "./fix-context.js";
 import {
@@ -24,6 +30,7 @@ import {
 	runLintSteps,
 } from "./fix-pipeline.js";
 import { describeStep, type FixStepResult, runOneFixStep, statusFor } from "./fix-steps.js";
+import { collectScanFileScope } from "./scan-file-scope.js";
 import { buildScanRender } from "./scan.js";
 
 export { buildFixRender } from "./fix-render.js";
@@ -90,7 +97,23 @@ export const fixCommand = async (
 		});
 	}
 
-	const projectInfo = await discoverProject(resolvedDir);
+	const excludePatterns = [...config.exclude, ...readAislopIgnorePatterns(resolvedDir)];
+	resetGitIgnoreSnapshots();
+	const scanScope = collectScanFileScope({
+		excludePatterns,
+		includePatterns: config.include,
+		mode: { kind: "full" },
+		rootDirectory: resolvedDir,
+	});
+	const discoveredProject = await discoverProject(resolvedDir, excludePatterns, {
+		includePatterns: config.include,
+		sourceFiles: scanScope.files,
+	});
+	const sourceLanguages = detectSourceLanguages([...scanScope.files, ...scanScope.testFiles]);
+	const projectInfo =
+		sourceLanguages.length > 0
+			? { ...discoveredProject, languages: sourceLanguages }
+			: discoveredProject;
 
 	return withCommandLifecycle(
 		{
@@ -227,7 +250,7 @@ const runFixBody = async (
 				`\n ${style(t, "success", `Resolved ${totalResolved} issue${totalResolved === 1 ? "" : "s"}`)} ${arrow} ${style(t, "success", `${scoreResult.score} / 100 ${scoreResult.label}`)}\n`,
 			);
 		}
-		const language = projectInfo.languages[0] ?? "unknown";
+		const language = languageLabelFor(projectInfo);
 		process.stdout.write(
 			buildScanRender({
 				projectName,

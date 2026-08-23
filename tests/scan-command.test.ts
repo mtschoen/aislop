@@ -83,6 +83,8 @@ vi.mock("../src/engines/orchestrator.js", () => ({
 vi.mock("../src/utils/discover.js", () => ({
 	discoverProject: discoverProjectMock,
 	detectSourceLanguages: () => ["typescript"],
+	detectManifestLanguages: () => ["typescript"],
+	detectLanguages: () => ["typescript"],
 }));
 
 vi.mock("../src/utils/git.js", () => ({

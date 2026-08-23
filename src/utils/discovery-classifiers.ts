@@ -128,18 +128,53 @@ export const readPackageJson = (filePath: string): PackageJson | null => {
 };
 
 export const detectSourceLanguages = (sourceFiles: string[]): Language[] => {
-	const languages = new Set<Language>();
+	const counts = new Map<Language, number>();
 
 	for (const sourceFile of sourceFiles) {
 		const lang = EXTENSION_LANGUAGES[path.extname(sourceFile).toLowerCase()];
-		if (lang) languages.add(lang);
+		if (lang) {
+			counts.set(lang, (counts.get(lang) ?? 0) + 1);
+		}
 	}
 
-	return [...languages];
+	return [...counts.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.map(([lang]) => lang);
 };
 
-export const detectLanguages = (directory: string, sourceFiles: string[]): Language[] => {
-	const languages = new Set<Language>(detectSourceLanguages(sourceFiles));
+export const detectManifestLanguages = (directory: string): Language[] => {
+	const languages = new Set<Language>();
+
+	// C# project files have arbitrary basenames (*.csproj / *.sln / *.slnx) plus a
+	// fixed global.json, so scan the directory rather than keying off a fixed name.
+	// Check .NET first so a tooling-only root package.json does not displace C#.
+	const hasDotnetProject = (() => {
+		if (fs.existsSync(path.join(directory, "global.json"))) return true;
+		try {
+			return fs
+				.readdirSync(directory)
+				.some(
+					(name) => name.endsWith(".csproj") || name.endsWith(".sln") || name.endsWith(".slnx"),
+				);
+		} catch {
+			return false;
+		}
+	})();
+	if (hasDotnetProject) languages.add("csharp");
+
+	// C/C++ projects have no single manifest name; recognize the common build-system
+	// markers in addition to the extension-based detection above. compile_commands.json
+	// in particular tells the lint engine clang-tidy is runnable.
+	const hasCppProject = (() => {
+		if (fs.existsSync(path.join(directory, "CMakeLists.txt"))) return true;
+		if (fs.existsSync(path.join(directory, "compile_commands.json"))) return true;
+		try {
+			return fs.readdirSync(directory).some((name) => name.endsWith(".vcxproj"));
+		} catch {
+			return false;
+		}
+	})();
+	if (hasCppProject) languages.add("cpp");
 
 	for (const [file, lang] of Object.entries(LANGUAGE_SIGNALS)) {
 		if (fs.existsSync(path.join(directory, file))) {
@@ -170,37 +205,15 @@ export const detectLanguages = (directory: string, sourceFiles: string[]): Langu
 		}
 	}
 
-	// C# project files have arbitrary basenames (*.csproj / *.sln / *.slnx) plus a
-	// fixed global.json, so scan the directory rather than keying off a fixed name.
-	const hasDotnetProject = (() => {
-		if (fs.existsSync(path.join(directory, "global.json"))) return true;
-		try {
-			return fs
-				.readdirSync(directory)
-				.some(
-					(name) => name.endsWith(".csproj") || name.endsWith(".sln") || name.endsWith(".slnx"),
-				);
-		} catch {
-			return false;
-		}
-	})();
-	if (hasDotnetProject) languages.add("csharp");
-
-	// C/C++ projects have no single manifest name; recognize the common build-system
-	// markers in addition to the extension-based detection above. compile_commands.json
-	// in particular tells the lint engine clang-tidy is runnable.
-	const hasCppProject = (() => {
-		if (fs.existsSync(path.join(directory, "CMakeLists.txt"))) return true;
-		if (fs.existsSync(path.join(directory, "compile_commands.json"))) return true;
-		try {
-			return fs.readdirSync(directory).some((name) => name.endsWith(".vcxproj"));
-		} catch {
-			return false;
-		}
-	})();
-	if (hasCppProject) languages.add("cpp");
-
 	return [...languages];
+};
+
+export const detectLanguages = (directory: string, sourceFiles: string[]): Language[] => {
+	const sourceLanguages = detectSourceLanguages(sourceFiles);
+	if (sourceLanguages.length > 0) {
+		return sourceLanguages;
+	}
+	return detectManifestLanguages(directory);
 };
 
 export const detectFrameworks = (directory: string): Framework[] => {

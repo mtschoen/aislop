@@ -35,27 +35,7 @@ export interface ToolDecision {
 	skipReason?: string;
 }
 
-const primaryLanguage = (langs: Language[]): Language | null => {
-	// Prefer explicit ordering: JS/TS -> Python -> Go -> Rust -> Ruby -> PHP -> Java
-	// -> C# -> C/C++. Every language has to appear here or a mixed project falls
-	// through to the bare "mixed" label with no headline language.
-	const order: Language[] = [
-		"typescript",
-		"javascript",
-		"python",
-		"go",
-		"rust",
-		"ruby",
-		"php",
-		"java",
-		"csharp",
-		"cpp",
-	];
-	for (const lang of order) {
-		if (langs.includes(lang)) return lang;
-	}
-	return null;
-};
+const primaryLanguage = (langs: Language[]): Language | null => langs[0] ?? null;
 
 // Minimal synthetic PlanContext for the *ForTest entry points below.
 interface TestPlanOverrides {

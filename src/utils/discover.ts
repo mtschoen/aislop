@@ -12,7 +12,11 @@ import { resetGitIgnoreSnapshots } from "./git-ignore.js";
 import { getSourceFilesForRoot } from "./source-files.js";
 
 export type { Framework, Language } from "./discovery-classifiers.js";
-export { detectSourceLanguages } from "./discovery-classifiers.js";
+export {
+	detectLanguages,
+	detectManifestLanguages,
+	detectSourceLanguages,
+} from "./discovery-classifiers.js";
 export type { Coverage } from "./discovery-coverage.js";
 export { TOOLS_TO_CHECK } from "./discovery-tools.js";
 

@@ -125,16 +125,13 @@ describe("doctor language detection", () => {
 		expect(out).toContain("csharp");
 	});
 
-	// scan derives its languages from source and test files alike, so a C# project
-	// whose only JavaScript is its tests still gets the JS tools there. doctor has
-	// to name them or it reports tooling scan does not run.
-	it("reports javascript for a C# project whose only JavaScript is its tests", async () => {
+	it("plans JS tools for a C# project whose only JavaScript is its tests", async () => {
 		writeCsharpProject();
 		writeProjectFile("tests/app.test.js", "test('works', () => {});\n");
 
 		const out = await runDoctor();
 
-		expect(out).toContain("javascript");
+		expect(out).toContain("csharp (mixed)");
 		expect(out).toContain("biome (bundled)");
 		expect(out).toContain("oxlint (bundled)");
 	});
