@@ -1,0 +1,141 @@
+# Keeps every consumer repo's aislop fork pin, and both machine-shared
+# installs, in sync with schoen/main. Convention: a consumer repo carries
+# .aislop/fork-commit (one line, the 40-char fork commit sha its CI is
+# pinned to). This workflow bumps that pin everywhere on every push.
+#
+# Runner labels: update-global-linux and update-global-windows target the
+# real persistent machines (llamabox, chonkers) by their per-machine labels
+# linux-llamabox / windows-chonkers, NOT the shared windows-latest pool
+# label. windows-latest on this fleet can also land on llamabox's separate
+# win-runner VM (see .gitea/workflows/ci.yml's test-windows job comment),
+# which is a different machine with a different home directory and would
+# update the wrong install. fan-out does not touch either persistent
+# machine's state (it only clones into ephemeral workspaces and talks to
+# the Gitea API), so it stays on the shared ubuntu-latest pool.
+#
+# Machine-shared install directories, not per-user: both act_runner
+# services execute as the gitea-runner service account (verified: chonkers
+# act_runner service StartName is .\gitea-runner; llamabox act_runner
+# process user is gitea-runner), not the interactively logged-in user. A
+# per-user install path (~/.local/share on Linux, pnpm's per-user global
+# store on Windows) would resolve into gitea-runner's own profile and
+# silently update an install nobody's shell ever uses. Both jobs below
+# instead update one shared clone per machine: /opt/aislop on llamabox,
+# C:\ProgramData\aislop on chonkers. One-time per-machine setup (NOT
+# performed by this workflow):
+#   - llamabox: create /opt/aislop, add gitea-runner (and any interactive
+#     users who run aislop) to a group that owns it with write access, and
+#     point ~/.local/bin/aislop's wrapper at /opt/aislop/dist/cli.js.
+#   - chonkers: create C:\ProgramData\aislop, grant gitea-runner write
+#     access via icacls, remove the old per-user pnpm global install, and
+#     put a shim on PATH pointing at C:\ProgramData\aislop\dist\cli.js.
+#
+# Gitea only, never github.com: the push that triggers this workflow lands
+# on Gitea. The GitHub mirror can lag behind it by hundreds of commits (seen
+# 361 commits behind on 2026-08-22), so a clone or install that only
+# resolves a sha through github.com (e.g. `github:mtschoen/aislop#<sha>`)
+# can silently fail to find it, or worse, silently resolve to a stale
+# commit. Every clone/fetch here targets gitea.fleet.sticktoitive.net.
+#
+# Required one-time setup: create a Gitea Actions secret named
+# AISLOP_SYNC_TOKEN on this repository, holding a personal access token for
+# the claude-code bot (scopes: write:repository, read:repository), and add
+# claude-code as a write collaborator on every consumer repository this
+# workflow is meant to update. This workflow does not and cannot create
+# that secret or that collaborator grant itself.
+on:
+  push:
+    branches: [schoen/main]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-consumers-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  update-global-linux:
+    name: Update global install (llamabox)
+    runs-on: linux-llamabox
+    timeout-minutes: 10
+    steps:
+      - name: Fetch and rebuild the shared llamabox aislop install
+        run: |
+          set -e
+          INSTALL_DIR=/opt/aislop
+          # gitea-runner does not own this directory's original checkout on
+          # every machine; declaring it safe is idempotent and harmless
+          # where ownership already matches. Scope --replace-all with a value
+          # pattern to collapse duplicates of this path and add when absent,
+          # without removing other unrelated safe.directory entries.
+          git config --global --replace-all safe.directory "$INSTALL_DIR" "^$INSTALL_DIR$"
+          if [ ! -d "$INSTALL_DIR/.git" ]; then
+            echo "Bootstrapping $INSTALL_DIR from Gitea (one-time)"
+            rm -rf "$INSTALL_DIR"
+            git clone https://gitea.fleet.sticktoitive.net/schoen/aislop.git "$INSTALL_DIR"
+          fi
+          git -C "$INSTALL_DIR" fetch --all
+          git -C "$INSTALL_DIR" checkout ${{ github.sha }}
+          # This is a pnpm workspace (pnpm-lock.yaml, packageManager pin);
+          # `npm install` does not understand the workspace and fails
+          # outright on Windows, so both jobs build with a pinned, hermetic
+          # pnpm fetched on demand instead of relying on a preinstalled one.
+          cd "$INSTALL_DIR"
+          npx -y pnpm@10.28.0 install --frozen-lockfile
+
+  update-global-windows:
+    name: Update global install (chonkers)
+    runs-on: windows-chonkers
+    timeout-minutes: 10
+    steps:
+      - name: Fetch and rebuild the shared chonkers aislop install
+        shell: pwsh
+        run: |
+          # Mirrors update-global-linux's clone/fetch/checkout/install
+          # pattern against the shared directory instead of a per-user
+          # pnpm global install (see the runner-service-account note above).
+          $installDirectory = "C:\ProgramData\aislop"
+          # C:\ProgramData\aislop is owned by the interactive user who did
+          # the initial bootstrap, but this job runs as gitea-runner; git
+          # refuses to operate on a repo it does not own ("dubious
+          # ownership") unless it is declared safe. Use the forward-slash
+          # form git expects on Windows. Scope --replace-all with a value
+          # pattern to collapse duplicates of this path while preserving other
+          # safe.directory entries.
+          git config --global --replace-all safe.directory "C:/ProgramData/aislop" "^C:/ProgramData/aislop$"
+          if (-not (Test-Path (Join-Path $installDirectory ".git"))) {
+            Write-Host "Bootstrapping $installDirectory from Gitea (one-time)"
+            if (Test-Path $installDirectory) { Remove-Item -Recurse -Force $installDirectory }
+            git clone https://gitea.fleet.sticktoitive.net/schoen/aislop.git $installDirectory
+            if ($LASTEXITCODE -ne 0) { Write-Error "git clone failed"; exit 1 }
+          }
+          git -C $installDirectory fetch --all
+          if ($LASTEXITCODE -ne 0) { Write-Error "git fetch failed"; exit 1 }
+          git -C $installDirectory checkout ${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { Write-Error "git checkout failed"; exit 1 }
+          # This is a pnpm workspace (pnpm-lock.yaml, packageManager pin);
+          # `npm install` does not understand the workspace and fails with
+          # "Cannot read properties of null (reading 'edgesOut')" on
+          # Windows, so build with a pinned, hermetic pnpm fetched on
+          # demand instead of relying on a preinstalled one or Corepack.
+          Push-Location $installDirectory
+          try {
+            npx -y pnpm@10.28.0 install --frozen-lockfile
+            if ($LASTEXITCODE -ne 0) { Write-Error "pnpm install failed"; exit 1 }
+          } finally {
+            Pop-Location
+          }
+
+  fan-out:
+    name: Bump consumer repo pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync consumer repos to the new fork pin
+        env:
+          GITEA_TOKEN: ${{ secrets.AISLOP_SYNC_TOKEN }}
+        run: |
+          bash scripts/sync_consumers.sh "${{ github.sha }}"
