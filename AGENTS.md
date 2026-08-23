@@ -135,7 +135,9 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 
 ## Agent operation guardrails
 
-- Default to draft PRs unless the task explicitly asks for a ready PR.
+- Default to draft PRs on github.com unless the task explicitly asks for a
+  ready PR. PRs on the self-hosted Gitea open ready (non-draft): the instance
+  is fully user-controlled and the review cycle gates merges there anyway.
 - Do not merge PRs, publish releases, or promote branches unless explicitly asked in the current task.
 - Verify package installs in a clean temp environment before reporting a published package as working.
 
