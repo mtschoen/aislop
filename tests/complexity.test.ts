@@ -1081,6 +1081,27 @@ describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection"
 		expect(analyzeFunctions(src, ".cs")).toHaveLength(0);
 	});
 
+	it("does NOT count C# P/Invoke extern declarations as function definitions", () => {
+		const src = [
+			"static class MFTLibNative",
+			"{",
+			'    [DllImport("MFTLibNative", EntryPoint = "ParseMFTRecords", CallingConvention = CallingConvention.Cdecl,',
+			'        CharSet = CharSet.Unicode)]',
+			"    static extern IntPtr _parseMftRecords(SafeHandle volumeHandle, string? filter, MatchFlags matchFlags,",
+			"        uint bufferSizeRecords);",
+			"",
+			'    [DllImport("MFTLibNative", EntryPoint = "ParseMFTRecordsWithProgress", CallingConvention = CallingConvention.Cdecl)]',
+			"    internal static extern IntPtr NativeParseMFTRecordsWithProgress(SafeHandle volumeHandle);",
+			"",
+			"    internal static void ResetToDefaults()",
+			"    {",
+			"        DoWork();",
+			"    }",
+			"}",
+		].join("\n");
+		expect(names(src, ".cs")).toEqual(["ResetToDefaults"]);
+	});
+
 	it("does NOT count a C++ static-call statement as a function", () => {
 		const src = "void M() {\n  Foo::Bar(a, b, c, d, e, f, g);\n}";
 		expect(names(src, ".cpp")).toEqual(["M"]);

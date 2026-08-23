@@ -173,7 +173,7 @@ Measures structural complexity, finds dead code, and detects unused dependencies
 
 | Rule | What it checks |
 |---|---|
-| `complexity/function-too-long` | Functions exceeding configurable line limit (default: 80). For Python, measured by logical body code: the signature, docstrings, comments, and blank lines do not count. `async def` and multi-line wrapped signatures are detected. |
+| `complexity/function-too-long` | Functions exceeding configurable line limit (default: 80). For Python, measured by logical body code: the signature, docstrings, comments, and blank lines do not count. For C#, C++, and brace-delimited languages, declarations and prototypes (such as P/Invoke extern methods or header prototypes ending in `;`) have no body and are skipped rather than treated as functions. Braces inside strings, comments, and regexes are ignored. `async def`/`async Task` and multi-line wrapped signatures are detected. |
 | `complexity/file-too-large` | Files exceeding configurable line limit (default: 400) |
 | `complexity/deep-nesting` | Control-flow nesting beyond threshold (default: 5) |
 | `complexity/too-many-params` | Functions with too many parameters (default: 6). For Python, counts required parameters only: `self`/`cls`, `*args`/`**kwargs`, the `*` / `/` separators, and parameters with a default are not counted. |
