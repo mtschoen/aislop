@@ -149,7 +149,7 @@ describe("checkComplexity — file too large", () => {
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
 		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
 		expect(fileDiags).toHaveLength(1);
-		expect(fileDiags[0].help).toContain("component-as-translation-unit pattern");
+		expect(fileDiags[0].help).toContain("aislop scaffold component");
 		expect(fileDiags[0].help).toContain("docs/cpp-component-pattern.md");
 	});
 
@@ -158,7 +158,7 @@ describe("checkComplexity — file too large", () => {
 		const diagnostics = await checkComplexity(makeContext([header], { maxFileLoc: 10 }));
 		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
 		expect(fileDiags).toHaveLength(1);
-		expect(fileDiags[0].help).toContain("component-as-translation-unit pattern");
+		expect(fileDiags[0].help).toContain("aislop scaffold component");
 	});
 
 	it("keeps the generic split hint for non-C++ files", async () => {

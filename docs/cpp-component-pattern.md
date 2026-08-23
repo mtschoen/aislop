@@ -93,10 +93,18 @@ The `#error` guard is the backstop if a fragment accidentally enters the build.
 
 ### aislop
 
+The pattern is applicable by hand. Two **experimental** commands automate the mechanical parts of it; both are new, their output is meant to be reviewed rather than trusted blindly, and their interface may change.
+
 Generate a new component scaffold with:
 
 ```bash
 aislop scaffold component mft --fragment records --fragment parse_core --fragment parse
+```
+
+By default this refuses to touch files that already exist. To convert an existing translation unit into a component, pass `--adopt`: the public header and any existing sources are kept as they are, missing pieces are created, each adopted fragment gains the `#error` guard, and the owner gets the fragment include block threaded in after its includes. Re-running with more `--fragment` flags folds the new fragments into the existing block.
+
+```bash
+aislop scaffold component mft --adopt --fragment records --fragment parse
 ```
 
 Regenerate editor-only cross-fragment declarations after moving helper definitions with:
@@ -104,6 +112,8 @@ Regenerate editor-only cross-fragment declarations after moving helper definitio
 ```bash
 aislop cpp sync-internal mft
 ```
+
+`sync-internal` declares only the free helpers one fragment defines and another actually calls (ignoring qualified member definitions, inline class/struct methods, and member calls). It reads the fragments structurally (balanced parameter lists, trailing specifiers, trailing return types, with comments, string literals, and preprocessor lines masked out), so templated return types, brace-initialized default arguments, and definitions nested inside indented namespaces are all picked up. It is still a text-level tool, not a compiler front end (for example, raw strings with odd numbers of embedded quotes may skew brace scanning): check the generated header before relying on it.
 
 When `complexity/file-too-large` fires on a C/C++ source file, its fix hint points back to this pattern (and the `aislop scaffold component` command) rather than the generic "split into smaller modules" advice.
 

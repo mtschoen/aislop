@@ -42,5 +42,5 @@ export const CPP_FILE_LOC_MULTIPLIERS: Record<string, number> = Object.fromEntri
 // internal-linkage symbols across translation units. Point them at the
 // component-as-translation-unit pattern instead of generic module splitting.
 export const CPP_FILE_TOO_LARGE_HELP =
-	"Split this C++ file into a component using the component-as-translation-unit pattern; " +
-	"see docs/cpp-component-pattern.md";
+	"Split this C++ file into a component using the component-as-translation-unit pattern " +
+	"(aislop scaffold component); see docs/cpp-component-pattern.md";

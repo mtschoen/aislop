@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { Command } from "commander";
 import { registerAgentCommand } from "./cli/agent-command.js";
+import { registerCppCommand, registerScaffoldCommand } from "./cli/cpp-command.js";
 import { registerHookAliases, registerHookCommand } from "./cli/hook-command.js";
 import { registerExtraCommands } from "./cli-extra-commands.js";
 import { FIX_AGENT_FLAGS, matchFixAgent } from "./cli-fix-agents.js";
 import { commaSeparatedParser, noFlagsPassed, runScan, type ScanFlags } from "./cli-scan.js";
 import { ciCommand } from "./commands/ci.js";
-import { cppSyncInternalCommand, scaffoldComponentCommand } from "./commands/scaffold.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { fixCommand } from "./commands/fix.js";
 import { initCommand } from "./commands/init.js";
@@ -46,13 +46,6 @@ const fireInstalledOnce = (): void => {
 		track({ event: "cli_installed", config: loadConfig(process.cwd()).telemetry });
 	}
 };
-
-// Accumulates each occurrence of a repeatable option verbatim; fragment names
-// must not be comma-split the way commaSeparatedParser would.
-const repeatableValueParser = (value: string, previous: string[] = []): string[] => [
-	...previous,
-	value,
-];
 
 const hasNoUserArgs = (): boolean => process.argv.slice(2).length === 0;
 
@@ -177,28 +170,8 @@ program
 		);
 	});
 
-program
-	.command("scaffold")
-	.description("Generate source scaffolds")
-	.command("component <name>")
-	.description("Generate a C++ component-as-translation-unit scaffold")
-	.option("--dir <path>", "directory to write component files", ".")
-	.option("--fragment <fragment>", "fragment name to generate", repeatableValueParser, [])
-	.action((name: string, _flags, command) => {
-		const flags = command.optsWithGlobals() as { dir?: string; fragment?: string[] };
-		scaffoldComponentCommand(name, { directory: flags.dir, fragments: flags.fragment });
-	});
-
-program
-	.command("cpp")
-	.description("C++ helper commands")
-	.command("sync-internal <component>")
-	.description("Regenerate a component .internal.h for standalone fragment editing")
-	.option("--dir <path>", "project directory", ".")
-	.action((component: string, _flags, command) => {
-		const flags = command.optsWithGlobals() as { dir?: string };
-		cppSyncInternalCommand(component, { directory: flags.dir });
-	});
+registerScaffoldCommand(program);
+registerCppCommand(program);
 
 program
 	.command("doctor [directory]")

@@ -85,7 +85,7 @@ const CI_FLAGS = [
 	"--format <format>",
 ];
 
-const SCAFFOLD_COMPONENT_FLAGS = ["--dir <path>", "--fragment <fragment>"];
+const SCAFFOLD_COMPONENT_FLAGS = ["--dir <path>", "--fragment <fragment>", "--adopt"];
 
 const CPP_SYNC_INTERNAL_FLAGS = ["--dir <path>"];
 
@@ -228,12 +228,12 @@ export const COMMAND_REFERENCE: CommandReference[] = [
 	{ command: "aislop doctor [directory]", summary: "Check installed engines and project coverage" },
 	{
 		command: "aislop scaffold component <name>",
-		summary: "Generate a C++ component-as-translation-unit scaffold",
+		summary: "Generate a C++ component-as-translation-unit scaffold (experimental)",
 		flags: SCAFFOLD_COMPONENT_FLAGS,
 	},
 	{
 		command: "aislop cpp sync-internal <component>",
-		summary: "Regenerate editor-only declarations for C++ component fragments",
+		summary: "Regenerate editor-only declarations for C++ component fragments (experimental)",
 		flags: CPP_SYNC_INTERNAL_FLAGS,
 	},
 	{

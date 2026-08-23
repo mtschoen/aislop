@@ -36,7 +36,7 @@ const HOME_COMMANDS: HomeCommand[] = [
 	{ command: "aislop init", summary: "Create config and optional CI workflow", group: "Setup" },
 	{
 		command: "aislop scaffold component",
-		summary: "Generate a C++ component translation unit",
+		summary: "Generate a C++ component translation unit (experimental)",
 		group: "Setup",
 	},
 	{
