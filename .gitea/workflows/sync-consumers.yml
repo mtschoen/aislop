@@ -76,7 +76,7 @@ jobs:
             git clone https://gitea.fleet.sticktoitive.net/schoen/aislop.git "$INSTALL_DIR"
           fi
           git -C "$INSTALL_DIR" fetch --all
-          git -C "$INSTALL_DIR" checkout ${{ github.sha }}
+          git -C "$INSTALL_DIR" checkout --force ${{ github.sha }}
           # This is a pnpm workspace (pnpm-lock.yaml, packageManager pin);
           # `npm install` does not understand the workspace and fails
           # outright on Windows, so both jobs build with a pinned, hermetic
@@ -112,7 +112,7 @@ jobs:
           }
           git -C $installDirectory fetch --all
           if ($LASTEXITCODE -ne 0) { Write-Error "git fetch failed"; exit 1 }
-          git -C $installDirectory checkout ${{ github.sha }}
+          git -C $installDirectory checkout --force ${{ github.sha }}
           if ($LASTEXITCODE -ne 0) { Write-Error "git checkout failed"; exit 1 }
           # This is a pnpm workspace (pnpm-lock.yaml, packageManager pin);
           # `npm install` does not understand the workspace and fails with
