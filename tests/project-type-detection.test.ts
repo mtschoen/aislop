@@ -3,11 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { doctorCommand } from "../src/commands/doctor.js";
 import { languageLabelFor } from "../src/commands/doctor-plan.js";
 import { planFormatForTest, planLintForTest, planSecurityForTest } from "../src/commands/doctor.js";
 import { detectLanguages, detectSourceLanguages, discoverProject } from "../src/utils/discover.js";
 import { stripAnsi } from "./helpers/ansi.js";
+
+const { runEnginesWithProgress } = vi.hoisted(() => ({
+	runEnginesWithProgress: vi.fn(),
+}));
+
+vi.mock("../src/commands/scan-engine-runner.js", () => ({ runEnginesWithProgress }));
 
 let projectDir: string;
 
@@ -39,6 +44,8 @@ const writeCsharpCppProject = (): void => {
 beforeEach(() => {
 	projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-project-type-"));
 	execFileSync("git", ["init", "-q"], { cwd: projectDir });
+	runEnginesWithProgress.mockReset();
+	runEnginesWithProgress.mockResolvedValue([]);
 });
 
 afterEach(() => {

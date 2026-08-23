@@ -93,7 +93,18 @@ describe("package-manager dependency audit integration", () => {
 	it.skipIf(process.platform !== "win32")(
 		"executes a standalone pnpm executable resolved through PATHEXT",
 		async () => {
-			fs.linkSync(process.execPath, path.join(binaryDirectory, "pnpm.exe"));
+			const pnpmExecutablePath = path.join(binaryDirectory, "pnpm.exe");
+			try {
+				fs.linkSync(process.execPath, pnpmExecutablePath);
+			} catch (error) {
+				// Hard-linking a Program Files binary can be denied (EPERM) or refused
+				// across filesystems/volumes (EXDEV) depending on where the OS temp
+				// directory and the Node install happen to live; a plain byte copy
+				// produces an equally runnable executable for this test's purposes.
+				const code = (error as NodeJS.ErrnoException).code;
+				if (code !== "EPERM" && code !== "EXDEV") throw error;
+				fs.copyFileSync(process.execPath, pnpmExecutablePath);
+			}
 			fs.writeFileSync(
 				path.join(rootDirectory, "audit"),
 				`process.stdout.write(${JSON.stringify(AUDIT_OUTPUT)});\n`,

@@ -139,32 +139,56 @@ describe("killActiveChildren", () => {
 
 describe("runSubprocess timeout under event-loop starvation", () => {
 	it("does not reject a child that completed while the event loop was blocked", async () => {
-		// The child exits almost immediately, well inside the 500ms timeout.
-		// The test then blocks the event loop past the timeout expiry, so on
-		// wake the expired timer callback runs before the child's exit/close
-		// events (timers phase precedes poll phase). The completion must win.
-		const promise = runSubprocess(process.execPath, ["-e", "process.stdout.write('ok')"], {
-			timeout: 500,
-		});
+		const markerFile = path.join(
+			tmpdir(),
+			`aislop-starvation-${process.pid}-${Date.now()}.marker`,
+		);
+		const timeout = 1500;
+		const timerExpiry = Date.now() + timeout;
+		try {
+			// The child writes the marker and exits almost immediately, well
+			// inside the timeout. The test then blocks the event loop past the
+			// timeout expiry, so on wake the expired timer callback runs before
+			// the child's exit/close events (timers phase precedes poll phase).
+			// The completion must win.
+			const promise = runSubprocess(
+				process.execPath,
+				[
+					"-e",
+					`require("node:fs").writeFileSync(${JSON.stringify(markerFile)}, "ok"); process.stdout.write("ok");`,
+				],
+				{ timeout },
+			);
 
-		// Hop into a check-phase (setImmediate) callback first: its loop
-		// iteration is already past the poll phase, so after the spin the
-		// NEXT iteration begins with the timers phase and runs the (now
-		// expired) timeout timer BEFORE the poll phase that would deliver the
-		// child's exit/close events. Spinning from a poll- or timers-phase
-		// continuation instead would let the completion win by accident and
-		// mask the bug.
-		await new Promise((resolve) => setImmediate(resolve));
+			// Hop into a check-phase (setImmediate) callback first: its loop
+			// iteration is already past the poll phase, so after the spin the
+			// NEXT iteration begins with the timers phase and runs the (now
+			// expired) timeout timer BEFORE the poll phase that would deliver the
+			// child's exit/close events. Spinning from a poll- or timers-phase
+			// continuation instead would let the completion win by accident and
+			// mask the bug.
+			await new Promise((resolve) => setImmediate(resolve));
 
-		// Starve the loop: the child (an independent OS process) runs and
-		// exits during the spin, but its exit/close events cannot be
-		// processed until the spin ends - after the timer has already expired.
-		const spinUntil = Date.now() + 1200;
-		while (Date.now() < spinUntil) {
-			// Busy-wait: simulates a synchronous engine pass starving the loop.
+			// Starve the loop: the child (an independent OS process) runs,
+			// writes the marker, and exits during the spin, but its exit/close
+			// events cannot be processed until the spin ends - after the timer
+			// has already expired.
+			//
+			// Spin synchronously until BOTH the child has written its marker
+			// (proving it completed) AND the timeout timer has expired past its
+			// deadline. existsSync is a synchronous syscall and yields nothing to
+			// the event loop, so the parent stays starved for the whole poll.
+			const spinDeadline = Date.now() + 30000;
+			while (Date.now() < spinDeadline) {
+				if (existsSync(markerFile) && Date.now() > timerExpiry + 200) {
+					break;
+				}
+			}
+
+			await expect(promise).resolves.toMatchObject({ stdout: "ok", exitCode: 0 });
+		} finally {
+			rmSync(markerFile, { force: true });
 		}
-
-		await expect(promise).resolves.toMatchObject({ stdout: "ok", exitCode: 0 });
 	});
 });
 
