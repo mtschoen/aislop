@@ -121,7 +121,20 @@ jobs:
           # demand instead of relying on a preinstalled one or Corepack.
           Push-Location $installDirectory
           try {
-            npx -y pnpm@10.28.0 install --frozen-lockfile
+            # pnpm defaults to hard-linking packages out of its store, which
+            # for this job lives in the gitea-runner service account's own
+            # profile. On NTFS a hard link shares the store file's ACL, so
+            # every linked file denies read to interactive users: the shared
+            # install then breaks for everyone except the runner (dist/cli.js
+            # is built locally during install and inherits tree ACLs, but its
+            # very first store-linked import dies with
+            # EPERM/ERR_MODULE_NOT_FOUND).
+            # package-import-method=copy makes pnpm copy files instead, so
+            # they inherit this tree's ACLs (BUILTIN\Users read). Wipe
+            # node_modules first so no hard-linked file from a previous run
+            # survives an incremental install.
+            if (Test-Path node_modules) { Remove-Item -Recurse -Force -ErrorAction Stop node_modules }
+            npx -y pnpm@10.28.0 install --frozen-lockfile --config.package-import-method=copy
             if ($LASTEXITCODE -ne 0) { Write-Error "pnpm install failed"; exit 1 }
           } finally {
             Pop-Location
