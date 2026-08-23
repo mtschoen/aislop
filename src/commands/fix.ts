@@ -10,10 +10,7 @@ import { renderHeader } from "../ui/header.js";
 import { LiveRail } from "../ui/live-rail.js";
 import { log } from "../ui/logger.js";
 import { theme as defaultTheme, style } from "../ui/theme.js";
-import {
-	detectSourceLanguages,
-	discoverProject,
-} from "../utils/discover.js";
+import { detectSourceLanguages, discoverProject } from "../utils/discover.js";
 import { resetGitIgnoreSnapshots } from "../utils/git-ignore.js";
 import { readAislopIgnorePatterns } from "../utils/source-files.js";
 import { APP_VERSION } from "../version.js";

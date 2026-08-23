@@ -137,9 +137,7 @@ export const detectSourceLanguages = (sourceFiles: string[]): Language[] => {
 		}
 	}
 
-	return [...counts.entries()]
-		.sort((a, b) => b[1] - a[1])
-		.map(([lang]) => lang);
+	return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([lang]) => lang);
 };
 
 export const detectManifestLanguages = (directory: string): Language[] => {

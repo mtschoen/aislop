@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Language } from "../utils/discover.js";
-import type { PlanContext, ToolDecision } from "./doctor-plan.js";
+import { STATUS_OK, type PlanContext, type ToolDecision } from "./doctor-plan.js";
 import { projectEvaluationGate } from "./doctor-trust-plan.js";
 
 interface SystemToolSpec {
@@ -20,7 +20,11 @@ interface AuditSpec {
 
 const AUDIT_SPECS: AuditSpec[] = [
 	{ files: ["pnpm-lock.yaml"], languages: ["typescript", "javascript"], bundled: "pnpm audit" },
-	{ files: ["bun.lock", "bun.lockb"], languages: ["typescript", "javascript"], bundled: "bun audit" },
+	{
+		files: ["bun.lock", "bun.lockb"],
+		languages: ["typescript", "javascript"],
+		bundled: "bun audit",
+	},
 	{ files: ["package-lock.json"], languages: ["typescript", "javascript"], bundled: "npm audit" },
 	{
 		files: ["requirements.txt", "poetry.lock", "Pipfile.lock"],
@@ -61,6 +65,25 @@ const AUDIT_SPECS: AuditSpec[] = [
 	},
 ];
 
+const auditDecision = (
+	spec: AuditSpec,
+	installedTools: Record<string, boolean>,
+): ToolDecision | null => {
+	if (spec.bundled) return { tool: spec.bundled, status: STATUS_OK };
+	if (spec.systemTool) {
+		const required = spec.systemTool.requiresBinaries ?? [spec.systemTool.binary];
+		const allPresent = required.every((binary) => installedTools[binary]);
+		return allPresent
+			? { tool: `${spec.systemTool.toolLabel} (system)`, status: STATUS_OK }
+			: {
+					tool: `${spec.systemTool.toolLabel} not found`,
+					status: "missing",
+					remediation: spec.systemTool.remediation,
+				};
+	}
+	return null;
+};
+
 export const planSecurity = (ctx: PlanContext): ToolDecision => {
 	const { rootDirectory, projectInfo } = ctx;
 	const { installedTools } = projectInfo;
@@ -73,24 +96,11 @@ export const planSecurity = (ctx: PlanContext): ToolDecision => {
 			if (!spec.languages?.includes(lang)) continue;
 			const filesMatch = spec.files.length === 0 || spec.files.some(hasFile);
 			if (!filesMatch) continue;
-			if (
-				lang === "csharp" &&
-				ctx.config.lint.csharp?.projectEvaluation !== true
-			) {
+			if (lang === "csharp" && ctx.config.lint.csharp?.projectEvaluation !== true) {
 				return projectEvaluationGate();
 			}
-			if (spec.bundled) return { tool: spec.bundled, status: "ok" };
-			if (spec.systemTool) {
-				const required = spec.systemTool.requiresBinaries ?? [spec.systemTool.binary];
-				const allPresent = required.every((binary) => installedTools[binary]);
-				return allPresent
-					? { tool: `${spec.systemTool.toolLabel} (system)`, status: "ok" }
-					: {
-							tool: `${spec.systemTool.toolLabel} not found`,
-							status: "missing",
-							remediation: spec.systemTool.remediation,
-						};
-			}
+			const decision = auditDecision(spec, installedTools);
+			if (decision) return decision;
 		}
 	}
 
@@ -98,18 +108,8 @@ export const planSecurity = (ctx: PlanContext): ToolDecision => {
 	for (const spec of AUDIT_SPECS) {
 		const filesMatch = spec.files.length > 0 && spec.files.some(hasFile);
 		if (!filesMatch) continue;
-		if (spec.bundled) return { tool: spec.bundled, status: "ok" };
-		if (spec.systemTool) {
-			const required = spec.systemTool.requiresBinaries ?? [spec.systemTool.binary];
-			const allPresent = required.every((binary) => installedTools[binary]);
-			return allPresent
-				? { tool: `${spec.systemTool.toolLabel} (system)`, status: "ok" }
-				: {
-						tool: `${spec.systemTool.toolLabel} not found`,
-						status: "missing",
-						remediation: spec.systemTool.remediation,
-					};
-		}
+		const decision = auditDecision(spec, installedTools);
+		if (decision) return decision;
 	}
 	return { tool: "no auditor", status: "skipped", skipReason: "no lockfile" };
 };
