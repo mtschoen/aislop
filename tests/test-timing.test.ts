@@ -283,6 +283,7 @@ describe("clock-dependent assertions in tests", () => {
 		writeFile("tests/FlushTests.cs", [
 			"public class FlushTests {",
 			"    public void ReturnsQuickly() {",
+			"        var watch = Stopwatch.StartNew();",
 			"        Assert.True(watch.ElapsedMilliseconds < 400);",
 			"    }",
 			"}",
@@ -301,9 +302,58 @@ describe("clock-dependent assertions in tests", () => {
 
 		expect(await findingsFor(CLOCK_RULE, ["csharp", "go", "cpp"])).toEqual([
 			{ filePath: "pkg/flush_test.go", line: 2 },
-			{ filePath: "tests/FlushTests.cs", line: 3 },
+			{ filePath: "tests/FlushTests.cs", line: 4 },
 			{ filePath: "tests/flush_test.cpp", line: 2 },
 			{ filePath: "tests/flush_test.cpp", line: 3 },
+		]);
+	});
+
+	it("does not flag C# assertions on plain Elapsed properties or inside nameof", async () => {
+		writeFile("tests/PresenterTests.cs", [
+			"public class PresenterTests {",
+			"    public void AssertsElapsed() {",
+			'        Assert.Equal("00:04", display.Elapsed);',
+			"        Assert.Equal(TimeSpan.FromSeconds(10), info.Elapsed);",
+			"        Assert.Equal(500, run.ElapsedMilliseconds);",
+			"        Assert.Contains(nameof(run.ElapsedMilliseconds), fired);",
+			"        Assert.Contains(nameof(Stopwatch.ElapsedMilliseconds), fired);",
+			'        Assert.Equal("Now", nameof(DateTime.Now));',
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
+	it("flags C# assertions on stopwatch receivers while ignoring plain Elapsed in the same file", async () => {
+		writeFile("tests/MixedTimingTests.cs", [
+			"public class MixedTimingTests {",
+			"    private readonly Stopwatch _timer = new Stopwatch();",
+			"    public void AssertsMixed() {",
+			"        var sw = Stopwatch.StartNew();",
+			'        Assert.Equal("00:04", presenter.Elapsed);',
+			'        presenter.Elapsed.Should().Be("00:04");',
+			"        Assert.True(sw.ElapsedMilliseconds < 500);",
+			"        sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));",
+			"        Assert.True(this._timer.ElapsedTicks > 0);",
+			"        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));",
+			"        Assert.True(Stopwatch.GetTimestamp() > 0);",
+			"        Assert.True(Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(2));",
+			"        Assert.True(Stopwatch.StartNew().ElapsedMilliseconds < 400);",
+			"        Assert.True((new Stopwatch()).ElapsedMilliseconds < 100);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/MixedTimingTests.cs", line: 7 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 8 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 9 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 10 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 11 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 12 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 13 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 14 },
 		]);
 	});
 

@@ -351,7 +351,7 @@ halves are closed lists:
 | --- | --- | --- |
 | JavaScript/TypeScript | `expect(`, `assert(`, `assert.<name>(` | `Date.now()`, `performance.now()`, `hrtime` |
 | Python | a line-leading `assert `, `.assert<Name>(` | `time.time()`, `time.monotonic()`, `time.perf_counter()`, `time.process_time()`, `datetime.now(`, `datetime.utcnow(` |
-| C# | `Assert.<Name>(`, `.Should()` | `DateTime[Offset].Now`, `.UtcNow`, `.Elapsed*`, `Environment.TickCount`, `Stopwatch.GetTimestamp(` |
+| C# | `Assert.<Name>(`, `.Should()` | `DateTime[Offset].Now`, `.UtcNow`, `<stopwatch>.Elapsed*`, `Environment.TickCount`, `Stopwatch.GetTimestamp(`, `Stopwatch.GetElapsedTime(` |
 | Go | `assert.<Name>(`, `require.<Name>(` | `time.Now(`, `time.Since(` |
 | PHP | `->assert<Name>(`, `assert(` | `microtime(`, `hrtime(`, `time()` |
 | C/C++ | `EXPECT_*(`, `ASSERT_*(` | `chrono::duration_cast`, `*clock::now()`, `clock()` |
