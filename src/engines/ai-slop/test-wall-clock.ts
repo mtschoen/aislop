@@ -44,9 +44,7 @@ const PYTHON_SHAPE: TimingShape = {
 	],
 };
 
-const STOPWATCH_CONVENTIONAL_PATTERN = "(?:_|m_|s_)?[Ss]top_?[Ww]atch";
-const STOPWATCH_CONVENTIONAL_RE = new RegExp(String.raw`^${STOPWATCH_CONVENTIONAL_PATTERN}$`);
-const STOPWATCH_CREATION_PATTERN = String.raw`(?:\(\s*)*(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew\s*\(\s*\)|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}(?:\s*\(\s*\)|\s*\{\s*\})?)(?:\s*\))*`;
+const STOPWATCH_CREATION_PATTERN = String.raw`(?:\(\s*)*(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b\s*\.\s*StartNew\s*\(\s*\)|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\(\s*\)|\s*\{\s*\})?)(?:\s*\))*`;
 const STOPWATCH_CREATION_EXACT_RE = new RegExp(
 	String.raw`^\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|,)?\s*$`,
 );
@@ -109,7 +107,7 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 
 	// Typed declarations: `Stopwatch sw`, `Stopwatch? sw`, `System.Diagnostics.Stopwatch sw`, `Stopwatch sw1, sw2`
 	const typedDeclPattern = new RegExp(
-		String.raw`\b(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}(?:\s*\?)?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)`,
+		String.raw`(?<!(?:\.|\?\.)\s*)(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\?)?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?!\s*\()`,
 		"g",
 	);
 	let match: RegExpExecArray | null;
@@ -125,7 +123,7 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 
 	// Single-variable assignments from Stopwatch creation: `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`
 	const singleAssignPattern = new RegExp(
-		String.raw`(?:\b(?:this\s*\.\s*)?(?:(?:using|var)\s+)?([A-Za-z_]\w*))\s*(?<![!=<>+-])=(?![=>])\s*${STOPWATCH_CREATION_PATTERN}`,
+		String.raw`(?<!(?:\.|\?\.)\s*)(?:this\s*\.\s*)?(?:(?:using|var)\s+)?([A-Za-z_]\w*)\s*(?<![!=<>+-])=(?![=>])\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|(?=[,)\]}\r\n]|$))`,
 		"g",
 	);
 	while ((match = singleAssignPattern.exec(file.masked)) !== null) {
@@ -200,15 +198,11 @@ const buildCSharpClockReads = (file: MaskedTestFile): RegExp[] => {
 	const clockReads = [...CSHARP_STATIC_CLOCK_READS];
 	const identifiers = collectCSharpStopwatchIdentifiers(file);
 
-	const idPatterns: string[] = [STOPWATCH_CONVENTIONAL_PATTERN];
-	for (const id of identifiers) {
-		if (!STOPWATCH_CONVENTIONAL_RE.test(id)) {
-			idPatterns.push(escapeRegExp(id));
-		}
+	if (identifiers.size > 0) {
+		const idPatterns = Array.from(identifiers).map(escapeRegExp);
+		const receiverPattern = String.raw`(?<!(?:\.|\?\.)\s*)(?:(?:\bthis\s*\.\s*@?|(?<![@\w])@?)(?:${idPatterns.join("|")})\b)\s*\??\s*\.\s*${ELAPSED}\w*\b`;
+		clockReads.push(new RegExp(receiverPattern));
 	}
-
-	const receiverPattern = String.raw`(?<!(?:\.|\?\.)\s*)(?:(?:\bthis\s*\.\s*@?|(?<![@\w])@?)(?:${idPatterns.join("|")})\b)\s*\??\s*\.\s*${ELAPSED}\w*\b`;
-	clockReads.push(new RegExp(receiverPattern));
 
 	return clockReads;
 };

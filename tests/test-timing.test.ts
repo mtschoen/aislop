@@ -316,6 +316,9 @@ describe("clock-dependent assertions in tests", () => {
 			"        var factoryWatch = factory.CreateStopwatch();",
 			"        var wrappedDisplay = CreateDisplay(Stopwatch.StartNew());",
 			"        var newDisplay = new ProgressDisplay(Stopwatch.StartNew());",
+			"        var displayFromMethod = Stopwatch.StartNew().ToDisplay();",
+			"        var factoryDisplay = new StopwatchFactory();",
+			"        presenter.display = Stopwatch.StartNew();",
 			"        var (watch, display) = (Stopwatch.StartNew(), new ProgressDisplay(Stopwatch.StartNew()));",
 			"        var (plainDisplay, secondWatch) = (new ProgressDisplay(), Stopwatch.StartNew());",
 			"        if (display == Stopwatch.StartNew()) { }",
@@ -323,10 +326,13 @@ describe("clock-dependent assertions in tests", () => {
 			'        Assert.Equal("00:04", display.Elapsed);',
 			'        Assert.Equal("00:04", wrappedDisplay.Elapsed);',
 			'        Assert.Equal("00:04", newDisplay.Elapsed);',
+			'        Assert.Equal("00:04", displayFromMethod.Elapsed);',
+			'        Assert.Equal("00:04", factoryDisplay.Elapsed);',
 			'        Assert.Equal("00:04", plainDisplay.Elapsed);',
 			'        Assert.Equal("00:04", presenter.watch.Elapsed);',
 			'        Assert.Equal("00:04", presenter.display.Elapsed);',
 			'        Assert.Equal("00:04", presenter.stopwatch.Elapsed);',
+			'        Assert.Equal("00:04", stopwatch.Elapsed);',
 			"        Assert.Equal(TimeSpan.FromSeconds(10), info.Elapsed);",
 			"        Assert.Equal(500, run.ElapsedMilliseconds);",
 			"        Assert.Equal(TimeSpan.Zero, factoryWatch.Elapsed);",
@@ -347,6 +353,7 @@ describe("clock-dependent assertions in tests", () => {
 			"    private readonly Stopwatch STOPWATCH = new Stopwatch();",
 			"    public void AssertsMixed() {",
 			"        var sw = Stopwatch.StartNew();",
+			"        var stopwatch = Stopwatch.StartNew();",
 			"        var (watch, display) = (Stopwatch.StartNew(), new ProgressDisplay(Stopwatch.StartNew()));",
 			"        var wrappedDisplay = CreateDisplay(Stopwatch.StartNew());",
 			"        if (display == Stopwatch.StartNew()) { }",
@@ -373,7 +380,6 @@ describe("clock-dependent assertions in tests", () => {
 		]);
 
 		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
-			{ filePath: "tests/MixedTimingTests.cs", line: 17 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 18 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 19 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 20 },
@@ -383,6 +389,7 @@ describe("clock-dependent assertions in tests", () => {
 			{ filePath: "tests/MixedTimingTests.cs", line: 24 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 25 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 26 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 27 },
 		]);
 	});
 
