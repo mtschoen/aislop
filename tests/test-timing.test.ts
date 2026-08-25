@@ -314,7 +314,12 @@ describe("clock-dependent assertions in tests", () => {
 			"    public void AssertsElapsed() {",
 			"        Assert.Throws<InvalidOperationException>(() => new Stopwatch());",
 			"        var factoryWatch = factory.CreateStopwatch();",
+			"        var (watch, display) = (Stopwatch.StartNew(), new ProgressDisplay());",
+			"        var (plainDisplay, secondWatch) = (new ProgressDisplay(), Stopwatch.StartNew());",
+			"        if (display == Stopwatch.StartNew()) { }",
+			"        Assert.True(display == Stopwatch.StartNew());",
 			'        Assert.Equal("00:04", display.Elapsed);',
+			'        Assert.Equal("00:04", plainDisplay.Elapsed);',
 			"        Assert.Equal(TimeSpan.FromSeconds(10), info.Elapsed);",
 			"        Assert.Equal(500, run.ElapsedMilliseconds);",
 			"        Assert.Equal(TimeSpan.Zero, factoryWatch.Elapsed);",
@@ -334,10 +339,15 @@ describe("clock-dependent assertions in tests", () => {
 			"    private readonly Stopwatch _timer = new Stopwatch();",
 			"    public void AssertsMixed() {",
 			"        var sw = Stopwatch.StartNew();",
+			"        var (watch, display) = (Stopwatch.StartNew(), new ProgressDisplay());",
+			"        if (display == Stopwatch.StartNew()) { }",
 			'        Assert.Equal("00:04", presenter.Elapsed);',
 			'        presenter.Elapsed.Should().Be("00:04");',
+			'        Assert.Equal("00:04", display.Elapsed);',
+			'        Assert.Equal("00:04", SW.Elapsed);',
 			"        Assert.True(sw.ElapsedMilliseconds < 500);",
 			"        sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));",
+			"        Assert.True(watch.ElapsedMilliseconds < 500);",
 			"        Assert.True(this._timer.ElapsedTicks > 0);",
 			"        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));",
 			"        Assert.True(Stopwatch.GetTimestamp() > 0);",
@@ -349,14 +359,15 @@ describe("clock-dependent assertions in tests", () => {
 		]);
 
 		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
-			{ filePath: "tests/MixedTimingTests.cs", line: 7 },
-			{ filePath: "tests/MixedTimingTests.cs", line: 8 },
-			{ filePath: "tests/MixedTimingTests.cs", line: 9 },
-			{ filePath: "tests/MixedTimingTests.cs", line: 10 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 11 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 12 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 13 },
 			{ filePath: "tests/MixedTimingTests.cs", line: 14 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 15 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 16 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 17 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 18 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 19 },
 		]);
 	});
 

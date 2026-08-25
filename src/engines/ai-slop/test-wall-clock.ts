@@ -45,6 +45,11 @@ const PYTHON_SHAPE: TimingShape = {
 };
 
 const STOPWATCH_NAME_RE = /^(?:_|m_|s_)?stop_?watch$/i;
+const STOPWATCH_CONVENTIONAL_PATTERN = "(?:_|m_|s_)?[Ss]top_?[Ww]atch";
+const STOPWATCH_CREATION_RE = new RegExp(
+	String.raw`\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew\b|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
+);
+
 const STOPWATCH_MEMBERS = new Set([
 	"StartNew",
 	"GetTimestamp",
@@ -62,6 +67,42 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 const maskNameof = (line: string): string =>
 	line.replace(/\bnameof\s*\((?:[^()]+|\([^()]*\))*\)/g, (match) => " ".repeat(match.length));
 
+const findMatchingParen = (text: string, startIndex: number): number => {
+	let depth = 0;
+	for (let i = startIndex; i < text.length; i++) {
+		const ch = text[i];
+		if (ch === "(") {
+			depth++;
+		} else if (ch === ")") {
+			depth--;
+			if (depth === 0) return i;
+		}
+	}
+	return -1;
+};
+
+const parseTupleElements = (text: string): string[] | null => {
+	const trimmed = text.trim();
+	if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) return null;
+	const inner = trimmed.slice(1, -1);
+	const elements: string[] = [];
+	let depth = 0;
+	let current = "";
+	for (const ch of inner) {
+		if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
+		else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
+		else if (ch === "," && depth === 0) {
+			elements.push(current.trim());
+			current = "";
+			continue;
+		}
+		current += ch;
+	}
+	if (depth !== 0) return null;
+	elements.push(current.trim());
+	return elements;
+};
+
 const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> => {
 	const identifiers = new Set<string>();
 
@@ -75,32 +116,66 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 		const declGroup = match[1];
 		for (const rawId of declGroup.split(",")) {
 			const id = rawId.trim();
-			if (id && !STOPWATCH_MEMBERS.has(id)) {
+			if (id && id !== "_" && id !== "var" && !STOPWATCH_MEMBERS.has(id)) {
 				identifiers.add(id);
 			}
 		}
 	}
 
-	// Variable assignments from Stopwatch creation / instantiation:
-	// `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`, `var (sw, other) = ...`
-	const assignPattern = new RegExp(
-		String.raw`(?:\b([A-Za-z_]\w*)|\(([^)]+)\))\s*=(?!>)\s*[^;]*?\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
+	// Single-variable assignments from Stopwatch creation: `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`
+	const singleAssignPattern = new RegExp(
+		String.raw`(?:\b(?:this\s*\.\s*)?(?:var\s+)?([A-Za-z_]\w*))\s*(?<![!=<>])=(?![=>])\s*[^;=]*?\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew\b|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
 		"g",
 	);
-	while ((match = assignPattern.exec(file.masked)) !== null) {
-		if (match[1]) {
-			const id = match[1].trim();
-			if (id !== "var" && !STOPWATCH_MEMBERS.has(id)) {
-				identifiers.add(id);
-			}
-		} else if (match[2]) {
-			for (const rawPart of match[2].split(",")) {
-				const part = rawPart
-					.trim()
-					.replace(/^var\s+/, "")
-					.trim();
-				if (part && /^[A-Za-z_]\w*$/.test(part) && !STOPWATCH_MEMBERS.has(part)) {
-					identifiers.add(part);
+	while ((match = singleAssignPattern.exec(file.masked)) !== null) {
+		const id = match[1].trim();
+		if (id && id !== "_" && id !== "var" && !STOPWATCH_MEMBERS.has(id)) {
+			identifiers.add(id);
+		}
+	}
+
+	// Tuple deconstruction assignments: `var (watch, display) = (Stopwatch.StartNew(), new ProgressDisplay())`
+	for (let i = 0; i < file.masked.length; i++) {
+		if (file.masked[i] !== "(") continue;
+		const lhsEnd = findMatchingParen(file.masked, i);
+		if (lhsEnd === -1) continue;
+
+		let assignIndex = lhsEnd + 1;
+		while (assignIndex < file.masked.length && /\s/.test(file.masked[assignIndex])) {
+			assignIndex++;
+		}
+		if (assignIndex >= file.masked.length || file.masked[assignIndex] !== "=") continue;
+
+		const prevChar = assignIndex > 0 ? file.masked[assignIndex - 1] : "";
+		const nextChar = assignIndex + 1 < file.masked.length ? file.masked[assignIndex + 1] : "";
+		if (/[!=<>+-]/.test(prevChar) || /[=>]/.test(nextChar)) continue;
+
+		let rhsStart = assignIndex + 1;
+		while (rhsStart < file.masked.length && /\s/.test(file.masked[rhsStart])) {
+			rhsStart++;
+		}
+		if (rhsStart >= file.masked.length || file.masked[rhsStart] !== "(") continue;
+		const rhsEnd = findMatchingParen(file.masked, rhsStart);
+		if (rhsEnd === -1) continue;
+
+		const lhsText = file.masked.slice(i, lhsEnd + 1);
+		const rhsText = file.masked.slice(rhsStart, rhsEnd + 1);
+
+		const lhsElements = parseTupleElements(lhsText);
+		const rhsElements = parseTupleElements(rhsText);
+		if (lhsElements && rhsElements && lhsElements.length === rhsElements.length) {
+			for (let elIndex = 0; elIndex < lhsElements.length; elIndex++) {
+				if (STOPWATCH_CREATION_RE.test(rhsElements[elIndex])) {
+					const rawId = lhsElements[elIndex].replace(/^(?:var|[A-Za-z_]\w*(?:\?)?)\s+/, "").trim();
+					if (
+						rawId &&
+						/^[A-Za-z_]\w*$/.test(rawId) &&
+						rawId !== "_" &&
+						rawId !== "var" &&
+						!STOPWATCH_MEMBERS.has(rawId)
+					) {
+						identifiers.add(rawId);
+					}
 				}
 			}
 		}
@@ -124,7 +199,7 @@ const buildCSharpClockReads = (file: MaskedTestFile): RegExp[] => {
 	const clockReads = [...CSHARP_STATIC_CLOCK_READS];
 	const identifiers = collectCSharpStopwatchIdentifiers(file);
 
-	const idPatterns: string[] = ["(?:_|m_|s_)?stop_?watch"];
+	const idPatterns: string[] = [STOPWATCH_CONVENTIONAL_PATTERN];
 	for (const id of identifiers) {
 		if (!STOPWATCH_NAME_RE.test(id)) {
 			idPatterns.push(escapeRegExp(id));
@@ -132,7 +207,7 @@ const buildCSharpClockReads = (file: MaskedTestFile): RegExp[] => {
 	}
 
 	const receiverPattern = String.raw`(?:\bthis\s*\.\s*)?@?\b(?:${idPatterns.join("|")})\s*\??\s*\.\s*${ELAPSED}\w*\b`;
-	clockReads.push(new RegExp(receiverPattern, "i"));
+	clockReads.push(new RegExp(receiverPattern));
 
 	return clockReads;
 };

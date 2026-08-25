@@ -370,7 +370,7 @@ halves are closed lists:
   reported, because only the testify-style assertion helpers are listed.
 - **C# stopwatches returned from helpers or factories.** In C#, receiver tracking matches typed
   `Stopwatch` declarations, assignments from `Stopwatch.StartNew()` or `new Stopwatch()`, direct
-  instantiations, and conventional stopwatch variable names (`stopwatch`, `_timer`, etc.). A
+  instantiations, and conventional stopwatch variable names (`stopwatch`, `_stopwatch`, `m_stopwatch`, etc.). A
   stopwatch obtained from a factory method or property (such as `factory.CreateStopwatch()`) is
   not tracked.
 - **C# file-scoped stopwatch receivers across methods.** Receiver identifier tracking in C# is
