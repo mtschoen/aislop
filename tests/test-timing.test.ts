@@ -312,9 +312,12 @@ describe("clock-dependent assertions in tests", () => {
 		writeFile("tests/PresenterTests.cs", [
 			"public class PresenterTests {",
 			"    public void AssertsElapsed() {",
+			"        Assert.Throws<InvalidOperationException>(() => new Stopwatch());",
+			"        var factoryWatch = factory.CreateStopwatch();",
 			'        Assert.Equal("00:04", display.Elapsed);',
 			"        Assert.Equal(TimeSpan.FromSeconds(10), info.Elapsed);",
 			"        Assert.Equal(500, run.ElapsedMilliseconds);",
+			"        Assert.Equal(TimeSpan.Zero, factoryWatch.Elapsed);",
 			"        Assert.Contains(nameof(run.ElapsedMilliseconds), fired);",
 			"        Assert.Contains(nameof(Stopwatch.ElapsedMilliseconds), fired);",
 			'        Assert.Equal("Now", nameof(DateTime.Now));',

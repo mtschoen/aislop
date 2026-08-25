@@ -368,6 +368,16 @@ halves are closed lists:
   assertion is reported; suppress it in place with a reason.
 - **Go's plain `if` assertions.** `if time.Since(start) > limit { t.Fatal(...) }` is not
   reported, because only the testify-style assertion helpers are listed.
+- **C# stopwatches returned from helpers or factories.** In C#, receiver tracking matches typed
+  `Stopwatch` declarations, assignments from `Stopwatch.StartNew()` or `new Stopwatch()`, direct
+  instantiations, and conventional stopwatch variable names (`stopwatch`, `_timer`, etc.). A
+  stopwatch obtained from a factory method or property (such as `factory.CreateStopwatch()`) is
+  not tracked.
+- **C# file-scoped stopwatch receivers across methods.** Receiver identifier tracking in C# is
+  collected per file without method-level scope analysis. If an identifier is bound to a
+  `Stopwatch` anywhere in a test file (e.g. `var timer = Stopwatch.StartNew()`), any assertion
+  in that same file reading `timer.Elapsed` is treated as a clock read even if `timer` in a
+  different method refers to a plain property.
 
 ### Non-ASCII punctuation (`ai-slop/em-dash`, `ai-slop/smart-punctuation`)
 

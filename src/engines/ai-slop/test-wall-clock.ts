@@ -84,7 +84,7 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 	// Variable assignments from Stopwatch creation / instantiation:
 	// `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`, `var (sw, other) = ...`
 	const assignPattern = new RegExp(
-		String.raw`(?:\b([A-Za-z_]\w*)|\(([^)]+)\))\s*=\s*[^;]*?\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
+		String.raw`(?:\b([A-Za-z_]\w*)|\(([^)]+)\))\s*=(?!>)\s*[^;]*?\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
 		"g",
 	);
 	while ((match = assignPattern.exec(file.masked)) !== null) {
@@ -99,7 +99,7 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 					.trim()
 					.replace(/^var\s+/, "")
 					.trim();
-				if (part && !STOPWATCH_MEMBERS.has(part)) {
+				if (part && /^[A-Za-z_]\w*$/.test(part) && !STOPWATCH_MEMBERS.has(part)) {
 					identifiers.add(part);
 				}
 			}
