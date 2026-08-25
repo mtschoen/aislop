@@ -44,10 +44,11 @@ const PYTHON_SHAPE: TimingShape = {
 	],
 };
 
-const STOPWATCH_NAME_RE = /^(?:_|m_|s_)?stop_?watch$/i;
 const STOPWATCH_CONVENTIONAL_PATTERN = "(?:_|m_|s_)?[Ss]top_?[Ww]atch";
-const STOPWATCH_CREATION_RE = new RegExp(
-	String.raw`\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew\b|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
+const STOPWATCH_CONVENTIONAL_RE = new RegExp(String.raw`^${STOPWATCH_CONVENTIONAL_PATTERN}$`);
+const STOPWATCH_CREATION_PATTERN = String.raw`(?:\(\s*)*(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew\s*\(\s*\)|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}(?:\s*\(\s*\)|\s*\{\s*\})?)(?:\s*\))*`;
+const STOPWATCH_CREATION_EXACT_RE = new RegExp(
+	String.raw`^\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|,)?\s*$`,
 );
 
 const STOPWATCH_MEMBERS = new Set([
@@ -124,7 +125,7 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 
 	// Single-variable assignments from Stopwatch creation: `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`
 	const singleAssignPattern = new RegExp(
-		String.raw`(?:\b(?:this\s*\.\s*)?(?:var\s+)?([A-Za-z_]\w*))\s*(?<![!=<>])=(?![=>])\s*[^;=]*?\b(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\s*\.\s*StartNew\b|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?${STOPWATCH}\b)`,
+		String.raw`(?:\b(?:this\s*\.\s*)?(?:(?:using|var)\s+)?([A-Za-z_]\w*))\s*(?<![!=<>+-])=(?![=>])\s*${STOPWATCH_CREATION_PATTERN}`,
 		"g",
 	);
 	while ((match = singleAssignPattern.exec(file.masked)) !== null) {
@@ -165,7 +166,7 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 		const rhsElements = parseTupleElements(rhsText);
 		if (lhsElements && rhsElements && lhsElements.length === rhsElements.length) {
 			for (let elIndex = 0; elIndex < lhsElements.length; elIndex++) {
-				if (STOPWATCH_CREATION_RE.test(rhsElements[elIndex])) {
+				if (STOPWATCH_CREATION_EXACT_RE.test(rhsElements[elIndex])) {
 					const rawId = lhsElements[elIndex].replace(/^(?:var|[A-Za-z_]\w*(?:\?)?)\s+/, "").trim();
 					if (
 						rawId &&
@@ -201,12 +202,12 @@ const buildCSharpClockReads = (file: MaskedTestFile): RegExp[] => {
 
 	const idPatterns: string[] = [STOPWATCH_CONVENTIONAL_PATTERN];
 	for (const id of identifiers) {
-		if (!STOPWATCH_NAME_RE.test(id)) {
+		if (!STOPWATCH_CONVENTIONAL_RE.test(id)) {
 			idPatterns.push(escapeRegExp(id));
 		}
 	}
 
-	const receiverPattern = String.raw`(?:\bthis\s*\.\s*)?@?\b(?:${idPatterns.join("|")})\s*\??\s*\.\s*${ELAPSED}\w*\b`;
+	const receiverPattern = String.raw`(?<!(?:\.|\?\.)\s*)(?:(?:\bthis\s*\.\s*@?|(?<![@\w])@?)(?:${idPatterns.join("|")})\b)\s*\??\s*\.\s*${ELAPSED}\w*\b`;
 	clockReads.push(new RegExp(receiverPattern));
 
 	return clockReads;
