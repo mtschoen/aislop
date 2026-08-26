@@ -34,7 +34,24 @@ else
         esac
       done)"
   git -C "$checkoutDirectory" fetch "${remoteName:-$giteaRemoteUrl}" "$targetBranch"
-  git -C "$checkoutDirectory" checkout -B "$targetBranch" FETCH_HEAD
+  # Get onto the target branch without discarding anything. A checkout that
+  # already has the branch is fast-forwarded; one that does not gets it created
+  # from the fetched tip. A branch that has diverged carries commits which may
+  # exist nowhere else, so divergence stops the script rather than being forced
+  # into line.
+  if git -C "$checkoutDirectory" show-ref --verify --quiet "refs/heads/$targetBranch"; then
+    if ! git -C "$checkoutDirectory" merge-base --is-ancestor "$targetBranch" FETCH_HEAD && \
+       ! git -C "$checkoutDirectory" merge-base --is-ancestor FETCH_HEAD "$targetBranch"; then
+      echo "ERROR: $targetBranch in $checkoutDirectory has diverged from the remote." >&2
+      echo "It may hold commits that exist nowhere else. Inspect and reconcile it" >&2
+      echo "by hand: git -C '$checkoutDirectory' log --oneline --left-right FETCH_HEAD...$targetBranch" >&2
+      exit 1
+    fi
+    git -C "$checkoutDirectory" checkout "$targetBranch"
+    git -C "$checkoutDirectory" merge --ff-only FETCH_HEAD
+  else
+    git -C "$checkoutDirectory" checkout -b "$targetBranch" FETCH_HEAD
+  fi
 fi
 
 # `pnpm install` runs the package's prepare script, which builds dist/. The
