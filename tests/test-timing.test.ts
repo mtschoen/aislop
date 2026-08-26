@@ -346,10 +346,12 @@ describe("clock-dependent assertions in tests", () => {
 		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
 	});
 
-	it("does not leak a mangled identifier from a member assignment, tuple-valued initializer, or method declaration", async () => {
+	it("does not leak a mangled identifier from a member assignment, tuple-valued initializer, or a plain or generic method declaration", async () => {
 		writeFile("tests/BoundaryTests.cs", [
 			"public class BoundaryTests {",
 			"    Stopwatch display() { return null; }",
+			"    Stopwatch render<T>() { return null; }",
+			"    Stopwatch combine<T, U>() { return null; }",
 			"    public void AssignsAndDeclares() {",
 			"        presenter.display = Stopwatch.StartNew();",
 			"        var display = (Stopwatch.StartNew(), Elapsed: expected);",
@@ -357,6 +359,8 @@ describe("clock-dependent assertions in tests", () => {
 			"        Assert.Equal(expected, display.Elapsed);",
 			'        Assert.Equal("00:04", isplay.Elapsed);',
 			'        Assert.Equal("00:04", displa.Elapsed);',
+			'        Assert.Equal("00:04", render.Elapsed);',
+			'        Assert.Equal("00:04", combine.Elapsed);',
 			"    }",
 			"}",
 		]);

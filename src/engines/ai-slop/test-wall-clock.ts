@@ -58,16 +58,58 @@ const STOPWATCH_CREATION_EXACT_RE = new RegExp(
 	String.raw`^\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|,)?\s*$`,
 );
 
-// Typed declarations: `Stopwatch sw`, `Stopwatch? sw`, `System.Diagnostics.Stopwatch sw`, `Stopwatch sw1, sw2`.
-// The trailing `(?!\w)` is required alongside `(?!\s*\()`: without it, a method declaration like
-// `Stopwatch display()` can satisfy the paren exclusion by backtracking the greedy identifier
-// group to a truncated capture (`displa`), since the character it leaves behind (`y`) is neither
-// whitespace nor `(`. Forbidding a trailing word character after the capture closes that
-// backtracking path, so the pattern only matches at a genuine identifier boundary.
-const TYPED_DECL_PATTERN = new RegExp(
-	String.raw`(?<!(?:\.|\?\.)\s*)(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\?)?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?!\w)(?!\s*\()`,
+// Typed declaration candidates: `Stopwatch sw`, `Stopwatch? sw`, `System.Diagnostics.Stopwatch sw`,
+// `Stopwatch sw1, sw2`. This pattern only finds the candidate; it does not decide whether the
+// candidate is a genuine variable/field declarator or a method signature (`Stopwatch display()`,
+// `Stopwatch display<T>()`). That is a separate, structural question with a definite answer -
+// "does `(` appear immediately after the identifier, skipping only whitespace and one balanced
+// `<...>` generic parameter list?" - answered by walking the source forward from the match end
+// (see isGenuineStopwatchDeclarator) instead of folding it into the capturing regex as a
+// lookahead. A lookahead here has no bounded stopping point: each shape of "what a method
+// signature can look like" (a bare parameter list, then a generic parameter list, then a generic
+// list with multiple type parameters) becomes its own regressive backtracking edge case, whereas
+// a forward scan that tracks bracket depth answers the same question once for every arity.
+const STOPWATCH_DECLARATION_CANDIDATE_PATTERN = new RegExp(
+	String.raw`(?<!(?:\.|\?\.)\s*)(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\?)?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)`,
 	"g",
 );
+
+// Skips a balanced `<...>` run starting at `startIndex` (which must point at the opening `<`) and
+// returns the index of the matching `>`, or -1 if it never balances before a statement or block
+// boundary. Mirrors findMatchingParen's depth-counting shape, applied to angle brackets.
+const findMatchingAngleBracket = (text: string, startIndex: number): number => {
+	let depth = 0;
+	for (let i = startIndex; i < text.length; i++) {
+		const ch = text[i];
+		if (ch === "<") {
+			depth++;
+		} else if (ch === ">") {
+			depth--;
+			if (depth === 0) return i;
+		} else if (ch === ";" || ch === "{" || ch === "}") {
+			// A statement or block boundary inside what looked like a generic argument list means
+			// it was never one; stop rather than guess further.
+			return -1;
+		}
+	}
+	return -1;
+};
+
+// True when the text immediately following a STOPWATCH_DECLARATION_CANDIDATE_PATTERN match is a
+// genuine variable/field declarator (`;`, `,`, `=`, or end of input) rather than a method
+// signature's parameter list, optionally preceded by a generic parameter list. This is what
+// distinguishes `Stopwatch display;` from `Stopwatch display()` and `Stopwatch display<T>()`.
+const isGenuineStopwatchDeclarator = (text: string, matchEndIndex: number): boolean => {
+	let index = matchEndIndex;
+	while (index < text.length && /\s/.test(text[index])) index++;
+	if (text[index] === "<") {
+		const closeIndex = findMatchingAngleBracket(text, index);
+		if (closeIndex === -1) return true;
+		index = closeIndex + 1;
+		while (index < text.length && /\s/.test(text[index])) index++;
+	}
+	return text[index] !== "(";
+};
 
 // Single-variable assignments from Stopwatch creation: `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`.
 // `(?<!(?:\.|\?\.)\s*)` alone rejects starting right after a member-access dot, but it says
@@ -138,9 +180,10 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 	const identifiers = new Set<string>();
 
 	// Reset lastIndex: these patterns are module-level `g` regexes reused across every file.
-	TYPED_DECL_PATTERN.lastIndex = 0;
+	STOPWATCH_DECLARATION_CANDIDATE_PATTERN.lastIndex = 0;
 	let match: RegExpExecArray | null;
-	while ((match = TYPED_DECL_PATTERN.exec(file.masked)) !== null) {
+	while ((match = STOPWATCH_DECLARATION_CANDIDATE_PATTERN.exec(file.masked)) !== null) {
+		if (!isGenuineStopwatchDeclarator(file.masked, match.index + match[0].length)) continue;
 		const declGroup = match[1];
 		for (const rawId of declGroup.split(",")) {
 			const id = rawId.trim();
