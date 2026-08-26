@@ -346,6 +346,24 @@ describe("clock-dependent assertions in tests", () => {
 		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
 	});
 
+	it("does not leak a mangled identifier from a member assignment, tuple-valued initializer, or method declaration", async () => {
+		writeFile("tests/BoundaryTests.cs", [
+			"public class BoundaryTests {",
+			"    Stopwatch display() { return null; }",
+			"    public void AssignsAndDeclares() {",
+			"        presenter.display = Stopwatch.StartNew();",
+			"        var display = (Stopwatch.StartNew(), Elapsed: expected);",
+			'        Assert.Equal("00:04", presenter.display.Elapsed);',
+			"        Assert.Equal(expected, display.Elapsed);",
+			'        Assert.Equal("00:04", isplay.Elapsed);',
+			'        Assert.Equal("00:04", displa.Elapsed);',
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
 	it("flags C# assertions on stopwatch receivers while ignoring plain Elapsed in the same file", async () => {
 		writeFile("tests/MixedTimingTests.cs", [
 			"public class MixedTimingTests {",

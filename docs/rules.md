@@ -377,6 +377,12 @@ halves are closed lists:
   `Stopwatch` anywhere in a test file (e.g. `var timer = Stopwatch.StartNew()`), any assertion
   in that same file reading `timer.Elapsed` is treated as a clock read even if `timer` in a
   different method refers to a plain property.
+- **C# bindings require a real local declaration.** A member assignment (`presenter.display =
+  Stopwatch.StartNew()`), a method declaration whose return type is `Stopwatch` (`Stopwatch
+  display()`), and a single variable initialized from a tuple that merely contains a
+  `Stopwatch.StartNew()` element (`var display = (Stopwatch.StartNew(), Elapsed: expected)`) are
+  all excluded from receiver tracking. Only an actual local declaration or a plain local
+  assignment that binds the variable directly to a Stopwatch creation counts as evidence.
 
 ### Non-ASCII punctuation (`ai-slop/em-dash`, `ai-slop/smart-punctuation`)
 

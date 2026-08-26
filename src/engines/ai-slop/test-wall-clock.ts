@@ -44,9 +44,41 @@ const PYTHON_SHAPE: TimingShape = {
 	],
 };
 
-const STOPWATCH_CREATION_PATTERN = String.raw`(?:\(\s*)*(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b\s*\.\s*StartNew\s*\(\s*\)|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\(\s*\)|\s*\{\s*\})?)(?:\s*\))*`;
+// The creation expression itself: `Stopwatch.StartNew()`, `new Stopwatch()`, `new Stopwatch{}`.
+const STOPWATCH_CREATION_CORE = String.raw`(?:(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b\s*\.\s*StartNew\s*\(\s*\)|new\s+(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\(\s*\)|\s*\{\s*\})?)`;
+// Allow up to two layers of balanced wrapping parens (`(Stopwatch.StartNew())`), never an
+// unbalanced leading paren. An unbalanced leading paren means the creation expression is one
+// element of a larger tuple or argument list, not a standalone value, and must not match here -
+// otherwise a value like `(Stopwatch.StartNew(), Elapsed: expected)` lets the pattern consume
+// only the leading `(Stopwatch.StartNew()` and stop at the comma that actually belongs to the
+// enclosing tuple, wrongly treating the whole tuple as a Stopwatch creation.
+const wrapBalanced = (inner: string): string => String.raw`(?:\(\s*${inner}\s*\)|${inner})`;
+const STOPWATCH_CREATION_PATTERN = wrapBalanced(wrapBalanced(STOPWATCH_CREATION_CORE));
 const STOPWATCH_CREATION_EXACT_RE = new RegExp(
 	String.raw`^\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|,)?\s*$`,
+);
+
+// Typed declarations: `Stopwatch sw`, `Stopwatch? sw`, `System.Diagnostics.Stopwatch sw`, `Stopwatch sw1, sw2`.
+// The trailing `(?!\w)` is required alongside `(?!\s*\()`: without it, a method declaration like
+// `Stopwatch display()` can satisfy the paren exclusion by backtracking the greedy identifier
+// group to a truncated capture (`displa`), since the character it leaves behind (`y`) is neither
+// whitespace nor `(`. Forbidding a trailing word character after the capture closes that
+// backtracking path, so the pattern only matches at a genuine identifier boundary.
+const TYPED_DECL_PATTERN = new RegExp(
+	String.raw`(?<!(?:\.|\?\.)\s*)(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\?)?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?!\w)(?!\s*\()`,
+	"g",
+);
+
+// Single-variable assignments from Stopwatch creation: `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`.
+// `(?<!(?:\.|\?\.)\s*)` alone rejects starting right after a member-access dot, but it says
+// nothing about starting mid-identifier: for `presenter.display = Stopwatch.StartNew()`, the
+// engine can skip the disallowed start at `d` (blocked by that lookbehind) and instead start
+// matching at `i`, since the character immediately before `i` is `d`, not a dot. That leaves a
+// mangled `isplay` binding. The added `(?<!\w)` forbids starting anywhere preceded by a word
+// character, so the only valid starts are genuine identifier boundaries.
+const SINGLE_ASSIGN_PATTERN = new RegExp(
+	String.raw`(?<!(?:\.|\?\.)\s*)(?<!\w)(?:this\s*\.\s*)?(?:(?:using|var)\s+)?([A-Za-z_]\w*)\s*(?<![!=<>+-])=(?![=>])\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|(?=[,)\]}\r\n]|$))`,
+	"g",
 );
 
 const STOPWATCH_MEMBERS = new Set([
@@ -105,13 +137,10 @@ const parseTupleElements = (text: string): string[] | null => {
 const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> => {
 	const identifiers = new Set<string>();
 
-	// Typed declarations: `Stopwatch sw`, `Stopwatch? sw`, `System.Diagnostics.Stopwatch sw`, `Stopwatch sw1, sw2`
-	const typedDeclPattern = new RegExp(
-		String.raw`(?<!(?:\.|\?\.)\s*)(?:System\s*\.\s*Diagnostics\s*\.\s*)?\b${STOPWATCH}\b(?:\s*\?)?\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?!\s*\()`,
-		"g",
-	);
+	// Reset lastIndex: these patterns are module-level `g` regexes reused across every file.
+	TYPED_DECL_PATTERN.lastIndex = 0;
 	let match: RegExpExecArray | null;
-	while ((match = typedDeclPattern.exec(file.masked)) !== null) {
+	while ((match = TYPED_DECL_PATTERN.exec(file.masked)) !== null) {
 		const declGroup = match[1];
 		for (const rawId of declGroup.split(",")) {
 			const id = rawId.trim();
@@ -121,12 +150,8 @@ const collectCSharpStopwatchIdentifiers = (file: MaskedTestFile): Set<string> =>
 		}
 	}
 
-	// Single-variable assignments from Stopwatch creation: `var sw = Stopwatch.StartNew()`, `sw = new Stopwatch()`
-	const singleAssignPattern = new RegExp(
-		String.raw`(?<!(?:\.|\?\.)\s*)(?:this\s*\.\s*)?(?:(?:using|var)\s+)?([A-Za-z_]\w*)\s*(?<![!=<>+-])=(?![=>])\s*${STOPWATCH_CREATION_PATTERN}\s*(?:;|(?=[,)\]}\r\n]|$))`,
-		"g",
-	);
-	while ((match = singleAssignPattern.exec(file.masked)) !== null) {
+	SINGLE_ASSIGN_PATTERN.lastIndex = 0;
+	while ((match = SINGLE_ASSIGN_PATTERN.exec(file.masked)) !== null) {
 		const id = match[1].trim();
 		if (id && id !== "_" && id !== "var" && !STOPWATCH_MEMBERS.has(id)) {
 			identifiers.add(id);
