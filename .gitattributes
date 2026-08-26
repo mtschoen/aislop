@@ -12,6 +12,10 @@
 *.css text
 *.html text
 
+# Windows batch wrappers must keep CRLF: cmd.exe mis-parses LF-terminated
+# batch files, and scripts/wrappers/aislop.cmd is invoked directly from PATH.
+*.cmd text eol=crlf
+
 # Declare binary files
 *.png binary
 *.jpg binary
@@ -19,6 +23,6 @@
 *.ico binary
 *.tgz binary
 
-# Linguist overrides — keep generated files out of stats/diffs
+# Linguist overrides - keep generated files out of stats/diffs
 dist/** linguist-generated
 pnpm-lock.yaml linguist-generated

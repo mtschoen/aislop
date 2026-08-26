@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Resolves the `aislop` command to a per-user checkout of this repository.
+#
+# Install by copying onto a directory that is on PATH for both login and
+# non-login shells. AISLOP_HOME overrides the checkout location; without it
+# the wrapper uses ~/aislop, the location every fleet machine provisions.
+#
+# On Windows this file is the Git Bash half of the pair: bash does not apply
+# PATHEXT, so it will not find aislop.cmd. Install both wrappers there.
+exec node "${AISLOP_HOME:-$HOME/aislop}/dist/cli.js" "$@"

@@ -266,19 +266,32 @@ that worktree's `dist/`, so rebuild after switching branches. Remotes:
 `origin` is upstream (scanaislop/aislop); `fork` is the personal fork
 (mtschoen/aislop) with an integration branch `schoen/main`.
 
-Alternative: install the fork build as a pinned global package (what the
-fleet machines use):
+### Fleet machines: the per-user checkout
+
+Each fleet machine resolves `aislop` to a checkout at `~/aislop` owned by the
+interactive user. Refresh it as that user:
 
 ```bash
-cd /tmp/x   # neutral dir: no pnpm-workspace.yaml, no packageManager pin
-~/AppData/Roaming/npm/pnpm add -g --allow-build=aislop "github:mtschoen/aislop#schoen/main"
+scripts/update-local-checkout.sh    # fetch schoen/main, install, rebuild dist/
 ```
 
-Invoke pnpm's npm-installed shim directly, NOT via corepack: the nested
-`pnpm install` that prepares the git tarball sees this repo's
-`packageManager` pin, and a corepack-invoked pnpm refuses to version-switch
-(ERR_PNPM_PREPARE_PACKAGE). Re-run the same line after pushing new commits
-to refresh the pinned install.
+The script honors `AISLOP_HOME` (default `~/aislop`) and bootstraps the
+checkout by cloning from Gitea when it is absent.
+
+The account that installs a checkout has to be the account that runs `aislop`
+from it. pnpm hard-links package files out of its content-addressable store,
+and on NTFS a hard link shares one ACL with the store file it points at, so a
+checkout installed out of a different account's store yields `node_modules`
+entries the running user cannot read. This is also why the checkout keeps
+pnpm's default isolated layout: the junction farm traverses correctly when
+owner and runner match, and `node-linker=hoisted` would not change the
+hard-link ACL behavior that actually causes cross-account failures.
+
+Put the `aislop` command on PATH by copying both wrappers from
+`scripts/wrappers/` onto a PATH directory. Windows needs both halves:
+`aislop.cmd` serves cmd and PowerShell, and the extensionless `aislop` serves
+Git Bash, which does not apply `PATHEXT` and so cannot see a `.cmd` file.
+Either wrapper honors `AISLOP_HOME` to point at a different checkout.
 
 To publish the fork build to the internal Gitea npm registry as
 `@schoen/aislop` (for consumer repos that install it like a normal
