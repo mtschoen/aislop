@@ -283,6 +283,7 @@ describe("clock-dependent assertions in tests", () => {
 		writeFile("tests/FlushTests.cs", [
 			"public class FlushTests {",
 			"    public void ReturnsQuickly() {",
+			"        var watch = Stopwatch.StartNew();",
 			"        Assert.True(watch.ElapsedMilliseconds < 400);",
 			"    }",
 			"}",
@@ -301,10 +302,450 @@ describe("clock-dependent assertions in tests", () => {
 
 		expect(await findingsFor(CLOCK_RULE, ["csharp", "go", "cpp"])).toEqual([
 			{ filePath: "pkg/flush_test.go", line: 2 },
-			{ filePath: "tests/FlushTests.cs", line: 3 },
+			{ filePath: "tests/FlushTests.cs", line: 4 },
 			{ filePath: "tests/flush_test.cpp", line: 2 },
 			{ filePath: "tests/flush_test.cpp", line: 3 },
 		]);
+	});
+
+	it("flags every C# receiver the file binds to a Stopwatch, and the static clock reads", async () => {
+		writeFile("tests/MixedTimingTests.cs", [
+			"using System.Diagnostics;",
+			"public class MixedTimingTests {",
+			"    private readonly Stopwatch _timer = new Stopwatch();",
+			"    public Stopwatch Ambient { get; set; }",
+			"    public void AssertsMixed(Stopwatch injected) {",
+			"        var started = Stopwatch.StartNew();",
+			"        Stopwatch declared = new Stopwatch();",
+			"        var (paired, display) = (Stopwatch.StartNew(), new ProgressDisplay());",
+			"        foreach (Stopwatch each in watches) {",
+			"            Assert.True(each.ElapsedTicks > 0);",
+			"        }",
+			"        if (lookup.TryGetValue(key, out Stopwatch resolved)) {",
+			"            Assert.True(resolved.ElapsedTicks > 0);",
+			"        }",
+			"        Assert.True(started.ElapsedMilliseconds < 500);",
+			"        Assert.True(declared.Elapsed < TimeSpan.FromSeconds(1));",
+			"        Assert.True(paired.ElapsedMilliseconds < 500);",
+			"        Assert.True(injected.ElapsedTicks > 0);",
+			"        Assert.True(this._timer.ElapsedTicks > 0);",
+			"        Assert.True(Ambient.ElapsedMilliseconds < 500);",
+			"        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));",
+			"        Assert.True(Stopwatch.GetTimestamp() > 0);",
+			"        Assert.True(Stopwatch.GetElapsedTime(origin) < TimeSpan.FromSeconds(2));",
+			"        Assert.True(Stopwatch.StartNew().ElapsedMilliseconds < 400);",
+			"        Assert.True((new Stopwatch()).ElapsedMilliseconds < 100);",
+			"        Assert.Equal(expected, DateTime.UtcNow);",
+			"        Assert.Equal(expected, Environment.TickCount64);",
+			"        Assert.Equal(",
+			"            expected,",
+			"            started.Elapsed);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/MixedTimingTests.cs", line: 10 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 13 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 15 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 16 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 17 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 18 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 19 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 20 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 21 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 22 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 23 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 24 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 25 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 26 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 27 },
+			{ filePath: "tests/MixedTimingTests.cs", line: 30 },
+		]);
+	});
+
+	it("flags a C# stopwatch read through null-conditional and null-forgiving access", async () => {
+		writeFile("tests/AccessFormTests.cs", [
+			"public class AccessFormTests {",
+			"    public void ReadsThroughOperators() {",
+			"        var watch = Stopwatch.StartNew();",
+			"        Assert.True(watch?.ElapsedMilliseconds < 400);",
+			"        Assert.True(watch!.ElapsedMilliseconds < 400);",
+			"        Assert.Equal(expected, display?.Elapsed);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/AccessFormTests.cs", line: 4 },
+			{ filePath: "tests/AccessFormTests.cs", line: 5 },
+		]);
+	});
+
+	it("does not flag a C# Elapsed member on a receiver the file never binds to a Stopwatch", async () => {
+		writeFile("tests/PresenterTests.cs", [
+			"public class PresenterTests {",
+			"    public void ShowsElapsed() {",
+			'        Assert.Equal("00:04", display.Elapsed);',
+			"        Assert.Equal(TimeSpan.FromSeconds(10), info.Elapsed);",
+			"        Assert.Equal(500, run.ElapsedMilliseconds);",
+			"        Assert.Contains(nameof(run.ElapsedMilliseconds), fired);",
+			"        Assert.Contains(nameof(Stopwatch.ElapsedMilliseconds), fired);",
+			"        var factoryWatch = factory.CreateStopwatch();",
+			"        Assert.Equal(TimeSpan.Zero, factoryWatch.Elapsed);",
+			"        var wrapped = CreateDisplay(Stopwatch.StartNew());",
+			"        Assert.Equal(expected, wrapped.Elapsed);",
+			"        var chained = Stopwatch.StartNew().ToDisplay();",
+			"        Assert.Equal(expected, chained.Elapsed);",
+			"        var factoryDisplay = new StopwatchFactory();",
+			"        Assert.Equal(expected, factoryDisplay.Elapsed);",
+			"        Assert.Throws<InvalidOperationException>(() => new Stopwatch());",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
+	it("does not bind a C# Stopwatch from a member assignment, tuple-valued initializer, method, generic or explicit-interface method, or indexer", async () => {
+		writeFile("tests/BoundaryTests.cs", [
+			"public class BoundaryTests {",
+			"    Stopwatch display() { return null; }",
+			"    Stopwatch render<T>() { return null; }",
+			"    Stopwatch IFactory.make<T>() { return null; }",
+			"    Stopwatch this[int index] => null;",
+			"    public void Boundaries() {",
+			"        presenter.display = Stopwatch.StartNew();",
+			"        var tupleValued = (Stopwatch.StartNew(), Elapsed: expected);",
+			"        Assert.Equal(expected, display.Elapsed);",
+			"        Assert.Equal(expected, render.Elapsed);",
+			"        Assert.Equal(expected, make.Elapsed);",
+			"        Assert.Equal(expected, index.Elapsed);",
+			"        Assert.Equal(expected, tupleValued.Elapsed);",
+			"        Assert.Equal(expected, this.Elapsed);",
+			"        Assert.Equal(expected, IFactory.Elapsed);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
+	it("does not flag same-spelled receivers in unrelated methods or classes", async () => {
+		writeFile("tests/ScopeIsolationTests.cs", [
+			"using System;",
+			"using System.Diagnostics;",
+			"public class FirstTests {",
+			"    private readonly Stopwatch _timer = new Stopwatch();",
+			"    public void TruePositiveMethod() {",
+			"        var watch = Stopwatch.StartNew();",
+			"        Assert.True(watch.ElapsedMilliseconds < 500);",
+			"        Assert.True(this._timer.ElapsedTicks > 0);",
+			"    }",
+			"    public void UnrelatedMethodSameSpelling(ProgressDisplay watch) {",
+			'        Assert.Equal("00:01", watch.Elapsed);',
+			"    }",
+			"}",
+			"public class SecondTests {",
+			"    public void OtherClassMethod(ProgressDisplay _timer) {",
+			'        Assert.Equal("00:02", _timer.Elapsed);',
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/ScopeIsolationTests.cs", line: 7 },
+			{ filePath: "tests/ScopeIsolationTests.cs", line: 8 },
+		]);
+	});
+
+	it("flags an indexer parameter, a target-typed new, and the Diagnostics-qualified spelling", async () => {
+		writeFile("tests/SpellingTests.cs", [
+			"using System.Diagnostics;",
+			"public class SpellingTests {",
+			"    public int this[Stopwatch measured] {",
+			"        get {",
+			"            Assert.True(measured.ElapsedMilliseconds < 100);",
+			"            return 0;",
+			"        }",
+			"    }",
+			"    public void ReadsSpellings() {",
+			"        Stopwatch targetTyped = new();",
+			"        Diagnostics.Stopwatch qualified = new Diagnostics.Stopwatch();",
+			"        Assert.True(targetTyped.ElapsedMilliseconds < 100);",
+			"        Assert.True(qualified.ElapsedMilliseconds < 100);",
+			"        Assert.True(Diagnostics.Stopwatch.StartNew().ElapsedTicks > 0);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/SpellingTests.cs", line: 5 },
+			{ filePath: "tests/SpellingTests.cs", line: 12 },
+			{ filePath: "tests/SpellingTests.cs", line: 13 },
+			{ filePath: "tests/SpellingTests.cs", line: 14 },
+		]);
+	});
+
+	it("flags a Stopwatch parameter of an operator, a conversion operator, a lambda, and a local function", async () => {
+		writeFile("tests/ParameterTests.cs", [
+			"using System;",
+			"using System.Diagnostics;",
+			"public class ParameterTests {",
+			"    public static implicit operator int(Stopwatch converted) {",
+			"        Assert.True(converted.ElapsedMilliseconds < 100);",
+			"        return 0;",
+			"    }",
+			"    public static ParameterTests operator +(ParameterTests left, Stopwatch added) {",
+			"        Assert.True(added.ElapsedMilliseconds < 100);",
+			"        return left;",
+			"    }",
+			"    public void RunsCallbacks() {",
+			"        Action<Stopwatch> callback = (Stopwatch passed) => {",
+			"            Assert.True(passed.ElapsedMilliseconds < 100);",
+			"        };",
+			"        void Local(Stopwatch scoped) {",
+			"            Assert.True(scoped.ElapsedMilliseconds < 100);",
+			"        }",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/ParameterTests.cs", line: 5 },
+			{ filePath: "tests/ParameterTests.cs", line: 9 },
+			{ filePath: "tests/ParameterTests.cs", line: 14 },
+			{ filePath: "tests/ParameterTests.cs", line: 17 },
+		]);
+	});
+
+	it("does not flag a Stopwatch introduced by a shape outside the declaration list", async () => {
+		writeFile("tests/OutsideDeclarationListTests.cs", [
+			"using System.Diagnostics;",
+			"using SW = System.Diagnostics.Stopwatch;",
+			"public record struct Timed(Stopwatch primary) {",
+			"    public void Verify() {",
+			"        Assert.Equal(expected, primary.Elapsed);",
+			"    }",
+			"}",
+			"public class BaseHolder {",
+			"    protected Stopwatch inherited;",
+			"}",
+			"public class DerivedHolder : BaseHolder {",
+			"    public void Verify(object candidate) {",
+			"        Assert.Equal(expected, inherited.Elapsed);",
+			"        SW aliased = null;",
+			"        Assert.Equal(expected, aliased.Elapsed);",
+			"        var produced = GetStopwatch();",
+			"        Assert.Equal(expected, produced.Elapsed);",
+			"        if (candidate is Stopwatch matched) {",
+			"            Assert.Equal(expected, matched.Elapsed);",
+			"        }",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
+	it("does not flag an implicit lambda parameter, a query range variable, or an accessor value", async () => {
+		writeFile("tests/ImplicitBindingTests.cs", [
+			"using System;",
+			"using System.Diagnostics;",
+			"public class ImplicitBindingTests {",
+			"    public Stopwatch Current {",
+			"        set { Assert.True(value.ElapsedMilliseconds < 100); }",
+			"    }",
+			"    public void Runs(Stopwatch[] watches) {",
+			"        Action<Stopwatch> render = shown => Assert.True(shown.ElapsedMilliseconds < 100);",
+			"        Assert.True((from watch in watches select watch.Elapsed).Any());",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
+	it("flags a deconstruction whose Stopwatch element carries a tuple label", async () => {
+		writeFile("tests/LabeledTupleTests.cs", [
+			"using System;",
+			"using System.Diagnostics;",
+			"public class LabeledTupleTests {",
+			"    public void ReadsLabeledTuple() {",
+			"        var (timer, expected) = (timer: Stopwatch.StartNew(), expected: 5);",
+			"        Assert.True(timer.Elapsed > TimeSpan.Zero);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/LabeledTupleTests.cs", line: 6 },
+		]);
+	});
+
+	it("flags a top-level statement that reads a Stopwatch declared by an earlier statement", async () => {
+		writeFile("tests/TopLevelTests.cs", [
+			"using System;",
+			"using System.Diagnostics;",
+			"Stopwatch timed = new Stopwatch();",
+			"timed.Start();",
+			"Work();",
+			"Assert.True(timed.Elapsed > TimeSpan.Zero);",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/TopLevelTests.cs", line: 6 },
+		]);
+	});
+
+	it("does not flag a same-named local declared in another member", async () => {
+		writeFile("tests/CrossMemberTests.cs", [
+			"using System.Diagnostics;",
+			"public class CrossMemberTests {",
+			"    public void StartsTimer() {",
+			"        var timer = Stopwatch.StartNew();",
+			"        Assert.True(timer.ElapsedMilliseconds < 100);",
+			"    }",
+			"    public void ReadsDisplay() {",
+			"        var timer = new FakeTimer();",
+			"        Assert.Equal(expected, timer.Elapsed);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/CrossMemberTests.cs", line: 5 },
+		]);
+	});
+
+	it("does not flag any Stopwatch spelling in a file that aliases the name", async () => {
+		writeFile("tests/AliasedNameTests.cs", [
+			"using System;",
+			"using Stopwatch = ProgressDisplay;",
+			"public class AliasedNameTests {",
+			"    private readonly Stopwatch display = new Stopwatch();",
+			"    public void Reads() {",
+			"        var started = Stopwatch.StartNew();",
+			"        Assert.Equal(expected, started.Elapsed);",
+			"        Assert.Equal(expected, display.Elapsed);",
+			"        Assert.True(Stopwatch.GetTimestamp() > 0);",
+			"        Assert.Equal(expected, DateTime.UtcNow);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/AliasedNameTests.cs", line: 10 },
+		]);
+	});
+
+	it("does not flag any Stopwatch spelling in a file that declares its own Stopwatch type", async () => {
+		writeFile("tests/OwnStopwatchTypeTests.cs", [
+			"using System;",
+			"public class Stopwatch {",
+			"    public TimeSpan Elapsed { get; }",
+			"}",
+			"public class OwnStopwatchTypeTests {",
+			"    public void Reads() {",
+			"        var started = new Stopwatch();",
+			"        Assert.Equal(expected, started.Elapsed);",
+			"        Assert.True(Stopwatch.GetTimestamp() > 0);",
+			"        Assert.Equal(expected, Environment.TickCount64);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/OwnStopwatchTypeTests.cs", line: 10 },
+		]);
+	});
+
+	// Pins the two over-inclusions docs/rules.md documents, so the doc and the
+	// rule cannot drift apart: the region is not a scope, so a name declared as a
+	// Stopwatch anywhere in it counts even where another declaration shadows it,
+	// and the `Stopwatch` spelling is read as the type even where it is a local.
+	it("flags the documented over-inclusions: a shadowed name and a local named Stopwatch", async () => {
+		writeFile("tests/OverInclusionTests.cs", [
+			"using System.Diagnostics;",
+			"public class OverInclusionTests {",
+			"    private readonly Stopwatch display = new Stopwatch();",
+			"    public void Renders(ProgressDisplay display) {",
+			"        Assert.Equal(expected, display.Elapsed);",
+			"    }",
+			"    public void UsesLocalNamedStopwatch() {",
+			"        ProgressDisplay Stopwatch = new ProgressDisplay();",
+			"        Assert.Equal(expected, Stopwatch.Elapsed);",
+			"        Assert.Equal(expected, Stopwatch.StartNew().Elapsed);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/OverInclusionTests.cs", line: 5 },
+			{ filePath: "tests/OverInclusionTests.cs", line: 9 },
+			{ filePath: "tests/OverInclusionTests.cs", line: 10 },
+		]);
+	});
+
+	it("flags fully qualified static clock reads and constructions", async () => {
+		writeFile("tests/QualifiedTimingTests.cs", [
+			"using System;",
+			"public class QualifiedTimingTests {",
+			"    public void ReadsQualified() {",
+			"        System.Diagnostics.Stopwatch declared = new System.Diagnostics.Stopwatch();",
+			"        Assert.Equal(expected, System.DateTime.UtcNow);",
+			"        Assert.Equal(expected, System.DateTimeOffset.Now);",
+			"        Assert.Equal(expected, System.Environment.TickCount64);",
+			"        Assert.True(System.Diagnostics.Stopwatch.GetTimestamp() > 0);",
+			"        Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(origin) < TimeSpan.FromSeconds(2));",
+			"        Assert.True(System.Diagnostics.Stopwatch.StartNew().ElapsedMilliseconds < 400);",
+			"        Assert.True((new System.Diagnostics.Stopwatch()).ElapsedMilliseconds < 100);",
+			"        Assert.True(declared.ElapsedMilliseconds < 100);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 5 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 6 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 7 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 8 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 9 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 10 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 11 },
+			{ filePath: "tests/QualifiedTimingTests.cs", line: 12 },
+		]);
+	});
+
+	it("does not flag uninvoked static method groups", async () => {
+		writeFile("tests/MethodGroupTests.cs", [
+			"using System;",
+			"using System.Diagnostics;",
+			"public class MethodGroupTests {",
+			"    public void TestsMethodGroups() {",
+			"        Assert.NotNull((Func<long>)Stopwatch.GetTimestamp);",
+			"        Assert.NotNull((Func<long>)System.Diagnostics.Stopwatch.GetTimestamp);",
+			"        Assert.NotNull((Func<long, TimeSpan>)Stopwatch.GetElapsedTime);",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
+	});
+
+	it("does not flag a C# clock read quoted in a string or shown in a comment", async () => {
+		writeFile("tests/QuotedTests.cs", [
+			"public class QuotedTests {",
+			"    // Assert.True(watch.ElapsedMilliseconds < 400);",
+			"    public void Quoted() {",
+			"        var watch = Stopwatch.StartNew();",
+			'        var sample = "Assert.True(watch.ElapsedMilliseconds < 400);";',
+			"        Assert.Equal(sample, Render());",
+			"    }",
+			"}",
+		]);
+
+		expect(await findingsFor(CLOCK_RULE, ["csharp"])).toEqual([]);
 	});
 
 	it("does not flag C++ assertions comparing against duration literals", async () => {

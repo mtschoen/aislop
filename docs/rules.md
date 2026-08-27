@@ -235,7 +235,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/hallucinated-import` | error | Imports of JS/TS packages that are not declared in the project manifest |
 | `ai-slop/tautological-test` | warning | JavaScript/TypeScript assertions comparing equal fixed literals, plus standalone Python `assert True` statements, which cannot fail |
 | `ai-slop/test-sleep` | warning | A fixed-duration delay written directly inside a test file, outside any loop (see the bounds below the table) |
-| `ai-slop/test-wall-clock-assertion` | warning | A test assertion that reads the real clock on the same line (see the bounds below the table) |
+| `ai-slop/test-wall-clock-assertion` | warning | A test assertion whose value comes from the real clock (see the bounds below the table) |
 | `ai-slop/csharp-not-implemented` | warning | C# `throw new NotImplementedException()` stubs the agent forgot to fill in |
 | `ai-slop/csharp-redundant-doc-comment` | warning | C# XML-doc `<summary>` that just restates the member (`Gets or sets the X`) without adding information |
 | `ai-slop/csharp-async-void` | warning | C# `async void` methods that aren't event handlers (can't be awaited; exceptions crash the process) |
@@ -282,9 +282,10 @@ Supported JS/TS properties have static identifier, string, or numeric names. Sup
 
 ### Test timing (`ai-slop/test-sleep`, `ai-slop/test-wall-clock-assertion`)
 
-Both rules run only over the files the scan classifies as tests, and both read source with
-string and comment interiors blanked, so a spelling quoted inside a fixture or shown in a
-comment is never reported.
+Both rules run only over the files the scan classifies as tests. Every arm but one reads source
+with string and comment interiors blanked, so a spelling quoted inside a fixture or shown in a
+comment is never reported. The exception is the C# arm of `ai-slop/test-wall-clock-assertion`,
+which parses the file (see below) and gets the same guarantee from the parse.
 
 **Languages covered.** Python (`.py`), JavaScript/TypeScript (`.ts`, `.tsx`, `.js`, `.jsx`,
 `.mjs`, `.cjs`), C# (`.cs`), Go (`.go`), PHP (`.php`), and C/C++ (`.c`, `.cc`, `.cpp`, `.cxx`,
@@ -292,8 +293,8 @@ comment is never reported.
 string/comment masker for those extensions, so a sleep spelling inside a string literal could
 not be told apart from real code. Ruby is deliberately not covered: `ai-slop/test-sleep`
 relies on brace blocks for loop analysis (which Ruby closes with `end`), and
-`ai-slop/test-wall-clock-assertion` shares the same masked test file loader so the two rules
-cover the same languages.
+`ai-slop/test-wall-clock-assertion` shares the same test file loader so the two rules cover the
+same languages.
 
 #### Fixed sleeps (`ai-slop/test-sleep`)
 
@@ -344,24 +345,121 @@ await new Promise((resolve) => setTimeout(resolve, 250));
 
 #### Clock-dependent assertions (`ai-slop/test-wall-clock-assertion`)
 
-**What is reported.** A single line that both makes an assertion and reads the real clock. Both
-halves are closed lists:
+**What is reported.** Outside C#, a single line that both makes an assertion and reads the real
+clock. Both halves are closed lists:
 
 | Language | Assertion forms | Clock reads |
 | --- | --- | --- |
 | JavaScript/TypeScript | `expect(`, `assert(`, `assert.<name>(` | `Date.now()`, `performance.now()`, `hrtime` |
 | Python | a line-leading `assert `, `.assert<Name>(` | `time.time()`, `time.monotonic()`, `time.perf_counter()`, `time.process_time()`, `datetime.now(`, `datetime.utcnow(` |
-| C# | `Assert.<Name>(`, `.Should()` | `DateTime[Offset].Now`, `.UtcNow`, `.Elapsed*`, `Environment.TickCount`, `Stopwatch.GetTimestamp(` |
 | Go | `assert.<Name>(`, `require.<Name>(` | `time.Now(`, `time.Since(` |
 | PHP | `->assert<Name>(`, `assert(` | `microtime(`, `hrtime(`, `time()` |
 | C/C++ | `EXPECT_*(`, `ASSERT_*(` | `chrono::duration_cast`, `*clock::now()`, `clock()` |
 
+**C# is decided on the syntax tree, not on the line.** `.Elapsed*` is an ordinary property on
+most receivers and reads the machine clock only on a `System.Diagnostics.Stopwatch`, so the C#
+arm parses the file with the bundled tree-sitter C# grammar
+(`tools/grammars/tree-sitter-c_sharp.wasm`) and asks a structural question of the tree. The
+grammar is loaded once per process, the first time a C# test file is scanned; a project with no
+C# tests never loads it, and a scan where it cannot be loaded reports no C# findings rather than
+failing.
+
+An assertion is reported when a clock read appears anywhere inside an `Assert.<Name>(...)`
+invocation or inside an invocation whose member is `.Should()`, and the reported line is the
+line of the clock read. A clock read is one of `DateTime.Now`, `DateTime.UtcNow`,
+`DateTimeOffset.Now`, `DateTimeOffset.UtcNow`, `Environment.TickCount`,
+`Environment.TickCount64`, `Stopwatch.GetTimestamp()` invocation, `Stopwatch.GetElapsedTime(...)`
+invocation (including their `System.*` namespace-qualified forms), or a member whose name begins
+with `Elapsed` read through `receiver.Member` or `receiver?.Member`.
+
+**The `.Elapsed*` decision surface.** A member whose name begins with `Elapsed` is a clock read
+if and only if its receiver, read through any parentheses and any null-forgiving `!`, is one of:
+
+1. the spelling `Stopwatch`, `Diagnostics.Stopwatch`, or `System.Diagnostics.Stopwatch` (also the
+   `global::`-qualified form), written as an identifier or a qualified name;
+2. a Stopwatch construction, meaning `new Stopwatch(...)` or `Stopwatch.StartNew()` on one of the
+   spellings in point 1;
+3. a simple name `X`, written bare or as `this.X`, that is declared as a Stopwatch somewhere in
+   the read's **binding region**.
+
+The binding region is not a scope, and the rule does not resolve which declaration a read sees.
+It is the union of two subtrees:
+
+- the subtree of the member the read sits in. Parents are walked from the read to the first
+  `method_declaration`, `constructor_declaration`, `destructor_declaration`,
+  `operator_declaration`, `conversion_operator_declaration`, `property_declaration`,
+  `indexer_declaration`, `event_declaration`, `field_declaration`, or `global_statement`. Local
+  functions and lambdas belong to the member that contains them; they are not regions of their
+  own. A top-level program is one region: the grammar wraps each top-level statement in its own
+  `global_statement`, so a read in one of them takes every top-level statement in the file, not
+  just the statement it sits in;
+- the direct `field_declaration` and `property_declaration` members of the enclosing type
+  (`class_declaration`, `struct_declaration`, `record_declaration`, `interface_declaration`;
+  `record struct` and `record class` both parse as `record_declaration`). Direct members only:
+  nested types are not walked, and neither base classes nor the other files of a partial class
+  are consulted.
+
+A name is *declared as a Stopwatch* when one of these declaration node shapes introduces it, and
+no other:
+
+- a `variable_declaration` whose declared type is one of the spellings in point 1 - every name it
+  declares, which covers locals, `using` declarations, and fields;
+- a `variable_declarator` whose initializer is a Stopwatch construction - the `var timer =
+  Stopwatch.StartNew()` and `var timer = new Stopwatch()` forms;
+- a `variable_declarator` that deconstructs a `tuple_pattern` from a `tuple_expression` - the
+  pattern elements whose positionally matching initializer element is a Stopwatch construction;
+- a `property_declaration`, a `parameter`, or a `declaration_expression` (the `out Stopwatch
+  resolved` form) whose declared type is one of those spellings;
+- a `foreach_statement` whose declared element type is one of those spellings.
+
+Nothing else declares a name. In particular a method, indexer, or lambda whose *return* type is
+`Stopwatch` declares no Stopwatch-typed name, so `Stopwatch Display()`, `Stopwatch Render<T>()`,
+`Stopwatch IFactory.Make<T>()`, and `Stopwatch this[int index]` bind nothing; neither does an
+assignment such as `presenter.display = Stopwatch.StartNew()`, nor a tuple-*valued* initializer
+such as `var display = (Stopwatch.StartNew(), Elapsed: expected)`. A member read inside
+`nameof(...)` is never a clock read, because `nameof` names a member without evaluating it.
+
+**File-level opt-out.** If the file aliases the name (`using Stopwatch = ProgressDisplay;`) or
+declares its own type called `Stopwatch` (class, struct, record, interface, enum, or delegate),
+then every check above is off for that whole file, and so are the `Stopwatch.GetTimestamp()` and
+`Stopwatch.GetElapsedTime(...)` reads. The other C# clock reads (`DateTime.Now`,
+`DateTime.UtcNow`, `DateTimeOffset.*`, `Environment.TickCount*`) still run. This is one
+structural query over the file rather than alias resolution: a file that has given the name
+another meaning is simply not a file this rule can read.
+
+**Deliberate over-inclusions.** The region is deliberately coarser than C# scoping, so two
+shapes are reported that a compiler would resolve the other way. Suppress them in place:
+
+- **A name declared as a Stopwatch in the region and rebound to another type in the same
+  region.** A `ProgressDisplay display` parameter in a class that also has a `Stopwatch display`
+  field, a lambda parameter shadowing a Stopwatch local, or an accessor's implicit `value` in a
+  type that also has a `Stopwatch value` field: the read is reported. Collisions *across* members
+  do not fire, because the region is the enclosing member plus the type's direct fields and
+  properties.
+- **`Stopwatch.StartNew()` where `Stopwatch` is a local, parameter, or property** rather than the
+  type. The spelling is read as the type name unless the file opts out above.
+
 **Deliberate non-detections.**
 
+- **A Stopwatch that reaches the receiver any other way.** A stopwatch returned by a method
+  (`var timer = factory.CreateStopwatch()`) or reached through an indexer, a cast, `as`, a
+  conditional, `await`, or a method group is not tracked, so `timer.Elapsed` is not reported.
+  Deciding those would mean resolving types across expressions, which is the open-ended surface
+  this rule avoids.
+- **A Stopwatch field declared in a base class or in another file of a partial class.** Only the
+  enclosing type's own direct fields and properties are read.
+- **A type alias for Stopwatch.** `using SW = System.Diagnostics.Stopwatch;` followed by
+  `SW timer` declares nothing this rule recognises, and neither does a `global using` alias in
+  another file. Only the literal spellings in point 1 are matched.
+- **Receivers introduced by a shape that is not in the declaration list above**: implicitly typed
+  lambda parameters (`shown => shown.Elapsed`), query range variables, pattern variables
+  (`candidate is Stopwatch matched`), record primary-constructor parameters, and an accessor's
+  implicit `value`.
 - **Elapsed time computed on an earlier line.** `const elapsed = Date.now() - start;` followed
-  by `expect(elapsed).toBeLessThan(500)` is not reported. Connecting the two would mean
-  tracking what a variable was bound to, which is the open-ended surface this rule avoids;
-  only what is visible on the assertion line itself is used.
+  by `expect(elapsed).toBeLessThan(500)` is not reported, and neither is the C# equivalent
+  `var elapsed = timer.Elapsed;` followed by `Assert.Equal(expected, elapsed)`. Connecting the
+  two would mean tracking the value a variable holds, which is the open-ended surface this rule
+  avoids; the C# arm resolves declared types, never assigned values.
 - **Whether the clock is mocked.** The rule does not look for `vi.useFakeTimers()`,
   `freezegun`, or an injected clock, and it does not try to decide whether a mock is in scope
   at the assertion. A test that has genuinely frozen the clock and still reads it in an

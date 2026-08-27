@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "scripts",
+    "tools/grammars",
     "tools/jb"
   ],
   "exports": {
@@ -110,6 +111,7 @@
     "tar": "^7.5.22",
     "typescript": "^6.0.3",
     "wcwidth": "^1.0.1",
+    "web-tree-sitter": "^0.26.13",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },

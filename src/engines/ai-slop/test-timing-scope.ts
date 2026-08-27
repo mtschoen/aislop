@@ -35,6 +35,9 @@ const TIMING_EXTENSIONS = new Set([
 export interface MaskedTestFile {
 	readonly relativePath: string;
 	readonly extension: string;
+	// Unmodified file text, for the detectors that parse the language instead of
+	// matching spellings and so do their own string and comment handling.
+	readonly source: string;
 	// String and comment interiors blanked, length preserving, so offsets into
 	// `masked` line up with the original source.
 	readonly masked: string;
@@ -67,6 +70,7 @@ export const readMaskedTestFiles = (context: EngineContext): MaskedTestFile[] =>
 		files.push({
 			relativePath: relativePosix(context.rootDirectory, filePath),
 			extension,
+			source: content,
 			masked,
 			lines,
 			lineOffsets,

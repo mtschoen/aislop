@@ -22,6 +22,7 @@
 *.gif binary
 *.ico binary
 *.tgz binary
+*.wasm binary
 
 # Linguist overrides - keep generated files out of stats/diffs
 dist/** linguist-generated
