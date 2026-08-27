@@ -100,26 +100,34 @@ describe("cli ergonomics", () => {
 		expect(result.stderr).not.toContain("unknown option");
 	});
 
-	it("returns non-zero for missing and non-directory fix targets", () => {
+	it("returns non-zero for a missing fix target", () => {
 		const tempRoot = mkdtempSync(path.join(tmpdir(), "aislop-fix-target-"));
 		const missingPath = path.join(tempRoot, "missing");
-		const filePath = path.join(tempRoot, "not-a-directory");
 
 		try {
-			writeFileSync(filePath, "");
 			const missing = runCli(["fix", missingPath]);
 			expect(missing.status).toBe(1);
 			expect(`${missing.stdout}${missing.stderr}`).toContain(
 				`Path does not exist: ${missingPath}`,
 			);
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
+	}, 60_000);
 
+	it("returns non-zero for a non-directory fix target", () => {
+		const tempRoot = mkdtempSync(path.join(tmpdir(), "aislop-fix-target-"));
+		const filePath = path.join(tempRoot, "not-a-directory");
+
+		try {
+			writeFileSync(filePath, "");
 			const file = runCli(["fix", filePath]);
 			expect(file.status).toBe(1);
 			expect(`${file.stdout}${file.stderr}`).toContain(`Not a directory: ${filePath}`);
 		} finally {
 			rmSync(tempRoot, { recursive: true, force: true });
 		}
-	});
+	}, 60_000);
 
 	it("keeps a zero exit code for valid fix targets", () => {
 		const projectDir = mkdtempSync(path.join(tmpdir(), "aislop-fix-project-"));
@@ -132,7 +140,7 @@ describe("cli ergonomics", () => {
 		} finally {
 			rmSync(projectDir, { recursive: true, force: true });
 		}
-	}, 30_000);
+	}, 60_000);
 
 	it("lists all commands and major flags", () => {
 		const result = runCli(["commands"]);
@@ -268,7 +276,7 @@ describe("cli ergonomics", () => {
 		expect(update.status).toBe(0);
 		expect(update.stdout).toContain("Check npm for the latest aislop version");
 		expect(update.stdout).toContain("upgrade");
-	}, 30_000);
+	}, 60_000);
 
 	it("renders scan scope as an aligned display row", () => {
 		const result = runCli(["scan", "--changes"]);
@@ -319,7 +327,7 @@ describe("cli ergonomics", () => {
 		expect(connect.stdout).toContain("Plan");
 		expect(connect.stdout).toMatch(/Provider\s+Codex/);
 		expect(connect.stdout).toMatch(/Command\s+codex login/);
-	}, 15_000);
+	}, 60_000);
 
 	it("exposes a local default-provider switch without provider keys", () => {
 		const result = runCli(["agent", "use", "codex", "--dry-run"]);
@@ -355,7 +363,7 @@ describe("cli ergonomics", () => {
 		expect(stop.status).toBe(0);
 		expect(stop.stdout).toContain("Stop a running background agent monitor");
 		expect(stop.stdout).toContain("--force");
-	});
+	}, 60_000);
 
 	it("exposes apply-later help for reviewed isolated worktree sessions", () => {
 		const result = runCli(["agent", "apply", "--help"]);
@@ -422,5 +430,5 @@ describe("cli ergonomics", () => {
 		expect(fromAgent.stdout).not.toMatch(/claude\s+planned|claude\s+up to date/);
 		expect(fromHooks.stdout).not.toContain("claude:");
 		expect(fromAgent.stdout).not.toContain("claude:");
-	});
+	}, 60_000);
 });

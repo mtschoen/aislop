@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+### Fixed
+
+- **Scoped project discovery for automatic hook scans now matches CLI scans.** The automatic per-edit hook scan (triggered by coding-agent integrations) previously discovered files with a disk-based walker that read no `.gitignore` at all, so `.gitignore` rules, force-tracked files, and nested checkouts were handled inconsistently with `aislop scan`/`aislop ci`. It now lists files with `git ls-files --cached --others --exclude-standard`, the same snapshot the CLI already used, so a hook scan sees exactly the files git would report. Hook scans still spawn no subprocess other than git: no linters, formatters, Knip, or other tools. When git is unavailable, both paths fall back to a disk-based walker that prunes a fixed set of directory names and never descends into a directory holding its own `.git` entry (a submodule, a linked worktree, or any nested checkout), except that the scan root itself is always entered; this fallback does not read `.gitignore`.
+
 ## 0.14.1 (2026-08-08)
 
 Patch release: adds first-class C# and C/C++ support, improves scanner accuracy across real-world project layouts, and refreshes cross-platform tooling.

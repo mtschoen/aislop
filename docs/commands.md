@@ -223,6 +223,26 @@ Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--
 
 `node_modules`, `.git`, `dist`, `build`, and `coverage` are excluded by default.
 
+### How files are discovered
+
+`aislop scan` and `aislop ci` list files with `git ls-files --cached --others
+--exclude-standard`, so `.gitignore`, force-tracked files (`git add -f`), and nested
+checkouts (submodules, linked worktrees) are all decided by git's own snapshot, exactly as
+`git status` would report them.
+
+The automatic per-edit hook scan that coding-agent integrations trigger uses the same
+`git ls-files` call for the same reason: hook scans must never spawn a subprocess other
+than git for file discovery, and never spawn linters, formatters, Knip, or any other tool.
+
+When git is unavailable, both paths fall back to a disk-based walker. That walker reads
+only directory listings and the existence of `.git` entries: it prunes a fixed set of
+directory names (`node_modules`, `.git`, `dist`, `build`, `coverage`, and similar) and never
+descends into a directory holding its own `.git` entry, whether a file (a submodule or a
+linked worktree) or a directory, regardless of its contents, except that the scan root
+itself is always entered. It does not read `.gitignore`: git's own snapshot, above, is the
+gitignore implementation, and reconstructing gitignore semantics from pure filesystem state
+without git is out of scope for this fallback.
+
 Add project-wide ignore rules in `.aislopignore`:
 
 ```gitignore

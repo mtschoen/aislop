@@ -13,6 +13,18 @@ const isInPrunedDirectory = (filePath: string, pruneDirectories: Set<string>): b
 	return pathSegments.some((segment) => pruneDirectories.has(segment.toLowerCase()));
 };
 
+// Walks the disk directly rather than asking git, so it is the only walker this module
+// offers outside a git repository (enumerateProjectFiles falls back to it when git is
+// unavailable) and the only one hook-safe callers may use, since hook scans must never
+// spawn a subprocess other than git (see tests/hooks/scoped-scan.test.ts). It prunes a
+// fixed set of directory names plus any directory holding its own ".git" entry (file or
+// directory, any contents), which marks a nested checkout the same way a submodule or a
+// linked worktree does; the scan root itself is always entered, since it is expected to
+// hold the project's own ".git". It deliberately does not read ".gitignore": git's own
+// snapshot (`git ls-files`, in enumerateProjectFiles) is the gitignore implementation, and
+// reconstructing gitignore semantics from pure filesystem state without git is an
+// open-ended surface rather than a closed one (see AGENTS.md "Rule design: state a closed
+// decision surface").
 export const enumerateProjectFilesFromDisk = (
 	rootDirectory: string,
 	pruneDirectories: Set<string>,
@@ -36,13 +48,10 @@ export const enumerateProjectFilesFromDisk = (
 				} catch {
 					continue;
 				}
-				if (
-					stats.isDirectory() &&
-					!stats.isSymbolicLink() &&
-					!normalizedPruneDirectories.has(entry.name.toLowerCase())
-				) {
-					walk(fullPath);
-				}
+				if (!stats.isDirectory() || stats.isSymbolicLink()) continue;
+				if (normalizedPruneDirectories.has(entry.name.toLowerCase())) continue;
+				if (fs.existsSync(path.join(fullPath, ".git"))) continue;
+				walk(fullPath);
 			} else if (entry.isFile()) {
 				files.push(path.relative(rootDirectory, fullPath).split(path.sep).join("/"));
 			}

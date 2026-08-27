@@ -10,7 +10,7 @@ import {
 	filterEnumeratedProjectFiles,
 	filterEnumeratedTestFiles,
 	filterProjectDeclarationFiles,
-	listProjectFilesFromDisk,
+	listProjectFiles,
 	readAislopIgnorePatterns,
 } from "../../utils/source-files.js";
 
@@ -60,7 +60,7 @@ export const runScopedScan = async (
 	const rootDirectory = path.resolve(cwd);
 	const config = loadConfig(rootDirectory);
 	const excludePatterns = [...config.exclude, ...readAislopIgnorePatterns(rootDirectory)];
-	const projectCandidates = listProjectFilesFromDisk(rootDirectory);
+	const projectCandidates = listProjectFiles(rootDirectory);
 	const projectSourceFiles = filterEnumeratedProjectFiles(
 		rootDirectory,
 		projectCandidates,

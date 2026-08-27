@@ -5,13 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatPiMessage, parsePiStdin, runPiHook } from "../../src/hooks/adapters/pi.js";
 import type { AislopFeedback } from "../../src/hooks/feedback.js";
 
-const { spawnSync } = vi.hoisted(() => ({
-	spawnSync: vi.fn(() => {
-		throw new Error("automatic hook scans must not spawn subprocesses");
-	}),
-}));
+const { spawnSync } = vi.hoisted(() => ({ spawnSync: vi.fn() }));
 
-vi.mock("node:child_process", () => ({ spawnSync }));
+vi.mock("node:child_process", async () => {
+	const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+	spawnSync.mockImplementation((command: string, ...rest: unknown[]) => {
+		if (command === "git") return actual.spawnSync(command, ...(rest as []));
+		throw new Error("automatic hook scans must not spawn subprocesses other than git");
+	});
+	return { ...actual, spawnSync };
+});
 
 const baseFeedback = (overrides: Partial<AislopFeedback> = {}): AislopFeedback => ({
 	schema: "aislop.hook.v2",

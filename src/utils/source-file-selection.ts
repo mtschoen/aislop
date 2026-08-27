@@ -7,7 +7,7 @@ import {
 } from "./exclude.js";
 import { isGeneratedArtifactFile } from "./generated-files.js";
 import { getIgnoredPaths } from "./git-ignore.js";
-import { enumerateProjectFiles, enumerateProjectFilesFromDisk } from "./project-file-list.js";
+import { enumerateProjectFiles } from "./project-file-list.js";
 import {
 	EXCLUDED_SOURCE_DIRECTORIES,
 	hasAllowedSourceExtension,
@@ -32,9 +32,6 @@ export const isDependencyAuditInputFile = (filePath: string): boolean =>
 
 export const listProjectFiles = (rootDirectory: string): string[] =>
 	enumerateProjectFiles(rootDirectory, WALK_PRUNE_DIRECTORIES);
-
-export const listProjectFilesFromDisk = (rootDirectory: string): string[] =>
-	enumerateProjectFilesFromDisk(rootDirectory, WALK_PRUNE_DIRECTORIES);
 
 const normalizeIncludePatterns = (patterns: string[]): string[] =>
 	patterns.flatMap((pattern) => {
