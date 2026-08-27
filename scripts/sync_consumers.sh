@@ -15,6 +15,10 @@
 # sha of the aislop fork commit its CI is pinned to. A repo without that
 # file is not a consumer and is skipped silently.
 #
+# When a PR for the pin-bump branch is already open, update_consumer
+# refreshes its title and body to match the new sha on every run, so a
+# force-pushed branch never leaves a stale PR description behind.
+#
 # Usage: sync_consumers.sh <new-sha>
 # Required env: GITEA_TOKEN
 # Optional env: GITEA_URL (default https://gitea.fleet.sticktoitive.net),
@@ -110,6 +114,63 @@ fetch_current_pin() {
 	jq -r '.content' "$body_file" | tr -d '\n' | base64 -d | tr -d '[:space:]'
 }
 
+refresh_open_pull_request() {
+	# refresh_open_pull_request <repo> <base_branch> <title> <body>
+	# Finds the open pull request whose head branch is BRANCH and base
+	# branch is <base_branch>, then PATCHes its title and body to the given
+	# values. Lists open PRs (paginated) and filters with jq instead of
+	# relying on a by-base-head lookup endpoint, since the list+filter form
+	# works on every Gitea version. Echoes the PR html_url on success.
+	# Returns 1 if no matching PR is found or the PATCH does not succeed.
+	local repo="$1" base_branch="$2" title="$3" body="$4"
+	local list_file="$SCRATCH/open_prs.json"
+	local page=1
+	local limit=50
+	local number=""
+	local list_status count
+
+	while :; do
+		list_status="$(curl -sS -o "$list_file" -w '%{http_code}' -H "$auth_header" \
+			"$GITEA_URL/api/v1/repos/$GITEA_OWNER/$repo/pulls?state=open&limit=$limit&page=$page")"
+		if [ "$list_status" != "200" ]; then
+			return 1
+		fi
+
+		count="$(jq -r 'if type == "array" then length else empty end' "$list_file" 2>/dev/null)" || return 1
+		case "$count" in
+		'' | *[!0-9]*) return 1 ;;
+		esac
+		[ "$count" -eq 0 ] && break
+
+		number="$(jq -r --arg head "$BRANCH" --arg base "$base_branch" '[.[] | select(.head.ref == $head and .base.ref == $base)][0].number // empty' "$list_file" 2>/dev/null)" || return 1
+		if [ -n "$number" ]; then
+			break
+		fi
+
+		[ "$count" -lt "$limit" ] && break
+		page=$((page + 1))
+	done
+
+	if [ -z "$number" ]; then
+		return 1
+	fi
+
+	local patch_body patch_response patch_status
+	patch_body="$(jq -n --arg title "$title" --arg body "$body" '{title: $title, body: $body}')"
+	patch_response="$SCRATCH/pr_patch_response.json"
+	patch_status="$(curl -sS -o "$patch_response" -w '%{http_code}' -X PATCH -H "$auth_header" -H "Content-Type: application/json" --data-binary "$patch_body" "$GITEA_URL/api/v1/repos/$GITEA_OWNER/$repo/pulls/$number")"
+
+	case "$patch_status" in
+	200 | 201)
+		jq -r '.html_url // empty' "$patch_response"
+		return 0
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
 update_consumer() {
 	# update_consumer <repo> <default_branch> <clone_url>
 	local repo="$1" branch="$2" clone_url="$3"
@@ -143,11 +204,10 @@ update_consumer() {
 		return 1
 	fi
 
-	local pr_body pr_status pr_response
-	pr_body="$(jq -n --arg title "chore: bump aislop fork pin to $SHORT_SHA" \
-		--arg head "$BRANCH" --arg base "$branch" \
-		--arg body "Automated update of .aislop/fork-commit to $NEW_SHA by sync-consumers." \
-		'{title: $title, head: $head, base: $base, body: $body}')"
+	local pr_title pr_body_text pr_body pr_status pr_response
+	pr_title="chore: bump aislop fork pin to $SHORT_SHA"
+	pr_body_text="Automated update of .aislop/fork-commit to $NEW_SHA by sync-consumers."
+	pr_body="$(jq -n --arg title "$pr_title" --arg head "$BRANCH" --arg base "$branch" --arg body "$pr_body_text" '{title: $title, head: $head, base: $base, body: $body}')"
 	pr_response="$SCRATCH/pr_response.json"
 	pr_status="$(curl -sS -o "$pr_response" -w '%{http_code}' -X POST \
 		-H "$auth_header" -H "Content-Type: application/json" \
@@ -160,8 +220,13 @@ update_consumer() {
 		return 0
 		;;
 	409)
-		record "$repo" "updated" "PR already open, force-push refreshed it"
-		return 0
+		local refreshed_url
+		if refreshed_url="$(refresh_open_pull_request "$repo" "$branch" "$pr_title" "$pr_body_text")"; then
+			record "$repo" "updated" "PR already open, force-push and title/body refreshed (${refreshed_url:-no url})"
+			return 0
+		fi
+		record "$repo" "failed" "PR already open but title/body refresh failed"
+		return 1
 		;;
 	*)
 		record "$repo" "failed" "PR create returned $pr_status"
