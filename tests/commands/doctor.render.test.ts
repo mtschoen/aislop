@@ -216,7 +216,7 @@ describe("planAiSlop csharp grammar reporting", () => {
 			expect(decision.status).toBe("missing");
 			expect(decision.tool).toBe("tree-sitter-c_sharp not found");
 			expect(decision.remediation).toBe(
-				"Reinstall aislop so its bundled tree-sitter grammar and web-tree-sitter dependency are available.",
+				"Reinstall aislop so the bundled grammar tools/grammars/tree-sitter-c_sharp.wasm is present.",
 			);
 		} finally {
 			spy.mockRestore();
@@ -231,9 +231,9 @@ describe("planAiSlop csharp grammar reporting", () => {
 				installedTools: {},
 			});
 			expect(decision.status).toBe("missing");
-			expect(decision.tool).toBe("tree-sitter-c_sharp not found");
+			expect(decision.tool).toBe("web-tree-sitter not found");
 			expect(decision.remediation).toBe(
-				"Reinstall aislop so its bundled tree-sitter grammar and web-tree-sitter dependency are available.",
+				"Reinstall aislop so its web-tree-sitter dependency is installed.",
 			);
 		} finally {
 			spy.mockRestore();

@@ -150,5 +150,18 @@ describe("doctor language detection", () => {
 			spy.mockRestore();
 		}
 	});
+
+	it("reports web-tree-sitter not found under AI Slop for a C# project when the dependency is unresolvable", async () => {
+		writeCsharpProject();
+		const spy = vi.spyOn(tooling, "resolveWebTreeSitter").mockReturnValue(null);
+		try {
+			const out = await runDoctor();
+			expect(out).toContain("✗ AI Slop");
+			expect(out).toContain("web-tree-sitter not found");
+			expect(out).toMatch(/Fix\s+Reinstall aislop/);
+		} finally {
+			spy.mockRestore();
+		}
+	});
 });
 

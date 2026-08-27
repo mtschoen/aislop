@@ -93,15 +93,22 @@ const planCodeQuality = (ctx: PlanContext): ToolDecision => {
 
 const planAiSlop = (ctx: PlanContext): ToolDecision => {
 	if (ctx.projectInfo.languages.includes("csharp")) {
-		if (resolveBundledCsharpGrammar() !== null && resolveWebTreeSitter() !== null) {
-			return { tool: "tree-sitter-c_sharp (bundled)", status: STATUS_OK };
+		if (resolveBundledCsharpGrammar() === null) {
+			return {
+				tool: "tree-sitter-c_sharp not found",
+				status: "missing",
+				remediation:
+					"Reinstall aislop so the bundled grammar tools/grammars/tree-sitter-c_sharp.wasm is present.",
+			};
 		}
-		return {
-			tool: "tree-sitter-c_sharp not found",
-			status: "missing",
-			remediation:
-				"Reinstall aislop so its bundled tree-sitter grammar and web-tree-sitter dependency are available.",
-		};
+		if (resolveWebTreeSitter() === null) {
+			return {
+				tool: "web-tree-sitter not found",
+				status: "missing",
+				remediation: "Reinstall aislop so its web-tree-sitter dependency is installed.",
+			};
+		}
+		return { tool: "tree-sitter-c_sharp (bundled)", status: STATUS_OK };
 	}
 	return {
 		tool: "built-in",
