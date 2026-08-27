@@ -140,6 +140,10 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
   is fully user-controlled and the review cycle gates merges there anyway.
 - Do not merge PRs, publish releases, or promote branches unless explicitly asked in the current task.
 - Verify package installs in a clean temp environment before reporting a published package as working.
+- An issue opened on this repo is auto-claimed by pr-crew, which lands its own PR
+  within the hour. When implementing a fix yourself in the same session, open the
+  PR directly instead of filing an issue first, or the two lanes race (#59: pr-crew's
+  #60 merged while the parallel #61 was still in review).
 
 ## Rule design: state a closed decision surface
 
