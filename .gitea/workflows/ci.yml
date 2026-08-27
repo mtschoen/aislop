@@ -61,6 +61,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# vitest.config.ts keeps upstream's 30 s per-test timeout. This self-hosted
+# runner serializes every job on one machine, so a test that takes 5 s
+# unloaded (tsdown builds, multi-spawn CLI tests) can pass 30 s while the
+# other legs share the box. The CLI flag overrides the config value without
+# touching upstream's file; raise or lower it here, never in vitest.config.ts.
+env:
+  VITEST_TEST_TIMEOUT_MS: "90000"
+
 permissions:
   contents: read
 
@@ -88,7 +96,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Measure coverage
-        run: pnpm test:coverage
+        run: pnpm test:coverage --testTimeout=${{ env.VITEST_TEST_TIMEOUT_MS }}
 
       - name: Post coverage status
         if: ${{ always() }}
@@ -124,7 +132,7 @@ jobs:
         run: pnpm build
 
       - name: Test
-        run: pnpm vitest run
+        run: pnpm vitest run --testTimeout=${{ env.VITEST_TEST_TIMEOUT_MS }}
 
   test-windows:
     name: Build & test (windows-latest, host node)
@@ -181,7 +189,7 @@ jobs:
 
       - name: Test
         shell: pwsh
-        run: pnpm vitest run
+        run: pnpm vitest run --testTimeout=${{ env.VITEST_TEST_TIMEOUT_MS }}
 
   # Stable gate over both OS legs. always() + an explicit result check is
   # deliberate: a gate that merely skips when a leg fails would otherwise

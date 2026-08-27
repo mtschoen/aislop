@@ -64,7 +64,9 @@ describe("Gitea coverage status", () => {
 		expect(coverageJob.steps).toContainEqual(
 			expect.objectContaining({
 				name: "Measure coverage",
-				run: "pnpm test:coverage",
+				// The step must go through the test:coverage script so vitest.config.ts's
+				// coverage reporters apply; extra vitest flags after it are allowed.
+				run: expect.stringMatching(/^pnpm test:coverage(\s|$)/),
 			}),
 		);
 		expect(coverageJob.steps).toContainEqual(
