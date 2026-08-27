@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { doctorCommand } from "../../src/commands/doctor.js";
+import * as tooling from "../../src/utils/tooling.js";
 import { stripAnsi } from "../helpers/ansi.js";
+
 
 let projectDir: string;
 
@@ -135,4 +137,18 @@ describe("doctor language detection", () => {
 		expect(out).toContain("biome (bundled)");
 		expect(out).toContain("oxlint (bundled)");
 	});
+
+	it("reports tree-sitter-c_sharp not found under AI Slop for a C# project when the grammar is absent", async () => {
+		writeCsharpProject();
+		const spy = vi.spyOn(tooling, "resolveBundledCsharpGrammar").mockReturnValue(null);
+		try {
+			const out = await runDoctor();
+			expect(out).toContain("✗ AI Slop");
+			expect(out).toContain("tree-sitter-c_sharp not found");
+			expect(out).toMatch(/Fix\s+Reinstall aislop/);
+		} finally {
+			spy.mockRestore();
+		}
+	});
 });
+

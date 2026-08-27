@@ -128,3 +128,11 @@ export const resolveBundledCsharpGrammar = (): string | null => {
 	const candidate = path.join(TOOLS_GRAMMARS_DIR, "tree-sitter-c_sharp.wasm");
 	return fs.existsSync(candidate) ? candidate : null;
 };
+
+export const resolveWebTreeSitter = (): string | null => {
+	try {
+		return _esmRequire.resolve("web-tree-sitter");
+	} catch {
+		return null;
+	}
+};

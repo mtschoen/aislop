@@ -4,9 +4,11 @@ import { resolveBundledCsharpGrammar } from "./tooling.js";
 
 type ParseFunction = (source: string) => Node | null;
 
-const buildParser = async (): Promise<ParseFunction | null> => {
+const buildParser = async (): Promise<ParseFunction> => {
 	const grammarPath = resolveBundledCsharpGrammar();
-	if (grammarPath === null) return null;
+	if (grammarPath === null) {
+		throw new Error("bundled C# grammar not found (tools/grammars/tree-sitter-c_sharp.wasm)");
+	}
 
 	const { Language, Parser } = await import("web-tree-sitter");
 	await Parser.init();
@@ -18,11 +20,16 @@ const buildParser = async (): Promise<ParseFunction | null> => {
 
 // Null when the bundled grammar is missing or will not load on this host, which
 // turns every C# detection into the documented non-detection rather than failing
-// the whole scan over one optional asset.
+// the whole scan over one optional asset. Emits a single warning to stderr per
+// process so the operator knows detection was skipped.
 const loadParser = async (): Promise<ParseFunction | null> => {
 	try {
 		return await buildParser();
-	} catch {
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(
+			`aislop: bundled C# grammar was missing or failed to load; C# test-timing detection was skipped: ${message}`,
+		);
 		return null;
 	}
 };
@@ -38,4 +45,8 @@ export const parseCsharp = async (source: string): Promise<Node | null> => {
 	parserPromise ??= loadParser();
 	const parse = await parserPromise;
 	return parse === null ? null : parse(source);
+};
+
+export const resetCsharpParserForTests = (): void => {
+	parserPromise = null;
 };

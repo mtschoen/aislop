@@ -18,7 +18,12 @@ import { buildRows, type DoctorEngineRow, languageLabelFor } from "./doctor-plan
 import { collectScanFileScope } from "./scan-file-scope.js";
 
 export type { DoctorEngineRow } from "./doctor-plan.js";
-export { planFormatForTest, planLintForTest, planSecurityForTest } from "./doctor-plan.js";
+export {
+	planAiSlopForTest,
+	planFormatForTest,
+	planLintForTest,
+	planSecurityForTest,
+} from "./doctor-plan.js";
 
 interface BuildDoctorRenderInput {
 	projectName: string;

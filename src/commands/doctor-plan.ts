@@ -6,6 +6,7 @@ import { loadArchitectureRules } from "../engines/architecture/rule-loader.js";
 import type { EngineName } from "../engines/types.js";
 import { getEngineLabel } from "../output/engine-info.js";
 import type { Language, ProjectInfo } from "../utils/discover.js";
+import { resolveBundledCsharpGrammar, resolveWebTreeSitter } from "../utils/tooling.js";
 import { planSecurity } from "./doctor-security-plan.js";
 import { planFormat, planLint } from "./doctor-tool-plan.js";
 
@@ -90,10 +91,27 @@ const planCodeQuality = (ctx: PlanContext): ToolDecision => {
 	return { tool: "built-in", status: STATUS_OK };
 };
 
-const planAiSlop = (_ctx: PlanContext): ToolDecision => ({
-	tool: "built-in",
-	status: STATUS_OK,
-});
+const planAiSlop = (ctx: PlanContext): ToolDecision => {
+	if (ctx.projectInfo.languages.includes("csharp")) {
+		if (resolveBundledCsharpGrammar() !== null && resolveWebTreeSitter() !== null) {
+			return { tool: "tree-sitter-c_sharp (bundled)", status: STATUS_OK };
+		}
+		return {
+			tool: "tree-sitter-c_sharp not found",
+			status: "missing",
+			remediation:
+				"Reinstall aislop so its bundled tree-sitter grammar and web-tree-sitter dependency are available.",
+		};
+	}
+	return {
+		tool: "built-in",
+		status: STATUS_OK,
+	};
+};
+
+/** Exported for unit tests only. Runs planAiSlop with a minimal synthetic context. */
+export const planAiSlopForTest = (overrides: TestPlanOverrides): ToolDecision =>
+	planAiSlop(makeTestPlanContext(overrides));
 
 export const planSecurityForTest = (overrides: TestPlanOverrides): ToolDecision =>
 	planSecurity(makeTestPlanContext(overrides));

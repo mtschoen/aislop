@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	buildDoctorRender,
 	type DoctorEngineRow,
+	planAiSlopForTest,
 	planFormatForTest,
 	planLintForTest,
 	planSecurityForTest,
 } from "../../src/commands/doctor.js";
+import * as tooling from "../../src/utils/tooling.js";
 import { stripAnsi as strip } from "../helpers/ansi.js";
+
 
 describe("doctor render", () => {
 	it("shows each engine with its tool and an 'all ready' footer", () => {
@@ -183,3 +186,58 @@ describe("planFormat/planLint cpp tools", () => {
 		).toMatchObject({ tool: "project-backed C# tools", status: "skipped" });
 	});
 });
+
+describe("planAiSlop csharp grammar reporting", () => {
+	it("reports tree-sitter-c_sharp (bundled) for C# projects when grammar is available", () => {
+		const decision = planAiSlopForTest({
+			languages: ["csharp"],
+			installedTools: {},
+		});
+		expect(decision.tool).toBe("tree-sitter-c_sharp (bundled)");
+		expect(decision.status).toBe("ok");
+	});
+
+	it("reports built-in for non-C# projects", () => {
+		const decision = planAiSlopForTest({
+			languages: ["typescript"],
+			installedTools: {},
+		});
+		expect(decision.tool).toBe("built-in");
+		expect(decision.status).toBe("ok");
+	});
+
+	it("reports missing when the C# grammar wasm is absent", () => {
+		const spy = vi.spyOn(tooling, "resolveBundledCsharpGrammar").mockReturnValue(null);
+		try {
+			const decision = planAiSlopForTest({
+				languages: ["csharp"],
+				installedTools: {},
+			});
+			expect(decision.status).toBe("missing");
+			expect(decision.tool).toBe("tree-sitter-c_sharp not found");
+			expect(decision.remediation).toBe(
+				"Reinstall aislop so its bundled tree-sitter grammar and web-tree-sitter dependency are available.",
+			);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("reports missing when web-tree-sitter does not resolve", () => {
+		const spy = vi.spyOn(tooling, "resolveWebTreeSitter").mockReturnValue(null);
+		try {
+			const decision = planAiSlopForTest({
+				languages: ["csharp"],
+				installedTools: {},
+			});
+			expect(decision.status).toBe("missing");
+			expect(decision.tool).toBe("tree-sitter-c_sharp not found");
+			expect(decision.remediation).toBe(
+				"Reinstall aislop so its bundled tree-sitter grammar and web-tree-sitter dependency are available.",
+			);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+});
+

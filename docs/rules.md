@@ -361,8 +361,9 @@ most receivers and reads the machine clock only on a `System.Diagnostics.Stopwat
 arm parses the file with the bundled tree-sitter C# grammar
 (`tools/grammars/tree-sitter-c_sharp.wasm`) and asks a structural question of the tree. The
 grammar is loaded once per process, the first time a C# test file is scanned; a project with no
-C# tests never loads it, and a scan where it cannot be loaded reports no C# findings rather than
-failing.
+C# tests never loads it. When the grammar is missing or cannot be loaded, a warning is emitted
+to stderr (once per process) and the scan reports no C# findings rather than failing.
+
 
 An assertion is reported when a clock read appears anywhere inside an `Assert.<Name>(...)`
 invocation or inside an invocation whose member is `.Should()`, and the reported line is the
