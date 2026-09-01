@@ -8,7 +8,7 @@ export interface BuildInfo {
 
 const COMMIT_SHA_PATTERN = /^[0-9a-fA-F]{40}$/;
 
-const isCommitSha = (value: string): boolean => COMMIT_SHA_PATTERN.test(value);
+export const isCommitSha = (value: string): boolean => COMMIT_SHA_PATTERN.test(value);
 
 // Resolves the commit that dist/build-info.json stamps. CI may inject an
 // explicit COMMIT (a shallow clone or a source tarball checkout can make

@@ -286,6 +286,17 @@ scripts/update-local-checkout.sh    # fetch schoen/main, install, rebuild dist/
 The script honors `AISLOP_HOME` (default `~/aislop`) and bootstraps the
 checkout by cloning from Gitea when it is absent.
 
+Nothing refreshes a machine install on its own. `sync-consumers.yml` bumps
+consumer repository pins (`.aislop/fork-commit`) and touches nothing else, so
+a checkout moves only when someone runs the script above. A wrapper or note
+claiming otherwise is wrong: one on llamabox claimed the workflow kept a
+shared `/opt/aislop` current, and that install sat 107 commits and two minor
+versions behind for weeks. CI was never at risk (every consumer's gate job
+builds the fork at its pinned sha in an ephemeral workspace), but the runtime
+hook graded agent work against the stale rule set while the gate enforced the
+pinned one. `aislop doctor` reports the comparison as its `Fork pin` row when
+the repository carries a pin.
+
 Every build stamps `dist/build-info.json` with the commit it was built from
 (`{"version", "commit", "builtAt"}`; `commit` is null when git is
 unavailable, as in an npm source tarball). External tooling reads that file

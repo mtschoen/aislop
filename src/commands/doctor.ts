@@ -13,6 +13,7 @@ import { style, theme } from "../ui/theme.js";
 import { detectSourceLanguages, discoverProject } from "../utils/discover.js";
 import { resetGitIgnoreSnapshots } from "../utils/git-ignore.js";
 import { readAislopIgnorePatterns } from "../utils/source-files.js";
+import { checkForkPin, type ForkPinStatus, shortCommit } from "../utils/fork-pin.js";
 import { APP_VERSION } from "../version.js";
 import { buildRows, type DoctorEngineRow, languageLabelFor } from "./doctor-plan.js";
 import { collectScanFileScope } from "./scan-file-scope.js";
@@ -25,12 +26,34 @@ export {
 	planSecurityForTest,
 } from "./doctor-plan.js";
 
+// Reports how the running install compares with the repository's CI fork pin.
+// Deliberately states the two commits and nothing more: the refresh script
+// advances a checkout to schoen/main, which does not resolve a deliberately
+// older pin, so promising that any one command realigns them would be wrong.
+const forkPinSummaryRow = (status?: ForkPinStatus): DisplayRow | null => {
+	if (!status || status.state === "no-pin") return null;
+	if (status.state === "aligned") {
+		return { label: "Fork pin", value: `aligned (${shortCommit(status.pinnedCommit)})` };
+	}
+	if (status.state === "unknown-build") {
+		return {
+			label: "Fork pin",
+			value: `pinned ${shortCommit(status.pinnedCommit)}, running build unstamped`,
+		};
+	}
+	return {
+		label: "Fork pin",
+		value: `drift (running ${shortCommit(status.runningCommit)}, pinned ${shortCommit(status.pinnedCommit)})`,
+	};
+};
+
 interface BuildDoctorRenderInput {
 	projectName: string;
 	languageLabel: string;
 	rows: DoctorEngineRow[];
 	invocation: string;
 	printBrand?: boolean;
+	forkPinStatus?: ForkPinStatus;
 }
 
 const doctorMarker = (row: DoctorEngineRow): string => {
@@ -81,6 +104,14 @@ export const buildDoctorRender = (input: BuildDoctorRenderInput): string => {
 				]
 			: [{ label: "Scan", value: `${input.invocation} scan` }];
 
+	const summaryRows: DisplayRow[] = [
+		{ label: "Ready", value: `${enginesRunning} engines` },
+		{ label: "Missing", value: String(missing) },
+		{ label: "Skipped", value: String(skipped) },
+	];
+	const forkPinRow = forkPinSummaryRow(input.forkPinStatus);
+	if (forkPinRow) summaryRows.push(forkPinRow);
+
 	const lines = [
 		header.trimEnd(),
 		"",
@@ -88,11 +119,7 @@ export const buildDoctorRender = (input: BuildDoctorRenderInput): string => {
 		...renderDisplayStatusItems(input.rows.map(doctorItem)),
 		"",
 		renderDisplaySection("Summary"),
-		...renderDisplayRows([
-			{ label: "Ready", value: `${enginesRunning} engines` },
-			{ label: "Missing", value: String(missing) },
-			{ label: "Skipped", value: String(skipped) },
-		]),
+		...renderDisplayRows(summaryRows),
 		"",
 		renderDisplaySection(missing > 0 ? "Fix" : "Next"),
 		...renderDisplayRows(nextRows),
@@ -149,6 +176,7 @@ export const doctorCommand = async (
 			rows,
 			invocation: detectInvocation(),
 			printBrand: options.printBrand,
+			forkPinStatus: checkForkPin({ directory: resolvedDir }),
 		}),
 	);
 };

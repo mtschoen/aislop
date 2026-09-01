@@ -7,7 +7,12 @@
 # one ACL with the store file it points at. A checkout installed by one
 # account out of that account's store therefore produces node_modules entries
 # that a second account cannot read, which is why the install and the shell
-# that runs aislop must belong to the same user.
+# that runs aislop must belong to the same user. A machine-shared directory
+# such as /opt/aislop is the shape this design exists to avoid.
+#
+# This script is the only thing that moves a machine install. sync-consumers.yml
+# bumps consumer repository pins (.aislop/fork-commit) and nothing else, so a
+# checkout nobody runs this against stays where it was indefinitely.
 #
 # Usage:
 #   scripts/update-local-checkout.sh            # update ${AISLOP_HOME:-~/aislop}

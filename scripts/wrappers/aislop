@@ -5,6 +5,37 @@
 # non-login shells. AISLOP_HOME overrides the checkout location; without it
 # the wrapper uses ~/aislop, the location every fleet machine provisions.
 #
+# Keep this file the only wrapper on PATH. A hand-written copy is how a stale
+# install stays invisible: one on llamabox described itself as pointing at a
+# machine-shared /opt/aislop that "the sync-consumers workflow keeps current",
+# and no workflow has ever updated a machine install. sync-consumers.yml bumps
+# consumer repository pins (.aislop/fork-commit) and nothing else, so a
+# checkout only moves when someone runs scripts/update-local-checkout.sh.
+#
+# Do not point this at a machine-shared directory. pnpm hard-links package
+# files out of its content-addressable store, so the account that installs a
+# checkout has to be the account that runs aislop from it; a checkout
+# installed by a service account such as act_runner yields node_modules
+# entries the interactive user cannot read.
+#
 # On Windows this file is the Git Bash half of the pair: bash does not apply
 # PATHEXT, so it will not find aislop.cmd. Install both wrappers there.
-exec node "${AISLOP_HOME:-$HOME/aislop}/dist/cli.js" "$@"
+
+checkoutDirectory="${AISLOP_HOME:-$HOME/aislop}"
+
+if [ ! -d "$checkoutDirectory" ]; then
+	# The refresh script lives inside the checkout, so it cannot be the advice
+	# when the checkout itself is missing.
+	echo "aislop: no checkout at $checkoutDirectory" >&2
+	echo "Clone one with: git clone https://gitea.fleet.sticktoitive.net/schoen/aislop.git \"$checkoutDirectory\"" >&2
+	echo "Then build it with: bash \"$checkoutDirectory/scripts/update-local-checkout.sh\"" >&2
+	exit 1
+fi
+
+if [ ! -f "$checkoutDirectory/dist/cli.js" ]; then
+	echo "aislop: checkout at $checkoutDirectory has no build" >&2
+	echo "Build it with: bash \"$checkoutDirectory/scripts/update-local-checkout.sh\"" >&2
+	exit 1
+fi
+
+exec node "$checkoutDirectory/dist/cli.js" "$@"

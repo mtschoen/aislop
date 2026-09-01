@@ -10,7 +10,6 @@ import {
 import * as tooling from "../../src/utils/tooling.js";
 import { stripAnsi as strip } from "../helpers/ansi.js";
 
-
 describe("doctor render", () => {
 	it("shows each engine with its tool and an 'all ready' footer", () => {
 		const rows: DoctorEngineRow[] = [
@@ -241,3 +240,56 @@ describe("planAiSlop csharp grammar reporting", () => {
 	});
 });
 
+describe("doctor fork pin row", () => {
+	const rows: DoctorEngineRow[] = [{ engine: "Formatting", tool: "biome (bundled)", status: "ok" }];
+	const render = (forkPinStatus?: Parameters<typeof buildDoctorRender>[0]["forkPinStatus"]) =>
+		strip(
+			buildDoctorRender({
+				projectName: "my-app",
+				languageLabel: "typescript",
+				rows,
+				invocation: "aislop",
+				forkPinStatus,
+			}),
+		);
+
+	it("omits the row when the repository pins no fork commit", () => {
+		expect(render({ state: "no-pin", pinnedCommit: null, runningCommit: null })).not.toContain(
+			"Fork pin",
+		);
+	});
+
+	it("omits the row when no status was resolved at all", () => {
+		expect(render()).not.toContain("Fork pin");
+	});
+
+	it("reports an aligned install with the pinned commit", () => {
+		const out = render({
+			state: "aligned",
+			pinnedCommit: "ad036928176523101132e39b11b8fd9e108db601",
+			runningCommit: "ad036928176523101132e39b11b8fd9e108db601",
+		});
+		expect(out).toMatch(/Fork pin\s+aligned \(ad03692\)/);
+	});
+
+	it("reports drift with both commits so the mismatch is legible", () => {
+		const out = render({
+			state: "drift",
+			pinnedCommit: "ad036928176523101132e39b11b8fd9e108db601",
+			runningCommit: "9de29395a1b2c3d4e5f60718293a4b5c6d7e8f90",
+		});
+		expect(out).toContain("drift");
+		expect(out).toContain("9de2939");
+		expect(out).toContain("ad03692");
+	});
+
+	it("reports an unstamped build without claiming drift", () => {
+		const out = render({
+			state: "unknown-build",
+			pinnedCommit: "ad036928176523101132e39b11b8fd9e108db601",
+			runningCommit: null,
+		});
+		expect(out).toContain("running build unstamped");
+		expect(out).not.toContain("drift");
+	});
+});
