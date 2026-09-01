@@ -120,6 +120,10 @@ This applies to regex patterns, string literals, and diagnostic messages in all 
 
 ## Workflow
 
+- **Fork-only changes live in their own files/modules where possible.** A change
+  woven through upstream files is a conflict on every sync; a separate module
+  merges clean. Prefer new files, additive registrations, and extracted
+  constants over in-place edits to upstream code when both would work.
 - **Branch model**: branch from current `origin/develop`; open PRs to `develop` unless the task explicitly says otherwise.
 - **Main promotion**: `develop` -> `main` is a maintainer decision. Do not merge it just because checks are green.
 - **Releases**: publishing a GitHub Release runs `.github/workflows/release.yml`; failed npm publishes can use its guarded manual recovery after promotion to `main`.
@@ -242,7 +246,7 @@ scripts portable:
   `cross-env` dev dependency and use `cross-env VAR=value cmd`.
 - **Windows tests are fully green on this fork.** The `fix/windows-tests`
   work merged into `schoen/main` made the entire suite pass on Windows
-  (112 files / 1164 tests as of the upstream-0.11.0 merge). A clean
+  (230 files / 2595 tests as of the upstream-0.16.0 merge). A clean
   *upstream* checkout still fails ~42 tests on Windows (path/permission
   assumptions), so a red suite there is expected - but on `schoen/main`
   any Windows test failure is a real regression, not environment noise.
