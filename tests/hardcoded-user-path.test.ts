@@ -122,6 +122,7 @@ describe("hardcoded user paths", () => {
 
 		it.each([
 			"runneradmin",
+			"root",
 			"user",
 			"username",
 			"default",
@@ -199,6 +200,20 @@ describe("hardcoded user paths", () => {
 			writeFile("src/routes.ts", 'router.get("/home/customer/orders", handler);');
 
 			const diagnostics = await hardcodedPathDiagnostics(["typescript"], ["/home/alice"]);
+
+			expect(diagnostics).toEqual([]);
+		});
+
+		it("[K] does not seed a banned root from the container root user's home", async () => {
+			// CI jobs commonly run inside a Docker container as the root user, so
+			// os.homedir() returns "/root". That is a superuser home, never a real
+			// developer's home, so it must not be seeded as a banned root: doing
+			// so would flag every legitimate reference to /root (systemd unit
+			// paths, container mount targets, deploy key paths) as if it were a
+			// hardcoded personal path.
+			writeFile("src/service.ts", 'const sshConfig = "/root/.ssh/config";');
+
+			const diagnostics = await hardcodedPathDiagnostics(["typescript"], [], "/root");
 
 			expect(diagnostics).toEqual([]);
 		});

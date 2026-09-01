@@ -16,16 +16,18 @@ export interface CandidateSpan {
 }
 
 /**
- * Final home-root path segments that identify a placeholder or CI service
- * account rather than a real developer machine. Seeding a banned root from
- * one of these would invert the rule: it would flag paths bound to the CI
- * runner instead of paths bound to a real person. Kept as a literal,
- * readable list per the closed-decision-surface rule; extend it by editing
- * this list, not by inferring "looks like a service account" from shape.
+ * Final home-root path segments that identify a placeholder, CI service
+ * account, or superuser account rather than a real developer machine.
+ * Seeding a banned root from one of these would invert the rule: it would
+ * flag paths bound to the CI runner or container root user instead of paths
+ * bound to a real person. Kept as a literal, readable list per the
+ * closed-decision-surface rule; extend it by editing this list, not by
+ * inferring "looks like a service account" from shape.
  */
 const PLACEHOLDER_HOME_SEGMENTS = new Set([
 	"runner",
 	"runneradmin",
+	"root",
 	"user",
 	"username",
 	"default",
