@@ -80,6 +80,7 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/test-wall-clock-assertion": "Assertion on real elapsed time",
 	"ai-slop/em-dash": "Non-ASCII dash character",
 	"ai-slop/smart-punctuation": "Non-ASCII smart punctuation",
+	"ai-slop/systemd-timeout": "Unbounded systemd start timeout",
 	"security/hardcoded-secret": "Possible hardcoded secret",
 	"security/vulnerable-dependency": "Vulnerable dependency",
 	"security/dependency-audit-skipped": "Dependency audit skipped",
@@ -180,6 +181,8 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/em-dash": "Em dash or another non-ASCII dash where a plain hyphen would do.",
 	"ai-slop/smart-punctuation":
 		"Curly quotes, ellipsis, arrows, or invisible spacing that ASCII already covers.",
+	"ai-slop/systemd-timeout":
+		"systemd unit has an unbounded start timeout (Type=oneshot default or explicit infinity).",
 	"security/hardcoded-secret": "Secret-looking token is embedded in source.",
 	"security/vulnerable-dependency": "Dependency audit reported a known vulnerability.",
 	"security/dependency-audit-skipped": "Audit could not run because inputs/tools are missing.",

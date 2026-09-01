@@ -94,9 +94,13 @@ vi.mock("../src/utils/git.js", () => ({
 	getStagedFiles: getStagedFilesMock,
 }));
 
-vi.mock("../src/utils/source-files.js", () => ({
-	readAislopIgnorePatterns: readAislopIgnorePatternsMock,
-}));
+vi.mock("../src/utils/source-files.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/utils/source-files.js")>();
+	return {
+		...actual,
+		readAislopIgnorePatterns: readAislopIgnorePatternsMock,
+	};
+});
 
 vi.mock("../src/utils/source-file-selection.js", () => ({
 	listProjectFiles: listProjectFilesMock,

@@ -193,4 +193,7 @@ export const AI_SLOP_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"ai-slop/smart-punctuation": reportOnly(
 		"Smart quotes and friends ship report-only so an existing backlog cannot redden a repo on the day the rule lands; promote with a rules: severity override once swept.",
 	),
+	"ai-slop/systemd-timeout": maintainability(
+		"Unbounded systemd start timeouts can hang deployments or unit queues indefinitely without failing.",
+	),
 };

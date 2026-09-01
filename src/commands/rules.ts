@@ -133,6 +133,7 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"ai-slop/cpp-endl-in-stream",
 			"ai-slop/em-dash",
 			"ai-slop/smart-punctuation",
+			"ai-slop/systemd-timeout",
 		],
 	},
 	{

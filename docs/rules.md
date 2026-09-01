@@ -259,6 +259,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/cpp-endl-in-stream` | warning | `<< std::endl` flushes the stream on every call; prefer `'\n'` |
 | `ai-slop/em-dash` | info | Non-ASCII dash characters: em dash (U+2014), en dash, horizontal bar, figure dash, unicode/non-breaking hyphen, minus sign |
 | `ai-slop/smart-punctuation` | info | Curly single/double quotes, horizontal ellipsis, arrows, non-breaking and zero-width spaces |
+| `ai-slop/systemd-timeout` | warning | `Type=oneshot` systemd unit without an explicit `TimeoutStartSec=`, or an explicit unbounded start timeout (`infinity`) without a rationale comment |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
 
@@ -595,6 +596,26 @@ has no sound way to tell them apart.
 // aislop-ignore-next-line ai-slop/hardcoded-user-path -- historical path retained in migration fixture
 const historicalPath = "C:\\Users\\alice\\project";
 ```
+
+### Systemd unbounded start timeouts (`ai-slop/systemd-timeout`)
+
+**What is reported.** The unit type is read from the file extension (`.service`, `.socket`, `.mount`, `.swap`), and only the section that extension maps to is analyzed: `[Service]` for a `.service` file, `[Socket]` for `.socket`, `[Mount]` for `.mount`, `[Swap]` for `.swap`. Repeated matching sections merge in file order, matching systemd override semantics. Within that section, the participating start-timeout keys are `TimeoutStartSec` and `TimeoutSec` for `[Service]`, and `TimeoutSec` alone for `[Socket]`/`[Mount]`/`[Swap]` (systemd.socket, systemd.mount, and systemd.swap document only `TimeoutSec=`). The effective value is the last assignment, in file order, across those participating keys. Section names, directive keys, and enum values are compared with the exact casing systemd documents; any other casing is not a spelling systemd recognizes.
+
+Two things are flagged from that effective state:
+- `[Service]` with an effective `Type=oneshot` and no explicit start timeout, because systemd disables the start timeout by default for oneshot units (`TimeoutStartSec=infinity`), creating invisible unbounded runs that can stall deploy queues indefinitely.
+- A final effective unbounded start timeout (the literal token `infinity`, or a time span totaling zero) unless it carries a preceding rationale comment.
+
+**What is not reported.**
+- Explicit bounded start timeouts (e.g. `TimeoutStartSec=5m`, `TimeoutStartSec=6h`).
+- Explicit unbounded start timeouts carrying a preceding rationale comment explaining why the unit must run unbounded.
+- `TimeoutStopSec=infinity` (stop and drain timeouts are legitimate for graceful process shutdown and do not affect startup bounds).
+- Non-oneshot units without explicit start timeouts (systemd applies `DefaultTimeoutStartSec`, typically 90s, by default).
+- Any wrong-cased section header, directive key, or enum value (e.g. `[service]`, `timeoutstartsec=infinity`, `Type=OneShot`, `TimeoutStartSec=Infinity`), because systemd itself does not recognize them.
+- `TimeoutStartSec=` inside a `[Socket]`, `[Mount]`, or `[Swap]` section: systemd ignores that directive there, so it cannot mask or resolve the start timeout.
+- A section that does not match the file's unit type (e.g. a `[Socket]` section in a `.service` file, or a `[Service]` section in a `.socket` file): systemd never reads it for that unit.
+- Drop-in `.conf` fragments (e.g. `foo.service.d/override.conf`): the `.conf` extension is not one of the four scanned extensions.
+- Directive values continued across lines with a trailing backslash.
+- Unit content in files with a non-standard extension (for example `.service.j2`): only the exact four extensions above are analyzed.
 
 ### Rule notes
 

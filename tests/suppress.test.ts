@@ -122,6 +122,36 @@ describe("applySuppressions", () => {
 		expect(suppressedCount).toBe(1);
 	});
 
+	it("works with semicolon line comment syntax (ini / systemd unit)", () => {
+		write("a.ini", "; aislop-ignore-next-line\nkey = value\n");
+		const { suppressedCount } = applySuppressions(
+			wrap([diag("a.ini", 2, "ai-slop/something")]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(1);
+		expect(isAislopDirectiveLine("; aislop-ignore-next-line")).toBe(true);
+	});
+
+	it("does not treat semicolon statement terminators as inline comments", () => {
+		write(
+			"a.ts",
+			"run(); aislop-ignore-file\nconst value = risky(); aislop-ignore-line security/eval\n",
+		);
+		const { results, suppressedCount } = applySuppressions(
+			wrap([
+				diag("a.ts", 1, "ai-slop/other"),
+				diag("a.ts", 2, "security/eval"),
+			]),
+			tmpDir,
+		);
+		expect(suppressedCount).toBe(0);
+		expect(results[0].diagnostics).toHaveLength(2);
+		expect(isAislopDirectiveLine("run(); aislop-ignore-file")).toBe(false);
+		expect(
+			isAislopDirectiveLine("const value = risky(); aislop-ignore-line security/eval"),
+		).toBe(false);
+	});
+
 	it("does not suppress unrelated lines and counts nothing when absent", () => {
 		write("a.ts", "const x = 1;\nconst y = 2;\n");
 		const { results, suppressedCount } = applySuppressions(

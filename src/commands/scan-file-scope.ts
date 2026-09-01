@@ -1,5 +1,6 @@
 import type { Coverage } from "../utils/discover.js";
 import { getChangedFiles, getStagedFiles } from "../utils/git.js";
+import { KNOWN_EXTRA_EXTENSIONS } from "../utils/source-files.js";
 import {
 	filterDependencyAuditFiles,
 	filterEnumeratedProjectFiles,
@@ -65,7 +66,7 @@ export const collectScanFileScope = (request: ScanFileScopeRequest): ScanFileSco
 	const files = filterEnumeratedProjectFiles(
 		request.rootDirectory,
 		candidates.files,
-		[],
+		KNOWN_EXTRA_EXTENSIONS,
 		request.excludePatterns,
 		request.includePatterns,
 	);
