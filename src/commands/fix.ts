@@ -43,6 +43,9 @@ import { buildScanRender } from "./scan.js";
 
 export { buildFixRender } from "./fix-render.js";
 
+const FIX_COMMAND = "fix";
+const SKIPPED_STATUS = "skipped" as const;
+
 interface FixOptions {
 	verbose: boolean;
 	force?: boolean;
@@ -103,14 +106,14 @@ export const fixCommand = async (
 		const msg = !pathExists
 			? `Path does not exist: ${resolvedDir}`
 			: `Not a directory: ${resolvedDir}`;
-		return withCommandLifecycle({ command: "fix", config: config.telemetry }, async () => {
+		return withCommandLifecycle({ command: FIX_COMMAND, config: config.telemetry }, async () => {
 			log.error(msg);
 			return { exitCode: 1 };
 		});
 	}
 
 	if (options.dryRun && (options.agent || options.prompt)) {
-		return withCommandLifecycle({ command: "fix", config: config.telemetry }, async () => {
+		return withCommandLifecycle({ command: FIX_COMMAND, config: config.telemetry }, async () => {
 			log.error("--dry-run cannot be combined with an agent handoff or --prompt.");
 			return { exitCode: 1 };
 		});
@@ -118,13 +121,16 @@ export const fixCommand = async (
 
 	const scopeError = fixScopeError(resolvedDir, options);
 	if (scopeError) {
-		return withCommandLifecycle({ command: "fix", config: config.telemetry }, async () => {
+		return withCommandLifecycle({ command: FIX_COMMAND, config: config.telemetry }, async () => {
 			log.error(scopeError);
 			return { exitCode: 1 };
 		});
 	}
 
 	const excludePatterns = [...config.exclude, ...readAislopIgnorePatterns(resolvedDir)];
+	// Scope collection reads gitignore state before discoverProject refreshes it, and the
+	// interactive loop keeps one process alive across fix runs - reset so this pass cannot
+	// reuse a snapshot an earlier command left behind.
 	resetGitIgnoreSnapshots();
 	const scanScope = collectScanFileScope({
 		excludePatterns,
@@ -144,7 +150,7 @@ export const fixCommand = async (
 
 	return withCommandLifecycle(
 		{
-			command: "fix",
+			command: FIX_COMMAND,
 			config: config.telemetry,
 			languages: projectInfo.languages,
 			fileCount: projectInfo.sourceFileCount,
@@ -180,12 +186,12 @@ const finishDryRun = (input: {
 	for (const step of skippedFixSteps(plan)) {
 		if (ran.has(step.name)) continue;
 		input.rail.complete({
-			status: "skipped",
+			status: SKIPPED_STATUS,
 			label: describeSkippedStep(step.name, step.reason ?? "skipped"),
 		});
 	}
 	if (input.steps.length === 0 && skippedFixSteps(plan).length === 0) {
-		input.rail.complete({ status: "skipped", label: "No applicable auto-fixers found" });
+		input.rail.complete({ status: SKIPPED_STATUS, label: "No applicable auto-fixers found" });
 	}
 	input.rail.finish({ footer: "Preview · no changes applied" });
 	process.stdout.write(`\n${renderHintLine(NO_CHANGES_APPLIED)}`);
@@ -265,7 +271,7 @@ const runFixBody = async (
 	};
 
 	const skipStep = (name: string, reason: string) => {
-		rail.complete({ status: "skipped", label: describeSkippedStep(name, reason) });
+		rail.complete({ status: SKIPPED_STATUS, label: describeSkippedStep(name, reason) });
 	};
 
 	const pipelineDeps: PipelineDeps = {
@@ -351,7 +357,7 @@ const runFixBody = async (
 	// If no fix steps ran at all, emit a single "skipped" rail line so the
 	// footer has context. Otherwise the step lines were already emitted live.
 	if (steps.length === 0) {
-		rail.complete({ status: "skipped", label: "No applicable auto-fixers found" });
+		rail.complete({ status: SKIPPED_STATUS, label: "No applicable auto-fixers found" });
 	}
 
 	rail.finish({ footer: `Done · ${totalResolved} fixed · ${remaining} remain` });

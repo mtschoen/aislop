@@ -19,6 +19,7 @@ import {
 	type Language,
 } from "../utils/discover.js";
 import { getChangedLineMap } from "../utils/git.js";
+import { resetGitIgnoreSnapshots } from "../utils/git-ignore.js";
 import { readAislopIgnorePatterns } from "../utils/source-files.js";
 import { applySuppressions } from "../utils/suppress.js";
 import { APP_VERSION } from "../version.js";
@@ -59,6 +60,10 @@ export const scanCommand = async (
 	}
 
 	const excludePatterns = [...config.exclude, ...readAislopIgnorePatterns(resolvedDir)];
+	// Scope collection reads gitignore state before discoverProject refreshes it, and the
+	// interactive loop keeps one process alive across scans - reset so this pass cannot
+	// reuse a snapshot an earlier command left behind.
+	resetGitIgnoreSnapshots();
 	const scanScope = collectScanFileScope({
 		excludePatterns,
 		includePatterns: config.include,
