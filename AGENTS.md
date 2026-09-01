@@ -286,6 +286,13 @@ scripts/update-local-checkout.sh    # fetch schoen/main, install, rebuild dist/
 The script honors `AISLOP_HOME` (default `~/aislop`) and bootstraps the
 checkout by cloning from Gitea when it is absent.
 
+Every build stamps `dist/build-info.json` with the commit it was built from
+(`{"version", "commit", "builtAt"}`; `commit` is null when git is
+unavailable, as in an npm source tarball). External tooling reads that file
+to tell which commit a machine's install is actually running without paying
+to spawn the CLI - a hand-refreshed checkout is the fleet's standing
+staleness risk, and the file is what makes the drift detectable.
+
 The account that installs a checkout has to be the account that runs `aislop`
 from it. pnpm hard-links package files out of its content-addressable store,
 and on NTFS a hard link shares one ACL with the store file it points at, so a
