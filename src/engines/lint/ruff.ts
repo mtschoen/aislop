@@ -1,6 +1,10 @@
 import { runSubprocess } from "../../utils/subprocess.js";
 import { resolveToolBinary } from "../../utils/tooling.js";
-import { getPythonLintTargets, getRuffDiagnosticPath } from "../python-targets.js";
+import {
+	getPythonLintTargets,
+	getPythonTargets,
+	getRuffDiagnosticPath,
+} from "../python-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
 interface RuffDiagnostic {
@@ -48,10 +52,19 @@ export const runRuffLint = async (
 	}
 };
 
-export const fixRuffLint = async (rootDirectory: string): Promise<void> => {
+const ruffLintFixArgs = (context: EngineContext, unsafe: boolean): string[] => {
+	const targets = context.files ? getPythonTargets(context) : [context.rootDirectory];
+	const args = ["check", "--fix"];
+	if (unsafe) args.push("--unsafe-fixes");
+	args.push(...targets);
+	return args;
+};
+
+export const fixRuffLint = async (context: EngineContext): Promise<void> => {
+	if (context.files && getPythonTargets(context).length === 0) return;
 	const ruffBinary = resolveToolBinary("ruff");
-	const result = await runSubprocess(ruffBinary, ["check", "--fix", rootDirectory], {
-		cwd: rootDirectory,
+	const result = await runSubprocess(ruffBinary, ruffLintFixArgs(context, false), {
+		cwd: context.rootDirectory,
 		timeout: 60000,
 	});
 	if (result.exitCode !== 0) {
@@ -61,16 +74,13 @@ export const fixRuffLint = async (rootDirectory: string): Promise<void> => {
 	}
 };
 
-export const fixRuffLintForce = async (rootDirectory: string): Promise<void> => {
+export const fixRuffLintForce = async (context: EngineContext): Promise<void> => {
+	if (context.files && getPythonTargets(context).length === 0) return;
 	const ruffBinary = resolveToolBinary("ruff");
-	const result = await runSubprocess(
-		ruffBinary,
-		["check", "--fix", "--unsafe-fixes", rootDirectory],
-		{
-			cwd: rootDirectory,
-			timeout: 60000,
-		},
-	);
+	const result = await runSubprocess(ruffBinary, ruffLintFixArgs(context, true), {
+		cwd: context.rootDirectory,
+		timeout: 60000,
+	});
 	if (result.exitCode !== 0) {
 		throw new Error(
 			result.stderr || result.stdout || `ruff check --fix exited with code ${result.exitCode}`,

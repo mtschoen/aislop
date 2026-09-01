@@ -89,7 +89,7 @@ describe("Gitea coverage status", () => {
 
 		const packageManifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
 		expect(packageManifest.scripts["test:coverage"]).toBe("vitest run --coverage");
-		expect(packageManifest.devDependencies["@vitest/coverage-v8"]).toBe("4.1.10");
+		expect(packageManifest.devDependencies["@vitest/coverage-v8"]).toBe("4.1.11");
 	});
 
 	it("vendors the shared helper with the exact status context", () => {

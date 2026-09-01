@@ -5,7 +5,13 @@ import { isDependencyAuditInputFile } from "../../utils/source-file-selection.js
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 import { runCargoAudit, runDotnetAudit, runGovulncheck, runPipAudit } from "./audit-ecosystem.js";
-import { type JsAuditSource, parseBunAudit, parseJsAudit } from "./audit-js-parser.js";
+import {
+	type JsAuditManifest,
+	type JsAuditSource,
+	parseBunAudit,
+	parseJsAudit,
+} from "./audit-js-parser.js";
+import { readRuntimeDependencies } from "./runtime-dependencies.js";
 
 export { parseDotnetAudit } from "./audit-ecosystem.js";
 export { parseBunAudit, parseJsAudit } from "./audit-js-parser.js";
@@ -241,6 +247,7 @@ const inspectPackageManagerAuditPayload = (output: string): PackageManagerAuditP
 const parsePackageManagerAuditResult = (
 	result: Awaited<ReturnType<typeof runSubprocess>>,
 	source: JsAuditSource,
+	manifest?: JsAuditManifest,
 ): Diagnostic[] => {
 	const payloadState = inspectPackageManagerAuditPayload(result.stdout);
 	if (!payloadState.recognized) {
@@ -248,7 +255,7 @@ const parsePackageManagerAuditResult = (
 		return [auditSkippedDiagnostic(source, `Failed to run ${source}: ${detail}`)];
 	}
 
-	const diagnostics = parseJsAudit(result.stdout, source);
+	const diagnostics = parseJsAudit(result.stdout, source, manifest);
 	if ((payloadState.reportsError || result.exitCode !== 0) && diagnostics.length === 0) {
 		return [
 			auditSkippedDiagnostic(
@@ -263,7 +270,7 @@ const parsePackageManagerAuditResult = (
 const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
 	try {
 		const result = await runPackageManagerAudit("npm", rootDir, timeout);
-		return parsePackageManagerAuditResult(result, "npm audit");
+		return parsePackageManagerAuditResult(result, "npm audit", readRuntimeDependencies(rootDir));
 	} catch (error) {
 		return [
 			auditSkippedDiagnostic("npm audit", `Failed to run npm audit: ${errorMessageOf(error)}`),
@@ -302,7 +309,11 @@ const runPnpmAuditWithFallback = async (
 
 	try {
 		const result = await runPackageManagerAudit("pnpm", rootDir, timeout);
-		const diagnostics = parsePackageManagerAuditResult(result, "pnpm audit");
+		const diagnostics = parsePackageManagerAuditResult(
+			result,
+			"pnpm audit",
+			readRuntimeDependencies(rootDir),
+		);
 		const hasAuditFailure = diagnostics.some((d) => d.rule === "security/dependency-audit-skipped");
 		if (hasAuditFailure) {
 			if (canFallbackToNpm) {

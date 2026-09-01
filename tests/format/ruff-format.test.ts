@@ -88,7 +88,7 @@ describe("fixRuffFormat", () => {
 	it("resolves the tool and succeeds on exit code 0", async () => {
 		runSubprocessMock.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
 
-		await expect(fixRuffFormat(context.rootDirectory)).resolves.toBeUndefined();
+		await expect(fixRuffFormat(context)).resolves.toBeUndefined();
 		expect(resolveToolBinaryMock).toHaveBeenCalledWith("ruff");
 		expect(runSubprocessMock).toHaveBeenCalledWith("ruff", ["format", "/tmp"], {
 			cwd: "/tmp",
@@ -103,6 +103,6 @@ describe("fixRuffFormat", () => {
 			stderr: "ruff failed",
 		});
 
-		await expect(fixRuffFormat(context.rootDirectory)).rejects.toThrow("ruff failed");
+		await expect(fixRuffFormat(context)).rejects.toThrow("ruff failed");
 	});
 });

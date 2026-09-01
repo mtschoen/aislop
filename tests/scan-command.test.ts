@@ -90,6 +90,7 @@ vi.mock("../src/utils/discover.js", () => ({
 vi.mock("../src/utils/git.js", () => ({
 	baseRefExists: baseRefExistsMock,
 	getChangedFiles: getChangedFilesMock,
+	getChangedLineMap: () => new Map(),
 	getStagedFiles: getStagedFilesMock,
 }));
 
