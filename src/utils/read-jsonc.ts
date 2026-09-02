@@ -83,12 +83,15 @@ const stripTrailingCommas = (raw: string): string => {
 	return result;
 };
 
+const stripBom = (raw: string): string => (raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw);
+
 export const parseJsonc = (raw: string): unknown => {
+	const clean = stripBom(raw);
 	try {
-		return JSON.parse(raw);
+		return JSON.parse(clean);
 	} catch {
 		try {
-			return JSON.parse(stripTrailingCommas(stripJsonComments(raw)));
+			return JSON.parse(stripTrailingCommas(stripJsonComments(clean)));
 		} catch {
 			return null;
 		}

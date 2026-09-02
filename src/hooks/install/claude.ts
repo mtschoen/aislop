@@ -2,7 +2,7 @@
 import path from "node:path";
 import { AISLOP_MD_BODY } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
-import { AISLOP_SENTINEL_KEY, removeAislopEntries, upsertHookGroup } from "../io/json-patch.js";
+import { AISLOP_SENTINEL_KEY, type EventHookOperation, patchJsonHooks } from "../io/json-patch.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
 import {
 	applyContent,
@@ -93,27 +93,33 @@ const buildFileChangedHookGroup = () => {
 	};
 };
 
-const renderSettings = (existingRaw: string | null, qualityGate: boolean): string => {
-	let obj: Record<string, unknown> = {};
-	if (existingRaw) {
-		try {
-			obj = JSON.parse(existingRaw) as Record<string, unknown>;
-		} catch {
-			obj = {};
-		}
-	}
-	let next = upsertHookGroup(obj, "PostToolUse", buildHookGroup());
-	next = upsertHookGroup(next, "FileChanged", buildFileChangedHookGroup());
-	if (qualityGate) next = upsertHookGroup(next, "Stop", buildStopHookGroup());
-	else next = removeAislopEntries(next, "Stop").next;
-	return `${JSON.stringify(next, null, 2)}\n`;
+const ACTION_UPSERT = "upsert" as const;
+const ACTION_REMOVE = "remove" as const;
+
+const renderSettings = (
+	existingRaw: string | null,
+	qualityGate: boolean,
+	target: string,
+): string => {
+	const operations: EventHookOperation[] = [
+		{ event: "PostToolUse", action: ACTION_UPSERT, group: buildHookGroup() },
+		{ event: "FileChanged", action: ACTION_UPSERT, group: buildFileChangedHookGroup() },
+		qualityGate
+			? { event: "Stop", action: ACTION_UPSERT, group: buildStopHookGroup() }
+			: { event: "Stop", action: ACTION_REMOVE },
+	];
+	return patchJsonHooks(existingRaw, { target, operations })!;
 };
 
 export const installClaude = (opts: HookInstallOpts): HookInstallResult => {
 	const paths = resolveClaudePaths(opts);
 	const result = emptyResult();
 
-	const nextSettings = renderSettings(readIfExists(paths.settings), Boolean(opts.qualityGate));
+	const nextSettings = renderSettings(
+		readIfExists(paths.settings),
+		Boolean(opts.qualityGate),
+		paths.settings,
+	);
 	applyContent(
 		result,
 		opts,
@@ -154,25 +160,13 @@ export const uninstallClaude = (
 
 	const settingsRaw = readIfExists(paths.settings);
 	if (settingsRaw) {
-		let obj: Record<string, unknown> = {};
-		try {
-			obj = JSON.parse(settingsRaw) as Record<string, unknown>;
-		} catch {
-			obj = {};
-		}
-		const afterPostToolUse = removeAislopEntries(obj, "PostToolUse").next;
-		const afterFileChanged = removeAislopEntries(afterPostToolUse, "FileChanged").next;
-		const stripped = removeAislopEntries(afterFileChanged, "Stop").next;
-		const stillHasHooks =
-			stripped.hooks &&
-			typeof stripped.hooks === "object" &&
-			Object.keys(stripped.hooks as object).length > 0;
-		const otherKeys = Object.keys(stripped).filter((k) => k !== "hooks");
-		if (!stillHasHooks && otherKeys.length === 0) {
-			applyRemoval(result, opts, paths.settings, null);
-		} else {
-			applyRemoval(result, opts, paths.settings, `${JSON.stringify(stripped, null, 2)}\n`);
-		}
+		const operations: EventHookOperation[] = [
+			{ event: "PostToolUse", action: ACTION_REMOVE },
+			{ event: "FileChanged", action: ACTION_REMOVE },
+			{ event: "Stop", action: ACTION_REMOVE },
+		];
+		const next = patchJsonHooks(settingsRaw, { target: paths.settings, operations });
+		applyRemoval(result, opts, paths.settings, next);
 	} else {
 		result.skipped.push(paths.settings);
 	}

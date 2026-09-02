@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AISLOP_MD_BODY } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
-import { AISLOP_SENTINEL_KEY, removeAislopEntries, upsertFlatHook } from "../io/json-patch.js";
+import { AISLOP_SENTINEL_KEY, type EventHookOperation, patchJsonHooks } from "../io/json-patch.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
 import {
 	applyContent,
@@ -41,25 +41,22 @@ const buildHookEntry = () => {
 	};
 };
 
-const renderHooksJson = (existingRaw: string | null): string => {
-	let obj: Record<string, unknown> = { version: 1 };
-	if (existingRaw) {
-		try {
-			obj = JSON.parse(existingRaw) as Record<string, unknown>;
-		} catch {
-			obj = { version: 1 };
-		}
-	}
-	if (typeof obj.version !== "number") obj.version = 1;
-	const next = upsertFlatHook(obj, "afterFileEdit", buildHookEntry());
-	return `${JSON.stringify(next, null, 2)}\n`;
+const renderHooksJson = (existingRaw: string | null, target: string): string => {
+	const operations: EventHookOperation[] = [
+		{ event: "afterFileEdit", action: "upsert", entry: buildHookEntry() },
+	];
+	return patchJsonHooks(existingRaw, {
+		target,
+		ensureRootProperties: { version: 1 },
+		operations,
+	})!;
 };
 
 export const installCursor = (opts: HookInstallOpts): HookInstallResult => {
 	const paths = resolveCursorPaths(opts);
 	const result = emptyResult();
 
-	const nextHooks = renderHooksJson(readIfExists(paths.hooks));
+	const nextHooks = renderHooksJson(readIfExists(paths.hooks), paths.hooks);
 	applyContent(result, opts, paths.hooks, nextHooks, "register afterFileEdit hook");
 
 	if (opts.scope === "project") {
@@ -80,23 +77,13 @@ export const uninstallCursor = (
 
 	const raw = readIfExists(paths.hooks);
 	if (raw) {
-		let obj: Record<string, unknown> = {};
-		try {
-			obj = JSON.parse(raw) as Record<string, unknown>;
-		} catch {
-			obj = {};
-		}
-		const stripped = removeAislopEntries(obj, "afterFileEdit").next;
-		const stillHasHooks =
-			stripped.hooks &&
-			typeof stripped.hooks === "object" &&
-			Object.keys(stripped.hooks as object).length > 0;
-		const otherKeys = Object.keys(stripped).filter((k) => k !== "hooks" && k !== "version");
-		if (!stillHasHooks && otherKeys.length === 0) {
-			applyRemoval(result, opts, paths.hooks, null);
-		} else {
-			applyRemoval(result, opts, paths.hooks, `${JSON.stringify(stripped, null, 2)}\n`);
-		}
+		const operations: EventHookOperation[] = [{ event: "afterFileEdit", action: "remove" }];
+		const next = patchJsonHooks(raw, {
+			target: paths.hooks,
+			ignoredKeysOnEmptyCheck: ["version"],
+			operations,
+		});
+		applyRemoval(result, opts, paths.hooks, next);
 	} else {
 		result.skipped.push(paths.hooks);
 	}

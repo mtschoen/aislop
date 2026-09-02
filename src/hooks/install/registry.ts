@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { parseJsonc } from "../../utils/read-jsonc.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { AISLOP_SENTINEL_KEY } from "../io/json-patch.js";
 import { sentinelHash } from "../io/sentinel.js";
@@ -164,7 +165,9 @@ const hasManagedJsonHook = (
 ): boolean => {
 	if (content == null) return false;
 	try {
-		const configuration = JSON.parse(content) as Record<string, unknown>;
+		const parsed = parseJsonc(content);
+		if (!isRecord(parsed)) return false;
+		const configuration = parsed;
 		if (!isRecord(configuration.hooks)) return false;
 		const eventHooks = configuration.hooks[descriptor.event];
 		if (!Array.isArray(eventHooks)) return false;

@@ -2,10 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	installAntigravity,
-	uninstallAntigravity,
-} from "../../src/hooks/install/antigravity.js";
+import { installAntigravity, uninstallAntigravity } from "../../src/hooks/install/antigravity.js";
 import { installCline, uninstallCline } from "../../src/hooks/install/cline.js";
 import { installCopilot, uninstallCopilot } from "../../src/hooks/install/copilot.js";
 import { installKilocode, uninstallKilocode } from "../../src/hooks/install/kilocode.js";

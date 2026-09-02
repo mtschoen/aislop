@@ -9,6 +9,12 @@ import {
 	type HookUninstallResult,
 } from "./types.js";
 
+import {
+	type EventHookOperation,
+	parseJsonConfiguration,
+	patchJsonHooks,
+} from "../io/json-patch.js";
+
 const CODEX_HOOK_COMMAND = "aislop hook codex";
 const CODEX_MANAGED_STATUS = "Running aislop [managed:v1]";
 
@@ -38,12 +44,7 @@ export const resolveCodexPaths = (opts: HookInstallOpts) => {
 	};
 };
 
-const isManagedHookGroup = (value: unknown): boolean => {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-	const group = value as Record<string, unknown>;
-	if (group.matcher !== CODEX_HOOK_GROUP.matcher || !Array.isArray(group.hooks)) return false;
-	if (group.hooks.length !== 1) return false;
-	const handler = group.hooks[0];
+const isManagedHookCommand = (handler: unknown): boolean => {
 	if (typeof handler !== "object" || handler === null || Array.isArray(handler)) return false;
 	const command = handler as Record<string, unknown>;
 	return (
@@ -54,43 +55,20 @@ const isManagedHookGroup = (value: unknown): boolean => {
 	);
 };
 
-const parseHooks = (raw: string | null, target: string): Record<string, unknown> => {
-	if (raw === null) return {};
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		throw new Error(`Cannot update ${target}: invalid JSON. Fix or remove it, then rerun.`);
-	}
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		throw new Error(`Cannot update ${target}: expected a JSON object.`);
-	}
-	return parsed as Record<string, unknown>;
-};
-
-const parseHookSections = (
-	configuration: Record<string, unknown>,
-	target: string,
-): Record<string, unknown> => {
-	if (configuration.hooks === undefined) return {};
-	if (
-		typeof configuration.hooks !== "object" ||
-		configuration.hooks === null ||
-		Array.isArray(configuration.hooks)
-	) {
-		throw new Error(`Cannot update ${target}: expected hooks to be a JSON object.`);
-	}
-	const hooks = configuration.hooks as Record<string, unknown>;
-	if (hooks.PostToolUse !== undefined && !Array.isArray(hooks.PostToolUse))
-		throw new Error(`Cannot update ${target}: expected hooks.PostToolUse to be an array.`);
-	return hooks;
+const isManagedHookGroup = (value: unknown): boolean => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const group = value as Record<string, unknown>;
+	if (group.matcher !== CODEX_HOOK_GROUP.matcher || !Array.isArray(group.hooks)) return false;
+	return group.hooks.some(isManagedHookCommand);
 };
 
 export const hasManagedCodexHook = (raw: string | null): boolean => {
 	if (!raw) return false;
 	try {
-		const config = parseHooks(raw, "Codex hooks.json");
-		if (typeof config.hooks !== "object" || config.hooks === null) return false;
+		const config = parseJsonConfiguration(raw, "Codex hooks.json");
+		if (typeof config.hooks !== "object" || config.hooks === null || Array.isArray(config.hooks)) {
+			return false;
+		}
 		const postToolUse = (config.hooks as Record<string, unknown>).PostToolUse;
 		return Array.isArray(postToolUse) && postToolUse.some(isManagedHookGroup);
 	} catch {
@@ -99,29 +77,14 @@ export const hasManagedCodexHook = (raw: string | null): boolean => {
 };
 
 const renderHooks = (raw: string | null, target: string): string => {
-	const config = parseHooks(raw, target);
-	const hooks = parseHookSections(config, target);
-	const existing = Array.isArray(hooks.PostToolUse) ? hooks.PostToolUse : [];
-	const nextHooks = {
-		...hooks,
-		PostToolUse: [...existing.filter((entry) => !isManagedHookGroup(entry)), CODEX_HOOK_GROUP],
-	};
-	return `${JSON.stringify({ ...config, hooks: nextHooks }, null, 2)}\n`;
-};
-
-const removeRuntimeHook = (raw: string, target: string): Record<string, unknown> => {
-	const config = parseHooks(raw, target);
-	const hooks = parseHookSections(config, target);
-	const existing = Array.isArray(hooks.PostToolUse) ? hooks.PostToolUse : [];
-	const remaining = existing.filter((entry) => !isManagedHookGroup(entry));
-	const nextHooks = { ...hooks };
-	if (remaining.length > 0) nextHooks.PostToolUse = remaining;
-	else delete nextHooks.PostToolUse;
-
-	const next = { ...config };
-	if (Object.keys(nextHooks).length > 0) next.hooks = nextHooks;
-	else delete next.hooks;
-	return next;
+	const operations: EventHookOperation[] = [
+		{ event: "PostToolUse", action: "upsert", group: CODEX_HOOK_GROUP },
+	];
+	return patchJsonHooks(raw, {
+		target,
+		isManagedCommand: isManagedHookCommand,
+		operations,
+	})!;
 };
 
 export const installCodex = (opts: HookInstallOpts): HookInstallResult => {
@@ -141,13 +104,13 @@ export const uninstallCodex = (opts: Omit<HookInstallOpts, "qualityGate">): Hook
 		return result;
 	}
 
-	const next = removeRuntimeHook(raw, paths.hooks);
+	const operations: EventHookOperation[] = [{ event: "PostToolUse", action: "remove" }];
+	const next = patchJsonHooks(raw, {
+		target: paths.hooks,
+		isManagedCommand: isManagedHookCommand,
+		operations,
+	});
 	const result = uninstallRulesOnly(opts, paths);
-	applyRemoval(
-		result,
-		opts,
-		paths.hooks,
-		Object.keys(next).length > 0 ? `${JSON.stringify(next, null, 2)}\n` : null,
-	);
+	applyRemoval(result, opts, paths.hooks, next);
 	return result;
 };

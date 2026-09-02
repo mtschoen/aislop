@@ -48,4 +48,22 @@ describe("read-jsonc", () => {
 		const parsed = parseJsonc(raw) as { compilerOptions: { paths: Record<string, string[]> } };
 		expect(parsed.compilerOptions.paths["@/*"]).toEqual(["./*"]);
 	});
+
+	it("strips UTF-8 BOM before parsing", () => {
+		const raw = '\uFEFF{ "name": "aislop", "version": "1.0.0" }';
+		expect(parseJsonc(raw)).toEqual({ name: "aislop", version: "1.0.0" });
+	});
+
+	it("strips UTF-8 BOM from JSONC content with comments and trailing commas", () => {
+		const raw = '\uFEFF// Header comment\r\n{\r\n  /* Block comment */\r\n  "statusLine": true,\r\n  "hooks": [\r\n    "test",\r\n  ],\r\n}';
+		expect(parseJsonc(raw)).toEqual({
+			statusLine: true,
+			hooks: ["test"],
+		});
+	});
+
+	it("handles line comments with CRLF line endings", () => {
+		const raw = '{\r\n  // Line comment\r\n  "a": 1\r\n}';
+		expect(parseJsonc(raw)).toEqual({ a: 1 });
+	});
 });

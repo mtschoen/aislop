@@ -131,6 +131,19 @@ describe("detectInstalledAgents", () => {
 		expect(resolveManagedInstalledScope("claude", { home, cwd })).toBeNull();
 	});
 
+	it("resolves managed Claude settings containing UTF-8 BOM, comments, and trailing commas", () => {
+		const settings = resolveClaudePaths({ home, cwd, scope: "project" }).settings;
+		fs.mkdirSync(path.dirname(settings), { recursive: true });
+		const hash = sentinelHash(
+			JSON.stringify({ command: "aislop hook claude", matcher: "Edit|Write|MultiEdit" }),
+		);
+		const content = `\uFEFF// Comment\r\n{\r\n  "hooks": {\r\n    "PostToolUse": [\r\n      {\r\n        "matcher": "Edit|Write|MultiEdit",\r\n        "hooks": [\r\n          {\r\n            "type": "command",\r\n            "command": "aislop hook claude",\r\n            "__aislop": { "v": 1, "managed": true, "hash": "${hash}" },\r\n          },\r\n        ],\r\n      },\r\n    ],\r\n  },\r\n}`;
+		fs.writeFileSync(settings, content, "utf-8");
+
+		expect(resolveManagedInstalledScope("claude", { home, cwd })).toBe("project");
+		expect(detectInstalledAgents({ home, cwd })).toContain("claude");
+	});
+
 	describe.each([
 		{
 			agent: "claude" as const,
