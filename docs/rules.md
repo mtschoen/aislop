@@ -232,7 +232,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/go-library-panic` | warning | Go `panic(...)` calls in non-main library code unless clearly intentional |
 | `ai-slop/rust-non-test-unwrap` | warning | Rust `.unwrap()` in production code where errors should be handled or documented |
 | `ai-slop/rust-todo-stub` | warning | Rust `todo!()` stubs in production code |
-| `ai-slop/hallucinated-import` | error | Imports of JS/TS packages that are not declared in the project manifest |
+| `ai-slop/hallucinated-import` | error | JS/TS and Python imports without matching manifest declarations or recognized module evidence |
 | `ai-slop/tautological-test` | warning | JavaScript/TypeScript assertions comparing equal fixed literals, plus standalone Python `assert True` statements, which cannot fail |
 | `ai-slop/test-sleep` | warning | A fixed-duration delay written directly inside a test file, outside any loop (see the bounds below the table) |
 | `ai-slop/test-wall-clock-assertion` | warning | A test assertion whose value comes from the real clock (see the bounds below the table) |
@@ -262,6 +262,21 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/systemd-timeout` | warning | `Type=oneshot` systemd unit without an explicit `TimeoutStartSec=`, or an explicit unbounded start timeout (`infinity`) without a rationale comment |
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
+
+### Python dependency names (`ai-slop/hallucinated-import`)
+
+For names extracted from `pyproject.toml`, `requirements.txt`, and `Pipfile`,
+Python distribution comparisons follow PEP 503 normalization: lowercase the
+name and replace every run of dots, underscores, and hyphens with one hyphen.
+For example, `Foo.Bar` matches the import name `foo_bar`, and either
+`discord.py` or `discord-py` satisfies `import discord`.
+
+This normalization does not discover arbitrary distribution-to-module mappings.
+The rule retains its existing import-root and distribution-prefix comparisons,
+explicit import-to-distribution aliases, standard-library recognition, and local
+module checks. Dots in Python import statements still separate submodules.
+The change does not expand supported manifest syntax or resolve installed package
+metadata, and an unrelated undeclared import still produces a finding.
 
 ### Repeated magic literals (`ai-slop/repeated-magic-literal`)
 

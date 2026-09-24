@@ -46,7 +46,7 @@ export const readPyproject = (rootDir: string): string | null =>
 export const addPyDep = (pyDeps: Set<string>, name: string): void => {
 	const match = name.trim().match(/^([a-zA-Z0-9_.-]+)/);
 	if (!match) return;
-	const normalized = match[1].toLowerCase().replace(/_/g, "-");
+	const normalized = match[1].toLowerCase().replace(/[-_.]+/g, "-");
 	pyDeps.add(normalized);
 };
 

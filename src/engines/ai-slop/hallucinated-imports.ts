@@ -78,7 +78,7 @@ const extractPyImports = (content: string): { spec: string; line: number }[] => 
 	return results;
 };
 
-const normalizePyName = (name: string): string => name.toLowerCase().replace(/_/g, "-");
+const normalizePyName = (name: string): string => name.toLowerCase().replace(/[-_.]+/g, "-");
 
 const isSafePythonModuleEntry = (
 	candidate: string,
