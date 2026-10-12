@@ -209,9 +209,17 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 		["", "\t_ = func(load func() (string, error)) <-chan []byte {", true, "\t}"],
 		["", "\t_ = func(load func() (string, error)) time.Time {", true, "\t}"],
 		["", "\t_ = func(load func() (string, error)) (time.Time) {", true, "\t}"],
+		["", "\t_ = func () func(load int) int {", false, "\treturn nil\n\t}"],
+		["", "\t_ = func (load Loader) func(other int) int {", true, "\treturn nil\n\t}"],
+		...["[1]int", "map[string][]byte", "<-chan []byte", "time.Time", "func() int"].flatMap(
+			(result) => [
+				["", "", false, "\treturn nil", `func(load int) ${result}`] as const,
+				["", `\t_ = func() func(load int) ${result} {`, false, "\treturn nil\n\t}"] as const,
+			],
+		),
 	])(
-		"treats locally shadowed function as unresolved: %s %s",
-		async (parameters, local, shadowed, tail = "") => {
+		"treats locally shadowed function as unresolved: %s %s (results: %s %s %s)",
+		async (parameters, local, shadowed, tail = "", result = "") => {
 			write(
 				"main.go",
 				[
@@ -219,7 +227,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 					"type Loader func() (string, error)",
 					'func load() (string, string) { return "", "" }',
 					"",
-					`func run(${parameters}) {`,
+					`func run(${parameters}) ${result} {`,
 					local,
 					"\tv, _ := load()",
 					"\t_ = v",
@@ -231,8 +239,11 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 		},
 	);
 
-	it("bounds work across many completed literals and repeated calls", async () => {
-		const completedLiterals = Array.from({ length: 100 }, (_, i) => `\t_ = func() { _ = ${i} }`).join("\n");
+	it("preserves package resolution across many completed literals and repeated calls", async () => {
+		const completedLiterals = Array.from(
+			{ length: 100 },
+			(_, i) => `\t_ = func() { _ = ${i} }`,
+		).join("\n");
 		const caller = [
 			"package main",
 			'func load() (string, string) { return "", "" }',

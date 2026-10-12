@@ -118,22 +118,46 @@ describe("provider output formatting", () => {
 		});
 	});
 
-	it("counts a pi tool call once, from its execution event, not the streamed toolcall", () => {
+	it.each([
+		["turn summary with one execution", 1, false, false, false],
+		["turn summary with multiple executions", 2, false, false, false],
+		["text-plus-tool summary", 1, true, false, false],
+		["aborted unexecuted turn summary", 1, false, false, true],
+		["final-message start summary", 1, false, true, false],
+		["aborted unexecuted start summary", 1, false, true, true],
+	])("counts pi tools only from execution events: %s", (_, count, text, finalStart, aborted) => {
+		const tools = Array.from({ length: count }, (_, index) => ({
+			type: "toolCall",
+			id: `t${index}`,
+			name: "edit",
+		}));
+		const message = {
+			role: "assistant",
+			content: [...(text ? [{ type: "text", text: "Working" }] : []), ...tools],
+			stopReason: aborted ? "aborted" : "toolUse",
+		};
 		const lines = [
-			JSON.stringify({
+			{ type: "message_start", message: finalStart ? message : { role: "assistant", content: [] } },
+			{
 				type: "message_update",
 				usage: { totalTokens: 900 },
 				assistantMessageEvent: { type: "toolcall_start", id: "t1", toolName: "edit" },
-			}),
-			JSON.stringify({ type: "tool_execution_start", toolCallId: "t1", toolName: "edit" }),
-			JSON.stringify({
-				type: "message_end",
-				message: { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "edit" }] },
-			}),
-			JSON.stringify({ type: "tool_execution_update", toolCallId: "t1", toolName: "edit" }),
-			JSON.stringify({ type: "tool_execution_end", toolCallId: "t1", toolName: "edit" }),
-		].map(formatProviderOutputLine);
-		expect(lines.filter((line) => line?.startsWith("tool:"))).toEqual(["tool: edit"]);
+			},
+			{ type: "message_end", message },
+			...(aborted
+				? []
+				: tools.flatMap((tool) =>
+						["tool_execution_start", "tool_execution_update", "tool_execution_end"].map((type) => ({
+							type,
+							toolCallId: tool.id,
+							toolName: tool.name,
+						})),
+					)),
+			{ type: "turn_end", message, toolResults: [] },
+		].map((event) => formatProviderOutputLine(JSON.stringify(event)));
+		expect(lines.filter((line) => line?.startsWith("tool:"))).toEqual(
+			aborted ? [] : tools.map(() => "tool: edit"),
+		);
 	});
 
 	it("renders pi tool execution events and completion state", () => {

@@ -88,8 +88,14 @@ export const formatProviderOutputLine = (line: string): string | null => {
 	if (toolName && type === "tool_execution_start") {
 		return compact(`tool: ${toolName}`);
 	}
-	// pi's final text arrives on `message_end`; `message_update` deltas are skipped.
-	if (type === "message_update" || type === "tool_execution_update") return null;
+	// Pi text is emitted at message_end; only execution starts count as tools.
+	if (
+		type === "message_start" ||
+		type === "message_update" ||
+		type === "turn_end" ||
+		type === "tool_execution_update"
+	)
+		return null;
 	if (type === "tool_execution_end") {
 		const failed = event.isError === true;
 		return compact(`tool done${failed ? " (error)" : ""}`);

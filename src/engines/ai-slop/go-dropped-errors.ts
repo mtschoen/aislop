@@ -290,7 +290,7 @@ const bindsName = (parameterList: string, name: string): boolean => {
 	return false;
 };
 
-const literalBodyStart = (
+const functionBodyStart = (
 	scope: string,
 	cursor: number,
 ): { bodyOpen: number; resultsSlice: string | null } | null => {
@@ -317,9 +317,11 @@ const literalBodyStart = (
 	return null;
 };
 
-const shadowedInFuncLiterals = (scope: string, name: string): boolean => {
-	const funcLitRegex = /\bfunc\s*\(/g;
-	for (const match of scope.matchAll(funcLitRegex)) {
+const shadowedInFunctions = (scope: string, name: string): boolean => {
+	const functions = /\bfunc\s+(?:\([^)]*\)\s*)?(?!func\b)\w+(?:\[[^\]]*\])?\s*\(|\bfunc\s*\(/g;
+	let signatureEnd = 0;
+	for (const match of scope.matchAll(functions)) {
+		if (match.index < signatureEnd) continue;
 		const open = match.index + match[0].length - 1;
 		const end = closingParen(scope, open);
 		if (end === -1) continue;
@@ -327,7 +329,9 @@ const shadowedInFuncLiterals = (scope: string, name: string): boolean => {
 		while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
 		if (cursor >= scope.length) continue;
 
-		const body = literalBodyStart(scope, cursor);
+		const body = functionBodyStart(scope, cursor);
+		// Nested function types belong to this signature, never to its following body.
+		signatureEnd = body?.bodyOpen ?? Math.max(end + 1, skipGoType(scope, match.index));
 		if (!body) continue;
 
 		let depth = 0;
@@ -353,23 +357,7 @@ const shadowedInFuncLiterals = (scope: string, name: string): boolean => {
 
 const isShadowed = (scope: string, name: string): boolean => {
 	if (new RegExp(`\\bvar\\s+${name}\\b`).test(scope)) return true;
-	const declaration = /^\s*func\s+(?:\([^)]*\)\s*)?\w+(?:\[[^\]]*\])?\s*\(/.exec(scope);
-	if (declaration) {
-		const open = declaration[0].length - 1;
-		const end = closingParen(scope, open);
-		if (end !== -1) {
-			if (bindsName(scope.slice(open + 1, end), name)) return true;
-			let cursor = end + 1;
-			while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
-			if (cursor < scope.length && scope[cursor] === "(") {
-				const resultsEnd = closingParen(scope, cursor);
-				if (resultsEnd !== -1 && bindsName(scope.slice(cursor + 1, resultsEnd), name)) {
-					return true;
-				}
-			}
-		}
-	}
-	if (shadowedInFuncLiterals(scope, name)) return true;
+	if (shadowedInFunctions(scope, name)) return true;
 	for (const line of scope.split("\n")) {
 		const assign = line.indexOf(":=");
 		if (assign === -1) continue;
