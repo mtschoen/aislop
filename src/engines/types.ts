@@ -1,3 +1,4 @@
+import type { AislopConfig } from "../config/schema.js";
 import type { Framework, Language } from "../utils/discover.js";
 
 export type Severity = "error" | "warning" | "info";
@@ -25,6 +26,7 @@ export interface Diagnostic {
 	fixable: boolean;
 	detail?: string;
 	changeContext?: ChangeContext;
+	baselined?: boolean;
 }
 
 export interface EngineResult {
@@ -33,6 +35,8 @@ export interface EngineResult {
 	elapsed: number;
 	skipped: boolean;
 	skipReason?: string;
+	missingTools?: string[];
+	failed?: boolean;
 }
 
 export interface EngineContext {
@@ -55,6 +59,9 @@ export interface EngineContext {
 }
 
 export interface EngineConfig {
+	readonly overrides?: AislopConfig["overrides"];
+	readonly rules?: AislopConfig["rules"];
+	readonly imports?: AislopConfig["imports"];
 	quality: {
 		maxFunctionLoc: number;
 		maxFileLoc: number;

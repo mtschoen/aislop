@@ -10,11 +10,17 @@ aislop catches them. 50+ rules across 10 language targets (TypeScript, JavaScrip
 
 ## Quick start
 
+**1. Scan.** Get your score in seconds. No install needed, works on any project.
+
 ```bash
 npx aislop@latest scan
 ```
 
-No install needed. Works on any project. Get your score in seconds.
+**2. Install the hook** so your coding agent fixes slop before it lands, on every edit. The hook calls `aislop` directly, so install the CLI first.
+
+```bash
+npm install -g aislop && aislop hook install
+```
 
 Also available on npm, Yarn, Bun, Homebrew, and PyPI:
 
@@ -172,7 +178,7 @@ const opts = { ...defaults, ...(input || {}) };
 const legacy = doThing(); // aislop-ignore-line
 ```
 
-`aislop-ignore-next-line` covers the line below, `aislop-ignore-line` the line it sits on, and `aislop-ignore-file` (place anywhere in the file) the whole file. Name one or more rules to scope the suppression, or omit them to silence every rule on that line. The directive works in any comment syntax (`//`, `#`, `<!-- -->`). Suppressed findings are removed before scoring, and the run reports how many were silenced.
+`aislop-ignore-next-line` covers the line below, `aislop-ignore-line` (or a bare `aislop-ignore`) the line it sits on, and `aislop-ignore-file` (place anywhere in the file) the whole file. Name one or more rules to scope the suppression, or omit them to silence every rule on that line. The directive works in any comment syntax (`//`, `#`, `<!-- -->`). Suppressed findings are removed before scoring, and the run reports how many were silenced. A misspelled directive such as `aislop-ignore-nextline` suppresses nothing and is reported as `ai-slop/unknown-directive`.
 
 **Ignore whole paths**: Add an `.aislopignore` at the project root (same glob semantics as `exclude`, `#` comments allowed):
 
@@ -212,7 +218,7 @@ aislop fix -p              # print an agent handoff prompt
 
 ### Run a local repair agent
 
-`aislop agent` keeps the deterministic scanner in charge while using the coding agent you already have installed. It creates a local git worktree, runs safe fixes, streams a headless Codex / Claude Code / OpenCode repair session, verifies the result with `aislop scan --json`, writes a local session transcript, and leaves the diff for review.
+`aislop agent` keeps the deterministic scanner in charge while using the coding agent you already have installed. It creates a local git worktree, runs safe fixes, streams a headless Codex / Claude Code / OpenCode / Pi repair session, verifies the result with `aislop scan --json`, writes a local session transcript, and leaves the diff for review.
 
 ```bash
 aislop agent providers        # see installed providers and setup hints
@@ -319,7 +325,11 @@ aislop ci                  # JSON output, exits 1 if score < threshold
 aislop ci --changes --base origin/main  # gate only the files a PR changes
 aislop ci --human          # human-friendly CI output
 aislop ci --sarif          # SARIF output for code scanning
+aislop baseline write      # accept current findings; ci then fails only on new ones
+aislop baseline prune      # drop baseline entries for findings you fixed
 ```
+
+Set `ci.baseline: .aislop/ci-baseline.json` after `aislop baseline write` so `scan` and `ci` use it. See [docs/ci.md](docs/ci.md#baseline-fail-only-on-new-findings).
 
 `ci` accepts the same `--changes` / `--staged` / `--base <ref>` scoping as `scan`. Use `--changes --base origin/<target>` to gate a pull request on only the files it touches; the score gate and exit code still apply.
 
@@ -392,13 +402,11 @@ jobs:
       - run: npx --yes aislop@latest ci
 ```
 
-Prefer the Marketplace Action? `@v1` tracks the latest release and `version: latest` keeps the CLI current. Pin `@v0.11.0` and a `version` for reproducible builds:
+Prefer the Marketplace Action? `@v1` runs the latest release. From v0.18.1, pinning a release tag such as `@v0.18.1` (or its commit SHA) runs the matching CLI version, so Dependabot's `github-actions` updates keep it current. Older tags run the latest CLI unless `version` is set.
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: scanaislop/aislop@v1
-  with:
-    version: latest
+- uses: scanaislop/aislop@v0.18.1
 ```
 
 **GitHub code scanning (SARIF)**: emit a SARIF 2.1.0 report and upload it so findings appear in the Security tab:
@@ -491,7 +499,9 @@ aislop rules are shaped by public scans and benchmark-derived failure modes, not
 
 ## Docs
 
-[Installation](docs/installation.md) · [Commands](docs/commands.md) · [Rules](docs/rules.md) · [Config](docs/configuration.md) · [Scoring](docs/scoring.md) · [CI/CD](docs/ci.md) · [Telemetry](docs/telemetry.md) · [Windows performance](docs/windows-performance.md) · [Research program](docs/research-program.md)
+Docs on the website (preferred for search and agents): [start](https://scanaislop.com/docs) · [commands](https://scanaislop.com/docs/commands) · [rules](https://scanaislop.com/docs/rules) · [configure](https://scanaislop.com/docs/configure) · [scoring](https://scanaislop.com/docs/scoring) · [CI](https://scanaislop.com/docs/ci) · [hooks](https://scanaislop.com/docs/hooks)
+
+In this repo: [Installation](docs/installation.md) · [Commands](docs/commands.md) · [Rules](docs/rules.md) · [Config](docs/configuration.md) · [Scoring](docs/scoring.md) · [CI/CD](docs/ci.md) · [Telemetry](docs/telemetry.md) · [Windows performance](docs/windows-performance.md) · [Research program](docs/research-program.md)
 
 ## Community
 
@@ -508,8 +518,12 @@ Built on: [Biome](https://biomejs.dev/), [oxlint](https://oxc.rs/), [knip](https
 ## Contributors
 
 <!-- CONTRIBUTORS-START -->
+- [@daveslutzkin](https://github.com/daveslutzkin)
+- [@gtheys](https://github.com/gtheys)
 - [@heavykenny](https://github.com/heavykenny)
+- [@mtschoen](https://github.com/mtschoen)
 - [@myke-awoniran](https://github.com/myke-awoniran)
+- [@swjturay](https://github.com/swjturay)
 - [@yashrajoria](https://github.com/yashrajoria)
 <!-- CONTRIBUTORS-END -->
 

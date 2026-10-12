@@ -61,7 +61,7 @@ scripts portable:
 - **Version injection**: `tsdown.config.ts` reads `package.json` version and injects it via `env.VERSION`. Access it in source via `process.env.VERSION`.
 - **vitest** for testing with a 30-second timeout
 - **pnpm** as the package manager (pnpm-workspace.yaml, pnpm-lock.yaml)
-- **Node ^22.18 || >=24.11 required** (tsdown 0.22's own engines floor; it relies on `Promise.withResolvers` among other modern APIs). One floor for running and building.
+- **Node ^22.18 || >=24.11 required** to run, build and test (tsdown's own engines floor; it relies on `Promise.withResolvers` among other modern APIs, and vitest needs 22.18+). CI runs Node 22 and 24.
 
 ## Project structure
 

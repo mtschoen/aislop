@@ -18,6 +18,7 @@ import { detectNonAsciiPunctuation } from "./non-ascii-punctuation.js";
 import { detectPythonPatterns } from "./python-patterns.js";
 import { detectRustPatterns } from "./rust-patterns.js";
 import { detectSilentRecovery } from "./silent-recovery.js";
+import { detectUnknownDirectives } from "./suppression-directives.js";
 import { detectSystemdTimeouts } from "./systemd-timeout.js";
 import { detectTautologicalTests } from "./test-quality.js";
 import { detectTestSleeps } from "./test-sleep.js";
@@ -57,6 +58,7 @@ export const aiSlopEngine: Engine = {
 			detectTestWallClockAssertions(context),
 			detectNonAsciiPunctuation(context),
 			detectSystemdTimeouts(context),
+			detectUnknownDirectives(context),
 		]);
 
 		for (const result of results) {

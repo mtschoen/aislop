@@ -4,6 +4,7 @@ dist/
 coverage/
 tools/bin/
 tools/analyzers/
+tools/benchmark-data/
 assets/release-fix-scan.*
 *.tgz
 .DS_Store

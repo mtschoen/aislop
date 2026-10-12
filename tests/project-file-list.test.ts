@@ -7,6 +7,8 @@ import {
 	enumerateProjectFiles,
 	enumerateProjectFilesFromDisk,
 } from "../src/utils/project-file-list.js";
+import { WALK_PRUNE_DIRECTORIES } from "../src/utils/source-file-policy.js";
+import { listProjectFiles } from "../src/utils/source-file-selection.js";
 
 const writeFile = (rootDirectory: string, relativePath: string): void => {
 	const filePath = path.join(rootDirectory, relativePath);
@@ -79,6 +81,21 @@ describe("project file enumeration", () => {
 			expect(files).not.toContain("plain.ignored.ts");
 		},
 	);
+
+	it.skipIf(!gitAvailable)("prunes target build directories from default enumeration", () => {
+		execFileSync("git", ["init"], { cwd: rootDirectory, stdio: "ignore" });
+		writeFile(rootDirectory, "src/app.ts");
+		writeFile(rootDirectory, "target/debug/generated.rs");
+		execFileSync("git", ["add", "-f", "src/app.ts", "target/debug/generated.rs"], {
+			cwd: rootDirectory,
+			stdio: "ignore",
+		});
+
+		expect(listProjectFiles(rootDirectory)).toEqual(["src/app.ts"]);
+		expect(enumerateProjectFilesFromDisk(rootDirectory, WALK_PRUNE_DIRECTORIES)).toEqual([
+			"src/app.ts",
+		]);
+	});
 
 	it("does not follow directory symlinks or junctions during disk enumeration", () => {
 		const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-project-outside-"));

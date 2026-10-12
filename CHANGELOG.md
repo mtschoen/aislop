@@ -10,6 +10,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Scoped project discovery for automatic hook scans now matches CLI scans.** The automatic per-edit hook scan (triggered by coding-agent integrations) previously discovered files with a disk-based walker that read no `.gitignore` at all, so `.gitignore` rules, force-tracked files, and nested checkouts were handled inconsistently with `aislop scan`/`aislop ci`. It now lists files with `git ls-files --cached --others --exclude-standard`, the same snapshot the CLI already used, so a hook scan sees exactly the files git would report. Hook scans still spawn no subprocess other than git: no linters, formatters, Knip, or other tools. When git is unavailable, both paths fall back to a disk-based walker that prunes a fixed set of directory names and never descends into a directory holding its own `.git` entry (a submodule, a linked worktree, or any nested checkout), except that the scan root itself is always entered; this fallback does not read `.gitignore`.
 
+## 0.18.1 (2026-10-06)
+
+A patch release. Pinning the GitHub Action to a release tag now pins the CLI it runs, `aislop agent` shows the provider's own error when it fails, and dependency advisories are patched.
+
+### Changed
+
+- **The GitHub Action runs the CLI version that matches its ref.** From this release, with no `version` input, a release tag ref such as `uses: scanaislop/aislop@v0.18.1` runs `aislop@0.18.1`, a commit SHA ref runs the version in that commit's `package.json`, and `@v1` or a branch still runs the latest release. Pinning the Action now pins the CLI, and Dependabot's `github-actions` updates bump both. An explicit `version` input still wins.
+
+### Fixed
+
+- **Dependency advisories.** `proxy-addr` (critical, through `@modelcontextprotocol/sdk` and `express`), `source-map-js`, and `smol-toml` are raised to patched releases.
+- **`aislop agent` shows why the provider failed.** When the provider exits with an error, the message now includes its last stderr lines instead of only the exit code ([#228](https://github.com/scanaislop/aislop/issues/228)).
+
+## 0.18.0 (2026-10-03)
+
+Baseline mode, plus fixes for false positives reported by users. `aislop baseline write` lets an existing codebase gate CI on new findings only. Python import checks read every requirements file, PEP 723 metadata, and a new `imports.provided` list. Biome and ruff follow the project's own config and version. Missing tools are reported instead of silently skipped.
+
+### Added
+
+- **Baseline mode.** `aislop baseline write` records the current findings in `.aislop/ci-baseline.json`, and with `ci.baseline` set, `scan` and `ci` fail only on findings that are not in it. Findings match on rule, file, and the text of the reported line rather than the line number, so unrelated edits do not re-raise them. Stale entries are reported and `aislop baseline prune` removes them, only when the fix can be confirmed, so a tool that fails quietly cannot shrink the baseline. The score still counts every finding. Thanks to @tykeal ([#405](https://github.com/scanaislop/aislop/issues/405)).
+- **`imports.provided` config.** Modules that the runtime provides instead of a manifest (Home Assistant's `homeassistant`, Sage's `fpylll`, `vscode` in a VS Code extension) can be listed under `imports.provided` in `.aislop/config.yml` so `ai-slop/hallucinated-import` does not report them. Each entry covers its submodules.
+- **`ci.failOnMissingTools`.** Opt-in setting that makes `scan` and `ci` exit 1 when a format or lint tool needed for a detected language is not installed, instead of passing on a partial scan. Off by default.
+- **`ai-slop/unknown-directive`.** An `aislop-ignore-*` comment with a scope aislop does not recognise (for example `aislop-ignore-nextline`) used to be silently ignored. It is now reported as a warning, with the closest valid directive suggested, in JS/TS, Python, Go, C#, and C/C++ files.
+
+### Fixed
+
+- **The pre-commit hook runs only at the commit stage.** `.pre-commit-hooks.yaml` now sets `stages: [pre-commit]`. Projects that also install `pre-push` hooks ran `aislop scan --staged` on push, which checks the index rather than the pushed commits. Requires pre-commit 3.2.0 or later.
+- **`braces` advisory (GHSA-vfj7-8cjw-p6xm).** `micromatch`, which pulled in `braces`, is replaced with `picomatch`, which has no dependencies. No patched `braces` release exists yet. Glob matching behaves the same.
+- **Python import checks read more dependency sources.** `ai-slop/hallucinated-import` now reads every `requirements*.txt` variant (`requirements_dev.txt`, `requirements-test.txt`, `dev-requirements.txt`, ...), files in a `requirements/` directory, `-r` includes, and PEP 723 inline script metadata. Projects that kept dependencies outside `requirements.txt` and `pyproject.toml` got an error for every third-party import.
+- **Ruff respects the project's `exclude` settings.** aislop passes each Python file to ruff by name, and ruff ignores `exclude`/`extend-exclude` for explicitly named files unless told otherwise. Files a project excludes from ruff (vendored or legacy code) were reported by `python-formatting` and the ruff lint rules, and `aislop fix` could reformat them. Scan and fix now pass `--force-exclude`, so aislop checks the same files the project's own `ruff format` and `ruff check` do.
+- **Biome formatting respects the project's Biome config.** When a project has `biome.json` or `biome.jsonc`, `scan` and `fix` now use its settings instead of forcing a 120-column line width. Before, a project that relied on Biome's default width of 80 got formatting findings that its own Biome rejected, and `aislop fix` rewrote files so the project's `biome format` failed. `biome.jsonc` is now detected too.
+- **Missing format and lint tools are reported.** When a detected language's tool is not installed (for example `ruff` for Python), the scan output now says so with an `aislop doctor` hint, even on a clean run, and `--json` lists it in the engine's `missingTools`. Skipped engines also carry a `skipReason`, so a skip because of a missing tool can be told apart from one with nothing to scan. Before, the checks silently did not run and the score looked clean ([lfreleng-actions/aislop-scan-action#40](https://github.com/lfreleng-actions/aislop-scan-action/issues/40)).
+- **`security/hardcoded-secret` skips UI copy under password-like keys.** Human-readable text is no longer reported when the key names a UI element (`awaiting_password`, `password_hint`, `secret_label`, ...), the file is a locale or i18n file, or the text is a prompt about the credential ("Enter your password"). Placeholders like `<password>` or `your-password-here` are skipped too. A sentence-like value under a plain `password` key, such as a passphrase, is still flagged.
+- **Go `v, _ := f()` is only reported when the dropped value can be an error.** `ai-slop/swallowed-exception` now looks up `f` in the caller's package and skips the finding when every declaration's last result is a basic type such as `string`, `int` or `bool`, or a slice, array, map, channel or function type. Named types, aliases, pointers, interfaces, and calls it cannot resolve or that are shadowed locally are still reported. `//nolint`, `//nolint:errcheck`, and `//nolint:all` comments on the line are honored.
+- **A bare `aislop-ignore` comment suppresses its own line.** `# aislop-ignore` and `// aislop-ignore rule-id` now work like `aislop-ignore-line`. Before, they suppressed nothing.
+- **Size findings state their real trigger.** `complexity/file-too-large` and `complexity/function-too-long` allow 10% over the limit before reporting, but the message only showed the limit. The message now shows both, for example `File too large (limit: 400, flagged above 440 lines)`, and the docs describe how lines are counted. When findings fire is unchanged.
+- **ruff from the project's virtualenv is preferred.** When `.venv` or `venv` in the scan root holds a ruff executable, `scan` and `fix` use it before ruff on `PATH` or the bundled copy, so `python-formatting` and ruff lint findings come from the version the project pins. The venv ruff is only used inside a git work tree where the virtualenv is untracked, not a submodule or nested repository, and not reached through a symlink, so a pull request or archive cannot supply its own binary. Agent hooks, which never run project-local tools, keep using `PATH` or the bundled ruff.
+
+### Changed
+
+- `@modelcontextprotocol/sdk`, used by `aislop-mcp`, moves from 1.30 to 1.32.
+
+## 0.17.0 (2026-10-02)
+
+Per-file overrides, a fourth agent provider, and clearer failure reporting. `overrides` in `.aislop/config.yml` give different paths their own quality limits and rule severities in one scan, `aislop agent` can run on pi, and a scan with no hook installed suggests one.
+
+### Added
+
+- **Command failure telemetry (PII-free).** A new `cli_command_failed` event records crashes that escape the command lifecycle (top-level uncaught exceptions and unhandled rejections), so hard failures are no longer silent. Failed commands now also report the error class (`error_name`) and machine code (`error_code`) rather than only a heuristic `error_kind`, and scans report which engines crashed (`engines_failed`). All fields are allowlisted (never the error message, stack, or file paths), and capture honors the existing opt-out (`AISLOP_NO_TELEMETRY`, `DO_NOT_TRACK`, CI, config).
+- **Per-file overrides.** Ordered `overrides` in `.aislop/config.yml` apply project-relative glob patterns to partial quality limits and per-rule `error`, `warning`, or `off` severities. Later matching entries win, so controllers, services, and legacy files can share one scan with different policies. Existing scoring calibration and projects without overrides retain their behavior.
+- **`pi` provider for `aislop agent`.** Repair sessions can run on [pi](https://github.com/earendil-works/pi-coding-agent) alongside Codex, Claude, and OpenCode, with tool-call tracking, token usage, and changed-file detection. Thanks to @gtheys.
+- **Hook install suggestion after a scan.** An interactive `aislop scan` with no aislop hook installed now suggests installing one. It stays silent in CI, for non-TTY or `--json`/`--sarif` output, and once a hook exists.
+- **`--json` marks crashed engines.** An engine that crashes during a scan now has `"failed": true` in the `engines` map, so it can be told apart from an engine that was skipped on purpose.
+
+### Fixed
+
+- **Suggested commands work for `npx` users.** Next-step hints from `scan`, `doctor`, and `init` used to say `aislop ...`, which fails without a global install. When run through `npx`, they now say `npx aislop@latest ...`.
+- **`aislop badge` detects repositories with dots in their names.** Remotes such as `vercel/next.js` failed with "Could not detect a GitHub remote".
+- **Dependency advisories.** `adm-zip`, `fast-uri`, `hono`, and `ip-address` are raised to patched releases.
+- **`aislop fix` no longer deletes exports that are still used in their own file.** An export that no other file imports was removed along with its declaration, which broke any code in the same file that still called it. The fix now drops only the `export` keyword in that case, and skips default exports and overloaded or merged declarations it cannot safely un-export.
+
+## 0.16.1 (2026-09-09)
+
+Maintenance release. Three rule fixes from contributors, each removing findings that should never have fired, one fix that closes a matching gap in the other direction, plus dependency patches.
+
+### Fixed
+
+- **`silent-recovery` no longer flags `logger.exception`.** Python's `logger.exception` captures the traceback, so a handler using it is not swallowing the error. It is still flagged when `exc_info` is explicitly disabled, because that discards the very thing the rule cares about. Thanks to @mtschoen.
+- **`hardcoded-url` ignores URLs in Python docstrings.** A URL in documentation is a reference, not a hardcoded endpoint. Only docstring-positioned strings are exempt, so a module-level constant that merely looks like prose still reports. Thanks to @mtschoen.
+- **Python `except` bodies are read as statements rather than lines.** A log call wrapped across several lines was split at each line break, so a keyword argument on its own line looked like an assignment and the handler was treated as doing real work. `silent-recovery` therefore missed multi-line handlers entirely, including `logger.exception(..., exc_info=False)` with the argument on its own line, which discards the traceback the rule exists to protect.
+- **`silent-recovery` no longer misreads `;` or prose in Python handlers.** A handler that logged and then re-raised on the same line, separated by a semicolon, was reported as swallowing the error. A log message that merely mentioned `exc_info=False` cancelled the traceback exemption, since the keyword checks did not distinguish code from string contents.
+- **Build output directories are pruned from scans.** Rust and other `target/` style build directories were being walked, which inflated file counts and surfaced findings in generated code. Thanks to @daveslutzkin.
+
+### Changed
+
+- Patched transitive advisories in `fast-uri`, `qs` and `hono`, and refreshed `oxlint`, `knip`, `biome`, `smol-toml` and `expo-doctor`. The lint and unused-code engines are bundled, so their updates can change which findings a scan reports.
+
+
 ## 0.16.0 (2026-08-30)
 
 Scoping release. `fix` and `scan` can now be pointed at what changed rather than the whole tree, and `fix` can show what it would do before it does it.

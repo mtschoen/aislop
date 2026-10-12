@@ -29,6 +29,9 @@ export const createEngineContext = (
 		security: config.security,
 		lint: config.lint,
 		aiSlop: config.aiSlop,
+		overrides: config.overrides,
+		rules: config.rules,
+		imports: config.imports,
 	},
 	...(options.scope
 		? {

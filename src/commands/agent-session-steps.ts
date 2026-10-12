@@ -13,6 +13,7 @@ import {
 	formatToolCalls,
 	formatUsageTotals,
 	isProviderToolLine,
+	addProviderUsage,
 	mergeProviderUsage,
 } from "../agents/session-activity.js";
 import { diffNameOnly, readBinaryDiff } from "../agents/worktree.js";
@@ -23,6 +24,14 @@ import { type AgentOptions, type AgentScanJson, summarizeAgentScan } from "./age
 
 const plural = (count: number, singular: string, pluralLabel = `${singular}s`): string =>
 	`${count.toLocaleString()} ${count === 1 ? singular : pluralLabel}`;
+
+const STDERR_TAIL_LINES = 8;
+
+export const providerFailureMessage = (error: unknown, stderrTail: string[]): string => {
+	const message = error instanceof Error ? error.message : String(error);
+	if (stderrTail.length === 0) return message;
+	return `${message} Last stderr lines:\n${stderrTail.map((line) => `  ${line}`).join("\n")}`;
+};
 
 export const runProviderStep = async (input: {
 	tui: AgentTui;
@@ -68,6 +77,7 @@ export const runProviderStep = async (input: {
 	input.tui.setActiveLabel(`Pass ${input.pass}: ${input.selected.provider.label} is editing`);
 	input.tracker.start();
 	let exitCode: number | null = null;
+	const stderrTail: string[] = [];
 	let passToolCalls = 0;
 	let passOutputEvents = 0;
 	try {
@@ -77,6 +87,10 @@ export const runProviderStep = async (input: {
 			maxTurns: input.options.maxTurns,
 			onEvent: (event) => {
 				passOutputEvents += 1;
+				if (event.stream === "stderr") {
+					stderrTail.push(event.line);
+					if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
+				}
 				input.stats.outputEvents += 1;
 				const displayLine = formatProviderOutputLine(event.line);
 				if (displayLine) {
@@ -89,7 +103,9 @@ export const runProviderStep = async (input: {
 				}
 				const metadata = extractProviderOutputMetadata(event.line);
 				if (metadata.usage) {
-					Object.assign(input.usage, mergeProviderUsage(input.usage, metadata.usage));
+					const combine =
+						metadata.usageScope === "response" ? addProviderUsage : mergeProviderUsage;
+					Object.assign(input.usage, combine(input.usage, metadata.usage));
 					input.tui.setMetric("Tokens", formatUsageTotals(input.usage));
 					input.tui.setUsage({
 						inputTokens: input.usage.inputTokens,
@@ -126,11 +142,13 @@ export const runProviderStep = async (input: {
 			provider: input.selected.provider.id,
 			pass: input.pass,
 			message: error instanceof Error ? error.message : String(error),
+			stderr: stderrTail,
 		});
 		input.tui.complete({
 			status: "failed",
 			label: `Pass ${input.pass}: ${input.selected.provider.label} failed`,
 		});
+		if (error instanceof Error) error.message = providerFailureMessage(error, stderrTail);
 		throw error;
 	} finally {
 		await input.tracker.stop();

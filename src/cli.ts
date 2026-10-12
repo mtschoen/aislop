@@ -14,8 +14,10 @@ import { interactiveCommand } from "./commands/interactive.js";
 import { loadConfig } from "./config/index.js";
 import {
 	ensureInstallId,
+	type FailedStage,
 	flushTelemetry,
 	isTelemetryDisabled,
+	reportFatalError,
 	resolveInstallIdPath,
 	track,
 	withCommandLifecycle,
@@ -38,6 +40,22 @@ const handleTerminationSignal = (): void => {
 };
 process.on("SIGINT", handleTerminationSignal);
 process.on("SIGTERM", handleTerminationSignal);
+
+const safeTelemetryConfig = () => {
+	try {
+		return loadConfig(process.cwd()).telemetry;
+	} catch {
+		return undefined;
+	}
+};
+
+const exitOnFatal = (error: unknown, stage: FailedStage): void => {
+	console.error(error);
+	void reportFatalError(error, stage, safeTelemetryConfig()).finally(() => process.exit(1));
+};
+
+process.on("uncaughtException", (error) => exitOnFatal(error, "uncaught_exception"));
+process.on("unhandledRejection", (reason) => exitOnFatal(reason, "unhandled_rejection"));
 
 const fireInstalledOnce = (): void => {
 	if (isTelemetryDisabled(loadConfig(process.cwd()).telemetry)) return;
@@ -265,4 +283,4 @@ const main = async () => {
 	await maybeNotifyUpdate();
 };
 
-main();
+main().catch((error) => exitOnFatal(error, "main"));

@@ -286,6 +286,14 @@ export const COMMAND_REFERENCE: CommandReference[] = [
 		flags: HOOK_UNINSTALL_FLAGS,
 	},
 	{
+		command: "aislop baseline write [directory]",
+		summary: "Record current findings so ci fails only on new ones",
+	},
+	{
+		command: "aislop baseline prune [directory]",
+		summary: "Drop baseline entries for findings that were fixed",
+	},
+	{
 		command: "aislop badge [directory]",
 		summary: "Print score badge URL and README markdown",
 		flags: ["--owner <owner>", "--repo <repo>", "--json"],
@@ -326,6 +334,9 @@ export const FLAG_GUIDE_ROWS: DisplayRow[] = [
 	{ label: "--json", value: "emit machine-readable scan output" },
 	{ label: "--sarif", value: "emit SARIF for code scanning" },
 	{ label: "--safe", value: "only apply reversible fixes" },
-	{ label: "--provider", value: "choose auto, codex, claude, or opencode for local agent runs" },
+	{
+		label: "--provider",
+		value: "choose auto, codex, claude, opencode, or pi for local agent runs",
+	},
 	{ label: "--dry-run", value: "preview the action without writing changes" },
 ];

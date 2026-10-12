@@ -145,6 +145,7 @@ export const WALK_PRUNE_DIRECTORIES = new Set([
 	"dist",
 	"build",
 	"out",
+	"target",
 	"coverage",
 	"vendor",
 	"vendors",

@@ -174,7 +174,7 @@ Measures structural complexity, finds dead code, and detects unused dependencies
 | Rule | What it checks |
 |---|---|
 | `complexity/function-too-long` | Functions exceeding configurable line limit (default: 80). For Python, measured by logical body code: the signature, docstrings, comments, and blank lines do not count. For C#, C++, and brace-delimited languages, declarations and prototypes (such as P/Invoke extern methods or header prototypes ending in `;`) have no body and are skipped rather than treated as functions. Braces inside strings, comments, and regexes are ignored. `async def`/`async Task` and multi-line wrapped signatures are detected. |
-| `complexity/file-too-large` | Files exceeding configurable line limit (default: 400) |
+| `complexity/file-too-large` | Files exceeding configurable line limit (default: 400, counting every physical line). Both size rules report only past 10% over the limit; see [Quality thresholds](configuration.md#quality-thresholds) for how lines are counted. |
 | `complexity/deep-nesting` | Control-flow nesting beyond threshold (default: 5) |
 | `complexity/too-many-params` | Functions with too many parameters (default: 6). For Python, counts required parameters only: `self`/`cls`, `*args`/`**kwargs`, the `*` / `/` separators, and parameters with a default are not counted. |
 | `code-quality/duplicate-block` | Repeated blocks of implementation code that should usually be extracted or shared |
@@ -216,6 +216,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/unsafe-type-assertion` | warning | `as any` in TypeScript |
 | `ai-slop/double-type-assertion` | warning | `as unknown as X` pattern |
 | `ai-slop/ts-directive` | info | `@ts-ignore` / `@ts-expect-error` usage |
+| `ai-slop/unknown-directive` | warning | `aislop-ignore-*` comments with an unrecognised scope (for example `aislop-ignore-nextline`), which suppress nothing. Checked in JS/TS, Python, Go, C#, and C/C++ files, where string literals can be told apart from comments. |
 | `ai-slop/duplicate-import` | warning | Multiple imports from the same module that should be merged |
 | `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config; Python docstring content is exempt (see notes below the table) |
 | `ai-slop/hardcoded-id` | warning | Provider/project IDs hardcoded in production code instead of env/config |
@@ -657,13 +658,17 @@ including the single-line form. An assigned or call-wrapped triple-quoted
 value is a runtime value and stays scanned.
 
 **`ai-slop/silent-recovery` and Python traceback-attaching logs.** A Python
-except-block is exempt when a log line calls `logger.exception(...)` or passes
+except-block is exempt when a log call uses `logger.exception(...)` or passes
 `exc_info=True`, since both attach the currently-handled exception's traceback
 even though no bound exception name appears in the call. The exemption is
-cancelled when that same line spells the literal `exc_info=False`, which
-Python forwards to `Logger.error`, omitting the traceback. Any other
+cancelled when that same call spells the literal `exc_info=False`, which
+Python forwards to `Logger.error`, omitting the traceback. Calls wrapped
+across several lines are read as one statement, so it makes no difference
+which line an argument sits on. Any other
 `exc_info` value (a variable, an expression) stays exempt rather than guessed
-at, since deciding its value would mean evaluating Python.
+at, since deciding its value would mean evaluating Python. The keyword is
+only recognised as code, so a message that mentions `exc_info=False` in its
+text does not cancel the exemption.
 
 ## Security
 

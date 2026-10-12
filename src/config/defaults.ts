@@ -47,6 +47,9 @@ export const DEFAULT_CONFIG: AislopConfig = {
 			bannedRoots: [],
 		},
 	},
+	imports: {
+		provided: [],
+	},
 	scoring: {
 		weights: {
 			format: 0.3,
@@ -66,11 +69,13 @@ export const DEFAULT_CONFIG: AislopConfig = {
 	ci: {
 		failBelow: 70,
 		format: "json",
+		failOnMissingTools: false,
 	},
 	telemetry: {
 		enabled: true,
 	},
 	rules: {},
+	overrides: [],
 };
 
 export const GITHUB_WORKFLOW_DIR = ".github/workflows";

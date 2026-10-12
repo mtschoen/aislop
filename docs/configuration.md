@@ -47,6 +47,7 @@ scoring:
 ci:
   failBelow: 70          # fail CI below this score
   format: json
+  # baseline: .aislop/ci-baseline.json   # fail only on findings not in this file (see docs/ci.md)
 
 telemetry:
   enabled: true          # set to false to opt out
@@ -55,6 +56,53 @@ telemetry:
 When a field has an invalid value, aislop reports its path and value, drops only that field, and
 keeps the rest of the configuration in effect. Invalid YAML and non-mapping document roots cannot
 be recovered field by field, so they use the full default configuration.
+
+## Ordered per-file overrides
+
+Use one `.aislop/config.yml` and one scan for different file policies:
+
+```yaml
+version: 1
+quality:
+  maxFileLoc: 400
+rules:
+  complexity/file-too-large: warning
+overrides:
+  - files: ["**/*.controller.ts"]
+    quality:
+      maxFileLoc: 700
+  - files: ["**/*.generated.ts", "src/legacy/**"]
+    rules:
+      complexity/file-too-large: off
+      ai-slop/trivial-comment: off
+  - files: ["src/legacy/critical.service.ts"]
+    rules:
+      complexity/file-too-large: error
+```
+
+Overrides use ordered glob matching, similar to Biome's overrides. Patterns are
+relative to the scanned project directory, not the `.aislop` directory. Write
+patterns with `/` on every OS; Windows file paths are normalized before matching.
+`**` crosses directories, and dot directories are included. Each entry requires a
+non-empty `files` list. Multiple positive patterns select a union; negative patterns
+such as `!**/*.service.ts` exclude matches from that entry.
+
+Each matching entry merges only the fields it supplies. Later entries win for the
+same field or rule, including re-enabling a rule previously set to `off`. Unmatched
+files retain the top-level policy. Supported fields are `quality.maxFileLoc`,
+`maxFunctionLoc`, `maxNesting`, `maxParams`, and `rules` with `error`, `warning`, or
+`off`. Quality values must be positive. Other settings remain project-wide.
+
+Quality overrides feed the existing complexity checks: language multipliers,
+exemptions, and the existing line-count tolerance still apply. Rule severity is
+resolved before scoring and reporting; `off` suppresses that rule's diagnostic,
+not the entire file or an external formatter. Overrides do not grant an exclusion
+from mutating fix tools; use `exclude` when generated files must never be rewritten.
+The policy is also used by hook/MCP scans and post-fix verification. No LLM or
+network resolver is involved in matching. Without overrides, behavior is unchanged.
+
+When using `extends`, an explicitly supplied child `overrides` array replaces the
+parent's array, like other arrays; if omitted, the parent's array is inherited.
 
 ## Engines
 
@@ -104,6 +152,25 @@ Each entry must be an absolute path: a POSIX root starting with `/`, a Windows d
 path-boundary requirement and flag ordinary identifiers instead of hardcoded paths. Each rejected
 entry is dropped and reported by path and value; valid entries and all other valid configuration
 fields remain in effect.
+
+File length counts every physical line, including blank and comment lines. `.tsx`, `.jsx`, and `.go` files get 1.5x `maxFileLoc`, Rust and C/C++ files 2.5x, and `.d.ts` and data-only files are skipped. Function length runs from the signature to the closing brace, minus lines inside multi-line template literals. Python counts only the logical body code (no signature, docstrings, comments, or blank lines). React components get 2x `maxFunctionLoc`, and Rust functions 1.5x.
+
+Both size rules allow 10% over the limit before reporting, so with the defaults a file is flagged above 440 lines and a function above 88. The finding message shows both numbers, for example `File too large (limit: 400, flagged above 440 lines)`.
+
+## Runtime-provided imports
+
+`ai-slop/hallucinated-import` reports imports that no manifest declares. Python dependencies come from `pyproject.toml`, `Pipfile`, `requirements*.txt` files (including `-r` includes and a `requirements/` directory), and PEP 723 inline script metadata.
+
+Some modules come from the runtime instead of a manifest, for example `homeassistant` in a Home Assistant integration, Sage's bundled packages, or `vscode` in a VS Code extension. List them under `imports.provided` so they are not reported:
+
+```yaml
+imports:
+  provided:
+    - homeassistant
+    - fpylll
+```
+
+Each entry covers the module and its submodules (`homeassistant.core`, `vscode/...`).
 
 ## Engine weights
 

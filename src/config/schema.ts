@@ -109,6 +109,10 @@ const AiSlopConfigSchema = z.object({
 	hardcodedUserPath: HardcodedUserPathSchema.default(() => ({ bannedRoots: [] })),
 });
 
+const ImportsSchema = z.object({
+	provided: z.array(z.string().min(1)).default(() => []),
+});
+
 const ThresholdsSchema = z.object({
 	good: z.number().default(75),
 	ok: z.number().default(50),
@@ -127,6 +131,8 @@ const ScoringSchema = z.object({
 const CiSchema = z.object({
 	failBelow: z.number().default(70),
 	format: z.enum(["json"]).default("json"),
+	failOnMissingTools: z.boolean().default(false),
+	baseline: z.string().min(1).optional(),
 });
 
 const TelemetrySchema = z.object({
@@ -136,6 +142,19 @@ const TelemetrySchema = z.object({
 const RuleSeverityOverride = z.enum(["error", "warning", "off"]);
 
 const RulesSchema = z.record(z.string(), RuleSeverityOverride).default(() => ({}));
+
+const FileOverrideSchema = z.object({
+	files: z.array(z.string().min(1)).min(1),
+	quality: z
+		.object({
+			maxFunctionLoc: QualitySchema.shape.maxFunctionLoc.unwrap().optional(),
+			maxFileLoc: QualitySchema.shape.maxFileLoc.unwrap().optional(),
+			maxNesting: QualitySchema.shape.maxNesting.unwrap().optional(),
+			maxParams: QualitySchema.shape.maxParams.unwrap().optional(),
+		})
+		.optional(),
+	rules: z.record(z.string(), RuleSeverityOverride).optional(),
+});
 
 const AislopConfigSchema = z.object({
 	version: z.number().default(1),
@@ -180,6 +199,9 @@ const AislopConfigSchema = z.object({
 	aiSlop: AiSlopConfigSchema.default(() => ({
 		hardcodedUserPath: { bannedRoots: [] },
 	})),
+	imports: ImportsSchema.default(() => ({
+		provided: [],
+	})),
 	scoring: ScoringSchema.default(() => ({
 		weights: { ...DEFAULT_WEIGHTS },
 		thresholds: {
@@ -192,11 +214,13 @@ const AislopConfigSchema = z.object({
 	ci: CiSchema.default(() => ({
 		failBelow: 70,
 		format: "json" as const,
+		failOnMissingTools: false,
 	})),
 	telemetry: TelemetrySchema.default(() => ({
 		enabled: true,
 	})),
 	rules: RulesSchema,
+	overrides: z.array(FileOverrideSchema).default(() => []),
 	exclude: z.array(z.string()).default(() => ["node_modules", ".git", "dist", "build", "coverage"]),
 	include: z.array(z.string()).default(() => []),
 });

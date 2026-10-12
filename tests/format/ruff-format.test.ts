@@ -1,22 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../../src/config/defaults.js";
-import type { EngineContext } from "../../src/engines/types.js";
 import { fixRuffFormat, runRuffFormat } from "../../src/engines/format/ruff-format.js";
+import type { EngineContext } from "../../src/engines/types.js";
 
 vi.mock("../../src/utils/subprocess.js", () => ({
 	runSubprocess: vi.fn(),
 }));
-vi.mock("../../src/engines/python-targets.js", () => ({
-	getPythonTargets: vi.fn(),
-	getRuffDiagnosticPath: vi.fn((rootDir: string, filePath: string) => `${rootDir}/${filePath}`),
-}));
+vi.mock("../../src/engines/python-targets.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../src/engines/python-targets.js")>();
+	return {
+		getPythonTargets: vi.fn(),
+		getRuffDiagnosticPath: vi.fn((rootDir: string, filePath: string) => `${rootDir}/${filePath}`),
+		resolveRuffBinary: actual.resolveRuffBinary,
+	};
+});
 vi.mock("../../src/utils/tooling.js", () => ({
 	resolveToolBinary: vi.fn(),
 }));
 
 import { getPythonTargets } from "../../src/engines/python-targets.js";
-import { resolveToolBinary } from "../../src/utils/tooling.js";
 import { runSubprocess } from "../../src/utils/subprocess.js";
+import { resolveToolBinary } from "../../src/utils/tooling.js";
 
 const context: EngineContext = {
 	rootDirectory: "/tmp",
@@ -62,7 +66,8 @@ describe("runRuffFormat", () => {
 	it("returns diagnostics from ruff --check diff output", async () => {
 		runSubprocessMock.mockResolvedValue({
 			exitCode: 1,
-			stdout: "--- src/main.py\n" +
+			stdout:
+				"--- src/main.py\n" +
 				"+++ b/src/main.py\n" +
 				"@@ -1,2 +1,2 @@\n" +
 				"--- src/utils.py\n" +
@@ -89,8 +94,8 @@ describe("fixRuffFormat", () => {
 		runSubprocessMock.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
 
 		await expect(fixRuffFormat(context)).resolves.toBeUndefined();
-		expect(resolveToolBinaryMock).toHaveBeenCalledWith("ruff");
-		expect(runSubprocessMock).toHaveBeenCalledWith("ruff", ["format", "/tmp"], {
+		expect(resolveToolBinaryMock).toHaveBeenCalledWith("ruff", { projectRoot: "/tmp" });
+		expect(runSubprocessMock).toHaveBeenCalledWith("ruff", ["format", "--force-exclude", "/tmp"], {
 			cwd: "/tmp",
 			timeout: 60000,
 		});
