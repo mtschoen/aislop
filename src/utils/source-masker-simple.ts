@@ -1,5 +1,26 @@
 import { consumeQuotedString } from "./string-literals.js";
 
+const consumePythonTripleString = (content: string, start: number, quote: string): number => {
+	const triple = quote + quote + quote;
+	let searchFrom = start + 3;
+	const len = content.length;
+	while (searchFrom < len) {
+		const pos = content.indexOf(triple, searchFrom);
+		if (pos === -1) return len;
+		let backslashes = 0;
+		let b = pos - 1;
+		while (b >= start + 3 && content[b] === "\\") {
+			backslashes++;
+			b--;
+		}
+		if (backslashes % 2 === 0) {
+			return pos + 3;
+		}
+		searchFrom = pos + 1;
+	}
+	return len;
+};
+
 export const maskSimple = (
 	content: string,
 	family: "py" | "rb" | "php",
@@ -21,10 +42,8 @@ export const maskSimple = (
 
 		if (family === "py" && (c === '"' || c === "'")) {
 			if (content[i + 1] === c && content[i + 2] === c) {
-				const triple = c + c + c;
-				const end = content.indexOf(triple, i + 3);
-				const stop = end === -1 ? len : end + 3;
-				if (maskStrings) mask(i + 3, stop - 3);
+				const stop = consumePythonTripleString(content, i, c);
+				if (maskStrings) mask(i + 3, stop === len ? len : stop - 3);
 				i = stop;
 				continue;
 			}

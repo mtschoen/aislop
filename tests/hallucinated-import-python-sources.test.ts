@@ -79,41 +79,53 @@ describe("Python dependency sources", () => {
 		}
 	});
 
-	it.each(["", '"""', "'''", 'r"""'])(
-		"reads real PEP 723 comments, not string examples %s",
-		async (quote) => {
-			writeFile("pyproject.toml", '[project]\nname = "app"\ndependencies = ["requests"]\n');
-			if (quote)
-				writeFile(
-					"app/example.py",
-					`${quote}\n# /// script\n# dependencies = []\n# ///\n${quote.replace(/^r/, "")}\nimport requests\n`,
-				);
+	it.each([
+		"",
+		'"""',
+		"'''",
+		'r"""',
+		"r'''",
+		'f"""',
+		"f'''",
+		'b"""',
+		"b'''",
+		'u"""',
+		"u'''",
+		'rf"""',
+		"rf'''",
+	])("reads real PEP 723 comments, not string examples %s", async (quote) => {
+		writeFile("pyproject.toml", '[project]\nname = "app"\ndependencies = ["requests"]\n');
+		const closing = quote.endsWith("'''") ? "'''" : '"""';
+		if (quote)
 			writeFile(
-				"tools/shot.py",
-				[
-					...(quote
-						? [quote, "# /// script", "# dependencies = []", "# ///", quote.replace(/^r/, "")]
-						: []),
-					"# /// script",
-					'# requires-python = ">=3.11"',
-					"# dependencies = [",
-					'#   "playwright>=1.40",',
-					'#   "rich",',
-					"# ]",
-					"# ///",
-					"import playwright",
-					"import rich",
-					"import requests",
-				].join("\n"),
+				"app/example.py",
+				`${quote}\n\\${closing}\n# /// script\n# dependencies = []\n# ///\n${closing}\nimport requests\n`,
 			);
-			writeFile("app/main.py", ["import requests", "import playwright"].join("\n"));
+		writeFile(
+			"tools/shot.py",
+			[
+				...(quote
+					? [`${quote}\n\\${closing}`, "# /// script", "# dependencies = []", "# ///", closing]
+					: []),
+				"# /// script",
+				'# requires-python = ">=3.11"',
+				"# dependencies = [",
+				'#   "playwright>=1.40",',
+				'#   "rich",',
+				"# ]",
+				"# ///",
+				"import playwright",
+				"import rich",
+				"import requests",
+			].join("\n"),
+		);
+		writeFile("app/main.py", ["import requests", "import playwright"].join("\n"));
 
-			const diagnostics = await detectHallucinatedImports(buildContext());
-			expect(
-				diagnostics.map((d) => `${d.filePath} ${d.message.match(/"([^"]+)"/)?.[1]}`).sort(),
-			).toEqual(["app/main.py playwright", "tools/shot.py requests"]);
-		},
-	);
+		const diagnostics = await detectHallucinatedImports(buildContext());
+		expect(
+			diagnostics.map((d) => `${d.filePath} ${d.message.match(/"([^"]+)"/)?.[1]}`).sort(),
+		).toEqual(["app/main.py playwright", "tools/shot.py requests"]);
+	});
 
 	it("checks a standalone PEP 723 script when the project has no manifest", async () => {
 		writeFile(

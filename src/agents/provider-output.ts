@@ -53,7 +53,11 @@ const piAssistantOutcome = (event: JsonObject): string | null | undefined => {
 	if (message.stopReason === "error" || message.stopReason === "aborted") {
 		return asString(message.errorMessage) ?? `Pi response ${message.stopReason}`;
 	}
-	return message.stopReason === "stop" || message.stopReason === "toolUse" ? null : undefined;
+	return message.stopReason === "stop" ||
+		message.stopReason === "toolUse" ||
+		message.stopReason === "length"
+		? null
+		: undefined;
 };
 
 export const readPiAssistantOutcome = (line: string): string | null | undefined => {

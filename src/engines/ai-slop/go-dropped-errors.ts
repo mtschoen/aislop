@@ -147,23 +147,69 @@ const enclosingScopeBefore = (maskedSource: string, index: number): string => {
 	return before.slice(funcStart === -1 ? 0 : funcStart);
 };
 
+const bindsName = (parameterList: string, name: string): boolean => {
+	const pending: string[] = [];
+	for (const parameter of splitTopLevel(parameterList)) {
+		if (/^\w+$/.test(parameter)) {
+			pending.push(parameter);
+			continue;
+		}
+		const named = /^(\w+)\s+\S/.exec(parameter);
+		if (named && !/^(?:chan|map|func|struct|interface)$/.test(named[1])) {
+			if (named[1] === name || pending.includes(name)) return true;
+		}
+		pending.length = 0;
+	}
+	return false;
+};
+
 const isShadowed = (scope: string, name: string): boolean => {
 	if (new RegExp(`\\bvar\\s+${name}\\b`).test(scope)) return true;
 	const declaration = /^\s*func\s+(?:\([^)]*\)\s*)?\w+(?:\[[^\]]*\])?\s*\(/.exec(scope);
 	if (declaration) {
 		const open = declaration[0].length - 1;
 		const end = closingParen(scope, open);
-		const pending: string[] = [];
-		for (const parameter of splitTopLevel(scope.slice(open + 1, end))) {
-			if (/^\w+$/.test(parameter)) {
-				pending.push(parameter);
-				continue;
+		if (end !== -1) {
+			if (bindsName(scope.slice(open + 1, end), name)) return true;
+			let cursor = end + 1;
+			while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
+			if (cursor < scope.length && scope[cursor] === "(") {
+				const resultsEnd = closingParen(scope, cursor);
+				if (resultsEnd !== -1 && bindsName(scope.slice(cursor + 1, resultsEnd), name)) {
+					return true;
+				}
 			}
-			const named = /^(\w+)\s+\S/.exec(parameter);
-			if (named && !/^(?:chan|map|func|struct|interface)$/.test(named[1])) {
-				if (named[1] === name || pending.includes(name)) return true;
-			}
-			pending.length = 0;
+		}
+	}
+	const funcLitRegex = /\bfunc\s*\(/g;
+	for (const match of scope.matchAll(funcLitRegex)) {
+		const open = match.index + match[0].length - 1;
+		const end = closingParen(scope, open);
+		if (end === -1) continue;
+		let resultsSlice: string | null = null;
+		let cursor = end + 1;
+		while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
+		if (cursor < scope.length && scope[cursor] === "(") {
+			const resultsEnd = closingParen(scope, cursor);
+			if (resultsEnd === -1) continue;
+			resultsSlice = scope.slice(cursor + 1, resultsEnd);
+			cursor = resultsEnd + 1;
+			while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
+		}
+		const bodyOpen = scope.indexOf("{", cursor);
+		if (bodyOpen === -1) continue;
+		const prefix = scope.slice(cursor, bodyOpen).trim();
+		if (!/^(?:(?:\[\s*\]|\*|map\[[^\]]*\]|chan\s*|<-\s*chan\s*)?\w+)?$/.test(prefix)) {
+			continue;
+		}
+		let depth = 0;
+		for (let i = bodyOpen; i < scope.length; i += 1) {
+			if (scope[i] === "{") depth += 1;
+			else if (scope[i] === "}") depth -= 1;
+		}
+		if (depth > 0) {
+			if (bindsName(scope.slice(open + 1, end), name)) return true;
+			if (resultsSlice && bindsName(resultsSlice, name)) return true;
 		}
 	}
 	for (const line of scope.split("\n")) {

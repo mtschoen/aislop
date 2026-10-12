@@ -193,9 +193,15 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 		["fallback, load Loader", "", true],
 		["load, fallback func() (string, error)", "", true],
 		["callback func(load int) (string, error)", "", false],
+		[") (load func() (string, error)", "", true],
+		[") (load, fallback func() (string, error)", "", true],
+		[") (fallback, load func() (string, error)", "", true],
+		["", "\t_ = func(load func() (string, error)) {", true, "\t}"],
+		["", "\t_ = func(load, fallback func() (string, error)) {", true, "\t}"],
+		["", "\t_ = func(fallback, load func() (string, error)) {", true, "\t}"],
 	])(
 		"treats locally shadowed function as unresolved: %s %s",
-		async (parameters, local, shadowed) => {
+		async (parameters, local, shadowed, tail = "") => {
 			write(
 				"main.go",
 				[
@@ -207,6 +213,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 					local,
 					"\tv, _ := load()",
 					"\t_ = v",
+					...(tail ? [tail] : []),
 					"}",
 				].join("\n"),
 			);

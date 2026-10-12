@@ -17,7 +17,12 @@ const providerRunning = (script: string): AgentProvider => ({
 });
 
 describe("provider runner", () => {
-	it.each([{ outcomes: [] }, { outcomes: ["stop"] }, { outcomes: ["error", "stop"] }])(
+	it.each([
+		{ outcomes: [] },
+		{ outcomes: ["stop"] },
+		{ outcomes: ["error", "stop"] },
+		{ outcomes: ["error", "length"] },
+	])(
 		"resolves a successful process and recovered Pi outcomes $outcomes",
 		async ({ outcomes }) => {
 			const provider =

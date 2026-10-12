@@ -190,6 +190,7 @@ describe("provider output formatting", () => {
 
 	it.each([
 		["stop", undefined, "assistant: fix the slop"],
+		["length", undefined, "assistant: fix the slop"],
 		["error", "Unauthorized", "error: Unauthorized"],
 		["aborted", undefined, "error: Pi response aborted"],
 	])("labels pi message_end outcome %s", (stopReason, errorMessage, expected) => {

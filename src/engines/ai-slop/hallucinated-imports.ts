@@ -22,6 +22,7 @@ import {
 import { collectTsPathAliases } from "./js-import-aliases.js";
 import { collectWorkspaceDirs } from "./js-workspaces.js";
 import { isNonProductionPath } from "./non-production-paths.js";
+import { scanPythonDocstrings } from "../../utils/python-docstrings.js";
 import { collectFromInlineScriptMetadata } from "./python-dependency-parser.js";
 import { PYTHON_IMPORT_TO_PIP, PYTHON_STDLIB } from "./python-data.js";
 
@@ -31,24 +32,13 @@ const PY_EXTENSIONS = new Set([".py"]);
 const extractPyImports = (content: string): { spec: string; line: number }[] => {
 	const lines = content.split("\n");
 	const results: { spec: string; line: number }[] = [];
-	let inDoc: string | null = null;
+	const { tripleQuotedStringLines } = scanPythonDocstrings(lines);
 	let typeCheckIndent = -1;
 	for (let i = 0; i < lines.length; i++) {
+		if (tripleQuotedStringLines.has(i)) continue;
 		const raw = lines[i];
 		const line = raw.trim();
-
-		if (inDoc) {
-			if (line.includes(inDoc)) inDoc = null;
-			continue;
-		}
 		if (line === "" || line.startsWith("#")) continue;
-
-		// Triple-quoted strings (docstrings, usage examples) hold import-shaped prose, not imports.
-		const triples = line.match(/"""|'''/g);
-		if (triples) {
-			if (triples.length % 2 === 1) inDoc = triples[triples.length - 1];
-			continue;
-		}
 
 		const indent = raw.length - raw.trimStart().length;
 		if (typeCheckIndent >= 0 && indent <= typeCheckIndent) typeCheckIndent = -1;

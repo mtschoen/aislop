@@ -25,6 +25,25 @@ export interface PythonDocstringScan {
 
 const DOCSTRING_OPENER_RE = /^\s*[rRuUbBfF]{0,3}("""|''')/;
 
+const indexOfUnescaped = (line: string, delimiter: string, fromIndex = 0): number => {
+	let searchFrom = fromIndex;
+	while (searchFrom < line.length) {
+		const pos = line.indexOf(delimiter, searchFrom);
+		if (pos === -1) return -1;
+		let backslashes = 0;
+		let b = pos - 1;
+		while (b >= 0 && line[b] === "\\") {
+			backslashes++;
+			b--;
+		}
+		if (backslashes % 2 === 0) {
+			return pos;
+		}
+		searchFrom = pos + 1;
+	}
+	return -1;
+};
+
 export const scanPythonDocstrings = (lines: string[]): PythonDocstringScan => {
 	const tripleQuotedStringLines = new Set<number>();
 	const docstringLines = new Set<number>();
@@ -35,12 +54,12 @@ export const scanPythonDocstrings = (lines: string[]): PythonDocstringScan => {
 		if (openDelimiter) {
 			tripleQuotedStringLines.add(i);
 			if (openIsDocstring) docstringLines.add(i);
-			if (line.includes(openDelimiter)) openDelimiter = null;
+			if (indexOfUnescaped(line, openDelimiter) !== -1) openDelimiter = null;
 			continue;
 		}
 		// The leftmost triple-quote on the line decides which delimiter is live.
-		const doubleIndex = line.indexOf('"""');
-		const singleIndex = line.indexOf("'''");
+		const doubleIndex = indexOfUnescaped(line, '"""');
+		const singleIndex = indexOfUnescaped(line, "'''");
 		const firstIndex =
 			doubleIndex === -1
 				? singleIndex
@@ -51,7 +70,7 @@ export const scanPythonDocstrings = (lines: string[]): PythonDocstringScan => {
 		const delimiter = firstIndex === doubleIndex ? '"""' : "'''";
 		const openerMatch = DOCSTRING_OPENER_RE.exec(line);
 		const isDocstringPositioned = openerMatch !== null && openerMatch[1] === delimiter;
-		const closeIndex = line.indexOf(delimiter, firstIndex + delimiter.length);
+		const closeIndex = indexOfUnescaped(line, delimiter, firstIndex + delimiter.length);
 		if (closeIndex === -1) {
 			openDelimiter = delimiter;
 			openIsDocstring = isDocstringPositioned;
