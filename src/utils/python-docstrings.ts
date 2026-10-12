@@ -57,6 +57,7 @@ export const scanPythonDocstrings = (lines: string[]): PythonDocstringScan => {
 			if (indexOfUnescaped(line, openDelimiter) !== -1) openDelimiter = null;
 			continue;
 		}
+		if (line.trimStart().startsWith("#")) continue;
 		// The leftmost triple-quote on the line decides which delimiter is live.
 		const doubleIndex = indexOfUnescaped(line, '"""');
 		const singleIndex = indexOfUnescaped(line, "'''");

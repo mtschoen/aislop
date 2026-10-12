@@ -193,12 +193,22 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 		["fallback, load Loader", "", true],
 		["load, fallback func() (string, error)", "", true],
 		["callback func(load int) (string, error)", "", false],
+		["callback func(load int) struct{}", "", false],
+		["callback func(load int) interface{}", "", false],
+		["callback func(load int) map[string]struct{}", "", false],
+		["callback func(load int) []struct{}", "", false],
 		[") (load func() (string, error)", "", true],
 		[") (load, fallback func() (string, error)", "", true],
 		[") (fallback, load func() (string, error)", "", true],
 		["", "\t_ = func(load func() (string, error)) {", true, "\t}"],
 		["", "\t_ = func(load, fallback func() (string, error)) {", true, "\t}"],
 		["", "\t_ = func(fallback, load func() (string, error)) {", true, "\t}"],
+		["", "\t_ = func(load func() (string, error)) [1]int {", true, "\t}"],
+		["", "\t_ = func(load func() (string, error)) map[string][]byte {", true, "\t}"],
+		["", "\t_ = func(load func() (string, error)) func() int {", true, "\t}"],
+		["", "\t_ = func(load func() (string, error)) <-chan []byte {", true, "\t}"],
+		["", "\t_ = func(load func() (string, error)) time.Time {", true, "\t}"],
+		["", "\t_ = func(load func() (string, error)) (time.Time) {", true, "\t}"],
 	])(
 		"treats locally shadowed function as unresolved: %s %s",
 		async (parameters, local, shadowed, tail = "") => {
@@ -220,6 +230,25 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 			expect(await flaggedLines()).toEqual(shadowed ? ["main.go:7"] : []);
 		},
 	);
+
+	it("bounds work across many completed literals and repeated calls", async () => {
+		const completedLiterals = Array.from({ length: 100 }, (_, i) => `\t_ = func() { _ = ${i} }`).join("\n");
+		const caller = [
+			"package main",
+			'func load() (string, string) { return "", "" }',
+			"func run() {",
+			completedLiterals,
+			"\tv, _ := load()",
+			"\t_ = v",
+			"}",
+		].join("\n");
+		const cache: GoPackageSources = new Map();
+		const check = createGoDroppedErrorCheck(caller, path.join(root, "main.go"), cache);
+		const callIndex = caller.indexOf("v, _ := load()");
+		for (let i = 0; i < 100; i += 1) {
+			expect(check(callIndex, "load")).toBe(false);
+		}
+	});
 
 	it("ignores declarations inside comments", async () => {
 		write(

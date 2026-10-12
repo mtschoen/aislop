@@ -85,6 +85,133 @@ const closingParen = (source: string, openIndex: number): number => {
 	return -1;
 };
 
+const closingBracket = (source: string, openIndex: number): number => {
+	let depth = 0;
+	for (let i = openIndex; i < source.length; i += 1) {
+		if (source[i] === "[") depth += 1;
+		else if (source[i] === "]") {
+			depth -= 1;
+			if (depth === 0) return i;
+		}
+	}
+	return -1;
+};
+
+const closingBrace = (source: string, openIndex: number): number => {
+	let depth = 0;
+	for (let i = openIndex; i < source.length; i += 1) {
+		if (source[i] === "{") depth += 1;
+		else if (source[i] === "}") {
+			depth -= 1;
+			if (depth === 0) return i;
+		}
+	}
+	return -1;
+};
+
+const skipGoCompositeType = (source: string, i: number): number => {
+	if (source.slice(i).startsWith("<-")) {
+		let afterArrow = i + 2;
+		while (afterArrow < source.length && /\s/.test(source[afterArrow])) afterArrow += 1;
+		if (source.slice(afterArrow).startsWith("chan")) {
+			return skipGoType(source, afterArrow + 4);
+		}
+		return -1;
+	}
+
+	if (/^chan\b/.test(source.slice(i))) {
+		let afterChan = i + 4;
+		while (afterChan < source.length && /\s/.test(source[afterChan])) afterChan += 1;
+		if (source.slice(afterChan).startsWith("<-")) {
+			afterChan += 2;
+		}
+		return skipGoType(source, afterChan);
+	}
+
+	if (/^map\b/.test(source.slice(i))) {
+		let afterMap = i + 3;
+		while (afterMap < source.length && /\s/.test(source[afterMap])) afterMap += 1;
+		if (afterMap >= source.length || source[afterMap] !== "[") return -1;
+		const closeBracket = closingBracket(source, afterMap);
+		if (closeBracket === -1) return -1;
+		return skipGoType(source, closeBracket + 1);
+	}
+
+	if (/^struct\b/.test(source.slice(i))) {
+		let afterStruct = i + 6;
+		while (afterStruct < source.length && /\s/.test(source[afterStruct])) afterStruct += 1;
+		if (afterStruct >= source.length || source[afterStruct] !== "{") return -1;
+		const closeBrace = closingBrace(source, afterStruct);
+		if (closeBrace === -1) return -1;
+		return closeBrace + 1;
+	}
+
+	if (/^interface\b/.test(source.slice(i))) {
+		let afterInterface = i + 9;
+		while (afterInterface < source.length && /\s/.test(source[afterInterface])) afterInterface += 1;
+		if (afterInterface >= source.length || source[afterInterface] !== "{") return -1;
+		const closeBrace = closingBrace(source, afterInterface);
+		if (closeBrace === -1) return -1;
+		return closeBrace + 1;
+	}
+
+	if (/^func\b/.test(source.slice(i))) {
+		let afterFunc = i + 4;
+		while (afterFunc < source.length && /\s/.test(source[afterFunc])) afterFunc += 1;
+		if (afterFunc >= source.length || source[afterFunc] !== "(") return -1;
+		const closeParen = closingParen(source, afterFunc);
+		if (closeParen === -1) return -1;
+		let cursor = closeParen + 1;
+		while (cursor < source.length && /\s/.test(source[cursor])) cursor += 1;
+		if (cursor < source.length && source[cursor] === "(") {
+			const resultsClose = closingParen(source, cursor);
+			if (resultsClose === -1) return -1;
+			return resultsClose + 1;
+		}
+		if (cursor < source.length && source[cursor] === "{") {
+			return closeParen + 1;
+		}
+		const nextTypeEnd = skipGoType(source, cursor);
+		return nextTypeEnd !== -1 ? nextTypeEnd : closeParen + 1;
+	}
+
+	return -1;
+};
+
+const skipGoType = (source: string, fromIndex: number): number => {
+	let i = fromIndex;
+	while (i < source.length && /\s/.test(source[i])) i += 1;
+	if (i >= source.length) return -1;
+
+	if (source[i] === "*") return skipGoType(source, i + 1);
+
+	if (source[i] === "[") {
+		const closeBracket = closingBracket(source, i);
+		return closeBracket === -1 ? -1 : skipGoType(source, closeBracket + 1);
+	}
+
+	if (source[i] === "(") {
+		const closeParen = closingParen(source, i);
+		return closeParen === -1 ? -1 : closeParen + 1;
+	}
+
+	const compositeEnd = skipGoCompositeType(source, i);
+	if (compositeEnd !== -1) return compositeEnd;
+
+	const identMatch = /^[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*/.exec(source.slice(i));
+	if (identMatch) {
+		let afterIdent = i + identMatch[0].length;
+		while (afterIdent < source.length && /\s/.test(source[afterIdent])) afterIdent += 1;
+		if (afterIdent < source.length && source[afterIdent] === "[") {
+			const closeBracket = closingBracket(source, afterIdent);
+			if (closeBracket !== -1) return closeBracket + 1;
+		}
+		return i + identMatch[0].length;
+	}
+
+	return -1;
+};
+
 const splitTopLevel = (list: string): string[] => {
 	const parts: string[] = [];
 	let depth = 0;
@@ -163,6 +290,67 @@ const bindsName = (parameterList: string, name: string): boolean => {
 	return false;
 };
 
+const literalBodyStart = (
+	scope: string,
+	cursor: number,
+): { bodyOpen: number; resultsSlice: string | null } | null => {
+	if (scope[cursor] === "{") {
+		return { bodyOpen: cursor, resultsSlice: null };
+	}
+	if (scope[cursor] === "(") {
+		const resultsEnd = closingParen(scope, cursor);
+		if (resultsEnd === -1) return null;
+		let afterResults = resultsEnd + 1;
+		while (afterResults < scope.length && /\s/.test(scope[afterResults])) afterResults += 1;
+		if (afterResults < scope.length && scope[afterResults] === "{") {
+			return { bodyOpen: afterResults, resultsSlice: scope.slice(cursor + 1, resultsEnd) };
+		}
+		return null;
+	}
+	const typeEnd = skipGoType(scope, cursor);
+	if (typeEnd === -1) return null;
+	let afterType = typeEnd;
+	while (afterType < scope.length && /\s/.test(scope[afterType])) afterType += 1;
+	if (afterType < scope.length && scope[afterType] === "{") {
+		return { bodyOpen: afterType, resultsSlice: null };
+	}
+	return null;
+};
+
+const shadowedInFuncLiterals = (scope: string, name: string): boolean => {
+	const funcLitRegex = /\bfunc\s*\(/g;
+	for (const match of scope.matchAll(funcLitRegex)) {
+		const open = match.index + match[0].length - 1;
+		const end = closingParen(scope, open);
+		if (end === -1) continue;
+		let cursor = end + 1;
+		while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
+		if (cursor >= scope.length) continue;
+
+		const body = literalBodyStart(scope, cursor);
+		if (!body) continue;
+
+		let depth = 0;
+		let closed = false;
+		for (let i = body.bodyOpen; i < scope.length; i += 1) {
+			if (scope[i] === "{") {
+				depth += 1;
+			} else if (scope[i] === "}") {
+				depth -= 1;
+				if (depth === 0) {
+					closed = true;
+					break;
+				}
+			}
+		}
+		if (!closed && depth > 0) {
+			if (bindsName(scope.slice(open + 1, end), name)) return true;
+			if (body.resultsSlice && bindsName(body.resultsSlice, name)) return true;
+		}
+	}
+	return false;
+};
+
 const isShadowed = (scope: string, name: string): boolean => {
 	if (new RegExp(`\\bvar\\s+${name}\\b`).test(scope)) return true;
 	const declaration = /^\s*func\s+(?:\([^)]*\)\s*)?\w+(?:\[[^\]]*\])?\s*\(/.exec(scope);
@@ -181,37 +369,7 @@ const isShadowed = (scope: string, name: string): boolean => {
 			}
 		}
 	}
-	const funcLitRegex = /\bfunc\s*\(/g;
-	for (const match of scope.matchAll(funcLitRegex)) {
-		const open = match.index + match[0].length - 1;
-		const end = closingParen(scope, open);
-		if (end === -1) continue;
-		let resultsSlice: string | null = null;
-		let cursor = end + 1;
-		while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
-		if (cursor < scope.length && scope[cursor] === "(") {
-			const resultsEnd = closingParen(scope, cursor);
-			if (resultsEnd === -1) continue;
-			resultsSlice = scope.slice(cursor + 1, resultsEnd);
-			cursor = resultsEnd + 1;
-			while (cursor < scope.length && /\s/.test(scope[cursor])) cursor += 1;
-		}
-		const bodyOpen = scope.indexOf("{", cursor);
-		if (bodyOpen === -1) continue;
-		const prefix = scope.slice(cursor, bodyOpen).trim();
-		if (!/^(?:(?:\[\s*\]|\*|map\[[^\]]*\]|chan\s*|<-\s*chan\s*)?\w+)?$/.test(prefix)) {
-			continue;
-		}
-		let depth = 0;
-		for (let i = bodyOpen; i < scope.length; i += 1) {
-			if (scope[i] === "{") depth += 1;
-			else if (scope[i] === "}") depth -= 1;
-		}
-		if (depth > 0) {
-			if (bindsName(scope.slice(open + 1, end), name)) return true;
-			if (resultsSlice && bindsName(resultsSlice, name)) return true;
-		}
-	}
+	if (shadowedInFuncLiterals(scope, name)) return true;
 	for (const line of scope.split("\n")) {
 		const assign = line.indexOf(":=");
 		if (assign === -1) continue;

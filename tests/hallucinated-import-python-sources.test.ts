@@ -267,4 +267,14 @@ describe("Python dependency sources", () => {
 
 		expect(await flaggedImports(["vscode"])).toEqual(["ghost-pkg"]);
 	});
+
+	it.each([
+		['"""'],
+		["'''"],
+	])("extracts real imports after comment-only delimiter %s", async (quote) => {
+		writeFile("pyproject.toml", '[project]\nname = "app"\ndependencies = []\n');
+		writeFile("app/main.py", `# Example delimiter: ${quote}\nimport ghostlib\n`);
+
+		expect(await flaggedImports()).toEqual(["ghostlib"]);
+	});
 });
