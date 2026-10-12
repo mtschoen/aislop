@@ -71,28 +71,41 @@ describe("exclude pattern normalization", () => {
 		expect(filtered).toEqual([path.join(tmpDir, "src/app.ts")]);
 	});
 
-	it.each([256, 257])(
-		"handles a %i-character pattern without disabling scans",
-		(patternLength) => {
-			createFile("src/app.ts");
-			createFile("src/types.d.ts");
-			const pattern = "x".repeat(patternLength);
-			const files = ["src/app.ts", "src/types.d.ts"];
-			const absoluteFiles = files.map((file) => path.join(tmpDir, file));
-			const expectedIncludeFiles = patternLength === 256 ? [] : absoluteFiles;
-			const expectedDeclarationIncludes =
-				patternLength === 256 ? [] : [path.join(tmpDir, "src/types.d.ts")];
+	it.each([256, 257])("handles a %i-character pattern without disabling scans", (patternLength) => {
+		createFile("src/app.ts");
+		createFile("src/types.d.ts");
+		const pattern = "x".repeat(patternLength);
+		const files = ["src/app.ts", "src/types.d.ts"];
+		const absoluteFiles = files.map((file) => path.join(tmpDir, file));
+		const expectedIncludeFiles = patternLength === 256 ? [] : absoluteFiles;
+		const expectedDeclarationIncludes =
+			patternLength === 256 ? [] : [path.join(tmpDir, "src/types.d.ts")];
 
-			expect(filterEnumeratedProjectFiles(tmpDir, files, [], [pattern])).toEqual(absoluteFiles);
-			expect(filterEnumeratedProjectFiles(tmpDir, files, [], [], [pattern])).toEqual(
-				expectedIncludeFiles,
-			);
-			expect(filterProjectDeclarationFiles(tmpDir, files, [pattern])).toEqual([
-				path.join(tmpDir, "src/types.d.ts"),
-			]);
-			expect(filterProjectDeclarationFiles(tmpDir, files, [], [pattern])).toEqual(
-				expectedDeclarationIncludes,
-			);
-		},
-	);
+		expect(filterEnumeratedProjectFiles(tmpDir, files, [], [pattern])).toEqual(absoluteFiles);
+		expect(filterEnumeratedProjectFiles(tmpDir, files, [], [], [pattern])).toEqual(
+			expectedIncludeFiles,
+		);
+		expect(filterProjectDeclarationFiles(tmpDir, files, [pattern])).toEqual([
+			path.join(tmpDir, "src/types.d.ts"),
+		]);
+		expect(filterProjectDeclarationFiles(tmpDir, files, [], [pattern])).toEqual(
+			expectedDeclarationIncludes,
+		);
+	});
+	it.each([
+		["src/f{1..10}.ts", "src/f10.ts", "src/f11.ts"],
+		["src/f{01..03}.ts", "src/f02.ts", "src/f2.ts"],
+		["src/f{1..5..2}.ts", "src/f3.ts", "src/f2.ts"],
+		["!src/f{1..3}.ts", "src/f4.ts", "src/f1.ts"],
+		["src/!(f{1..3}).ts", "src/f4.ts", "src/f1.ts"],
+	])("preserves include/exclude range %s", (pattern, included, excluded) => {
+		const files = [included, excluded];
+		files.forEach(createFile);
+		expect(filterEnumeratedProjectFiles(tmpDir, files, [], [], [pattern])).toEqual([
+			path.join(tmpDir, included),
+		]);
+		expect(filterEnumeratedProjectFiles(tmpDir, files, [], [pattern])).toEqual([
+			path.join(tmpDir, excluded),
+		]);
+	});
 });

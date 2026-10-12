@@ -511,20 +511,53 @@ export function countdown(n: number): number {
 		expect(fs.readFileSync(file, "utf-8")).toBe("export const keep = 1;\n");
 	});
 
-	it("un-exports a used const even when its initializer has side effects", () => {
-		const source = `export const registry = new Map<string, number>();
-export const register = (key: string) => registry.set(key, 1);
-`;
-		const file = writeFixture("registry.ts", source);
-		const result = removeUnusedDeclarations(tmpDir, [
-			{ filePath: file, line: 1, column: 14, name: "registry", kind: "variable" },
-		]);
+	it.each([
+		{
+			name: "registry",
+			declaration: "new Map<string, number>()",
+			usage: "export const register = (key: string) => registry.set(key, 1);",
+			remaining: "export const register",
+		},
+		{
+			name: "name",
+			declaration: 'String("service")',
+			usage: "console.log(name);",
+			remaining: "export {};",
+		},
+	])(
+		"un-exports used side-effectful const $name without losing module scope",
+		({ name, declaration, usage, remaining }) => {
+			const source = `export const ${name} = ${declaration};\n${usage}\n`;
+			const file = writeFixture("registry.ts", source);
+			const options = {
+				noEmit: true,
+				skipLibCheck: true,
+				types: [],
+				target: ts.ScriptTarget.ES2022,
+				moduleDetection: ts.ModuleDetectionKind.Legacy,
+			};
+			expect(
+				ts
+					.createProgram([file], options)
+					.getSemanticDiagnostics()
+					.map((diagnostic) => diagnostic.code),
+			).toEqual([]);
+			const result = removeUnusedDeclarations(tmpDir, [
+				{ filePath: file, line: 1, column: 14, name, kind: "variable" },
+			]);
 
-		expect(result.removed).toBe(1);
-		const after = fs.readFileSync(file, "utf-8");
-		expect(after.startsWith("const registry = new Map")).toBe(true);
-		expect(after).toContain("export const register");
-	});
+			expect(result.removed).toBe(1);
+			const after = fs.readFileSync(file, "utf-8");
+			expect(after.startsWith(`const ${name} = ${declaration}`)).toBe(true);
+			expect(
+				ts
+					.createProgram([file], options)
+					.getSemanticDiagnostics()
+					.map((diagnostic) => diagnostic.code),
+			).toEqual([]);
+			expect(after).toContain(remaining);
+		},
+	);
 
 	it("skips a default export that is still referenced in its own file", () => {
 		const source = `export default function handler(): number {

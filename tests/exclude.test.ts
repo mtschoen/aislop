@@ -84,10 +84,17 @@ describe("isPathExcluded", () => {
 		expect(isPathExcluded("external/VendorLibExtras/Host.cs", bare)).toBe(false);
 	});
 
-	it("matches an extension glob without treating it as a directory", () => {
-		const glob = normalizeExcludePatterns(["**/*.generated.cs"]);
-		expect(isPathExcluded("src/Model.generated.cs", glob)).toBe(true);
-		expect(isPathExcluded("src/Model.cs", glob)).toBe(false);
+	it.each([
+		["**/*.generated.cs", "src/Model.generated.cs", "src/Model.cs"],
+		["src/f{1..10}.ts", "src/f10.ts", "src/f11.ts"],
+		["src/f{01..03}.ts", "src/f02.ts", "src/f2.ts"],
+		["src/f{1..5..2}.ts", "src/f3.ts", "src/f2.ts"],
+		["!src/f{1..3}.ts", "src/f4.ts", "src/f1.ts"],
+		["src/!(f{1..3}).ts", "src/f4.ts", "src/f1.ts"],
+	])("matches diagnostic exclusion glob %s", (pattern, included, excluded) => {
+		const glob = normalizeExcludePatterns([pattern]);
+		expect(isPathExcluded(included, glob)).toBe(true);
+		expect(isPathExcluded(excluded, glob)).toBe(false);
 	});
 });
 

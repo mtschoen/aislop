@@ -27,23 +27,27 @@ const NON_ERROR_BASIC_TYPES = new Set([
 ]);
 const NON_ERROR_COMPOSITE_RE = /^(?:\[\d*\]|map\[|chan\b|<-\s*chan\b|func\s*\()/;
 
-interface GoSource {
+interface GoResult {
 	path: string;
-	masked: string;
+	type: string | null;
 }
 
-export type GoPackageSources = Map<string, GoSource[]>;
+type GoSignatures = Map<string, GoResult[]>;
+export type GoPackageSources = Map<string, Map<string | null, GoSignatures>>;
 
 const maskGo = (source: string): string => maskStringsAndComments(source, ".go");
 
 const packageName = (maskedSource: string): string | null =>
 	PACKAGE_RE.exec(maskedSource)?.[1] ?? null;
 
-const packageSources = (filePath: string, cache: GoPackageSources): GoSource[] => {
+const packageSources = (
+	filePath: string,
+	cache: GoPackageSources,
+): Map<string | null, GoSignatures> => {
 	const directory = path.dirname(filePath);
 	const cached = cache.get(directory);
 	if (cached) return cached;
-	const sources: GoSource[] = [];
+	const sources = new Map<string | null, GoSignatures>();
 	let entries: string[];
 	try {
 		entries = fs.readdirSync(directory);
@@ -54,9 +58,15 @@ const packageSources = (filePath: string, cache: GoPackageSources): GoSource[] =
 		if (!name.endsWith(".go")) continue;
 		const sourcePath = path.join(directory, name);
 		try {
-			sources.push({ path: sourcePath, masked: maskGo(fs.readFileSync(sourcePath, "utf-8")) });
+			const masked = maskGo(fs.readFileSync(sourcePath, "utf-8"));
+			const name = packageName(masked);
+			const signatures = sources.get(name) ?? new Map<string, GoResult[]>();
+			for (const [functionName, results] of declaredLastResults(masked, sourcePath)) {
+				signatures.set(functionName, [...(signatures.get(functionName) ?? []), ...results]);
+			}
+			sources.set(name, signatures);
 		} catch {
-			continue;
+			// An unreadable sibling cannot provide a signature; its calls remain unresolved.
 		}
 	}
 	cache.set(directory, sources);
@@ -116,12 +126,17 @@ const lastResultType = (source: string, paramsEnd: number): string | null => {
 	return trimmed.slice(0, bodyStart).trim() || null;
 };
 
-const declaredLastResults = (maskedSource: string, name: string): (string | null)[] => {
-	const declaration = new RegExp(`^func\\s+${name}\\s*(?:\\[[^\\]]*\\])?\\s*\\(`, "gm");
-	const results: (string | null)[] = [];
+const declaredLastResults = (maskedSource: string, filePath: string): GoSignatures => {
+	const declaration = /^func\s+(\w+)\s*(?:\[[^\]]*\])?\s*\(/gm;
+	const results: GoSignatures = new Map();
 	for (const match of maskedSource.matchAll(declaration)) {
 		const paramsEnd = closingParen(maskedSource, match.index + match[0].length - 1);
-		results.push(paramsEnd === -1 ? null : lastResultType(maskedSource, paramsEnd));
+		const declarations = results.get(match[1]) ?? [];
+		declarations.push({
+			path: filePath,
+			type: paramsEnd === -1 ? null : lastResultType(maskedSource, paramsEnd),
+		});
+		results.set(match[1], declarations);
 	}
 	return results;
 };
@@ -133,7 +148,24 @@ const enclosingScopeBefore = (maskedSource: string, index: number): string => {
 };
 
 const isShadowed = (scope: string, name: string): boolean => {
-	if (new RegExp(`\\bvar\\s+${name}\\b|[(,]\\s*${name}\\s+func\\b`).test(scope)) return true;
+	if (new RegExp(`\\bvar\\s+${name}\\b`).test(scope)) return true;
+	const declaration = /^\s*func\s+(?:\([^)]*\)\s*)?\w+(?:\[[^\]]*\])?\s*\(/.exec(scope);
+	if (declaration) {
+		const open = declaration[0].length - 1;
+		const end = closingParen(scope, open);
+		const pending: string[] = [];
+		for (const parameter of splitTopLevel(scope.slice(open + 1, end))) {
+			if (/^\w+$/.test(parameter)) {
+				pending.push(parameter);
+				continue;
+			}
+			const named = /^(\w+)\s+\S/.exec(parameter);
+			if (named && !/^(?:chan|map|func|struct|interface)$/.test(named[1])) {
+				if (named[1] === name || pending.includes(name)) return true;
+			}
+			pending.length = 0;
+		}
+	}
 	for (const line of scope.split("\n")) {
 		const assign = line.indexOf(":=");
 		if (assign === -1) continue;
@@ -180,18 +212,18 @@ export const createGoDroppedErrorCheck = (
 	const masked = maskGo(content);
 	const commentMasked = maskComments(content, ".go");
 	const ownPackage = packageName(masked);
+	const ownSignatures = declaredLastResults(masked, filePath);
 	return (matchIndex, functionName) => {
 		if (hasNolintErrcheck(lineAt(content, matchIndex), lineAt(commentMasked, matchIndex))) {
 			return false;
 		}
 		if (isShadowed(enclosingScopeBefore(masked, matchIndex), functionName)) return true;
-		const samePackage = packageSources(filePath, cache)
-			.filter((source) => source.path !== filePath && packageName(source.masked) === ownPackage)
-			.map((source) => source.masked);
-		const results = [masked, ...samePackage].flatMap((source) =>
-			declaredLastResults(source, functionName),
-		);
+		const siblings = packageSources(filePath, cache).get(ownPackage)?.get(functionName) ?? [];
+		const results = [
+			...(ownSignatures.get(functionName) ?? []),
+			...siblings.filter((result) => result.path !== filePath),
+		];
 		if (results.length === 0) return true;
-		return !results.every((type) => type !== null && isKnownNonError(type));
+		return !results.every(({ type }) => type !== null && isKnownNonError(type));
 	};
 };

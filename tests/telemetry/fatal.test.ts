@@ -22,7 +22,9 @@ const captureStderr = (): { lines: string[]; restore: () => void } => {
 	};
 };
 
-const parseEvents = (lines: string[]): Array<{ event: string; properties: Record<string, unknown> }> =>
+const parseEvents = (
+	lines: string[],
+): Array<{ event: string; properties: Record<string, unknown> }> =>
 	lines
 		.map((l) => l.match(/^\[telemetry\] (\{.*\})\n?$/))
 		.filter((m): m is RegExpMatchArray => !!m)
@@ -30,7 +32,9 @@ const parseEvents = (lines: string[]): Array<{ event: string; properties: Record
 
 describe("errorIdentity", () => {
 	it("captures the error name and a safe code, never the message or paths", () => {
-		const err = new Error("/Users/me/project/.env contained OPENAI_API_KEY=sk-secret") as NodeJS.ErrnoException;
+		const err = new Error(
+			"/Users/me/project/.env contained OPENAI_API_KEY=sk-secret",
+		) as NodeJS.ErrnoException;
 		err.code = "ENOENT";
 		const id = errorIdentity(err);
 		expect(id.error_name).toBe("Error");
@@ -126,19 +130,8 @@ describe("reportFatalError", () => {
 		}
 	});
 
-	it("does not double-report an error the lifecycle already handled", async () => {
-		const cap = captureStderr();
-		try {
-			const err = new Error("already counted");
-			markErrorReported(err);
-			await reportFatalError(err, "main");
-			expect(parseEvents(cap.lines).find((e) => e.event === "cli_command_failed")).toBeUndefined();
-		} finally {
-			cap.restore();
-		}
-	});
-
 	it.each([
+		["an error the lifecycle already handled", new Error("already counted")],
 		["a primitive", "string failure"],
 		["a frozen error", Object.freeze(new Error("frozen"))],
 	])("does not double-report %s", async (_label, thrown) => {

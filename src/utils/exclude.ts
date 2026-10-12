@@ -1,6 +1,7 @@
 import path from "node:path";
 import picomatch from "picomatch";
 import type { Diagnostic } from "../engines/types.js";
+import { createGlobMatcher } from "./globs.js";
 import { toPosix } from "./paths.js";
 
 // picomatch compiles every pattern it is handed, so an unbounded user entry is
@@ -37,7 +38,7 @@ export const normalizeExcludePatterns = (patterns: string[]): string[] =>
 
 export const isPathExcluded = (relativePath: string, normalizedPatterns: string[]): boolean => {
 	if (normalizedPatterns.length === 0) return false;
-	return picomatch.isMatch(relativePath, normalizedPatterns, { dot: true });
+	return createGlobMatcher(normalizedPatterns, { dot: true })(relativePath);
 };
 
 // Drop diagnostics whose file lies under a user-excluded path. The build-backed

@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { detectSwallowedExceptions } from "../src/engines/ai-slop/exceptions.js";
+import {
+	createGoDroppedErrorCheck,
+	type GoPackageSources,
+} from "../src/engines/ai-slop/go-dropped-errors.js";
 import type { EngineContext } from "../src/engines/types.js";
 
 let root: string;
@@ -46,7 +50,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 			[
 				"package main",
 				"",
-				"func load() (string, error) { return \"\", nil }",
+				'func load() (string, error) { return "", nil }',
 				"",
 				"func run() {",
 				"\tv, _ := load()",
@@ -63,10 +67,10 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 			[
 				"package main",
 				"",
-				"func resolveTarget(name string) (string, string) { return name, \"\" }",
+				'func resolveTarget(name string) (string, string) { return name, "" }',
 				"",
 				"func run() {",
-				"\ttarget, _ := resolveTarget(\"x\")",
+				'\ttarget, _ := resolveTarget("x")',
 				"\t_ = target",
 				"}",
 			].join("\n"),
@@ -90,14 +94,23 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 				"package pkg",
 				"",
 				"func use() {",
-				"\th, _ := split(\"a\")",
-				"\tn, _ := parse[int](\"1\")",
-				"\tm, _ = parse(\"2\")",
+				'\th, _ := split("a")',
+				'\tn, _ := parse[int]("1")',
+				'\tm, _ = parse("2")',
 				"\t_, _, _ = h, n, m",
 				"}",
 			].join("\n"),
 		);
 		expect(await flaggedLines()).toEqual(["pkg/use.go:6"]);
+		const cache: GoPackageSources = new Map();
+		const caller = 'package pkg\nfunc run() {\n h, _ := split("a")\n}';
+		const check = createGoDroppedErrorCheck(caller, path.join(root, "pkg/use.go"), cache);
+		for (let index = 0; index < 10; index += 1) {
+			expect(check(caller.indexOf("h, _"), "split")).toBe(false);
+			expect(check(caller.indexOf("h, _"), "parse")).toBe(true);
+		}
+		const signatures = cache.get(path.join(root, "pkg"));
+		expect(signatures).toBeInstanceOf(Map);
 	});
 
 	it("keeps flagging calls whose signature cannot be resolved", async () => {
@@ -117,11 +130,11 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 				"type Err = error",
 				"type myErr struct{}",
 				"",
-				"func a() (string, Err) { return \"\", nil }",
-				"func b() (string, *myErr) { return \"\", nil }",
-				"func c() (string, any) { return \"\", nil }",
+				'func a() (string, Err) { return "", nil }',
+				'func b() (string, *myErr) { return "", nil }',
+				'func c() (string, any) { return "", nil }',
 				"func d() (n int, ok bool) { return 0, false }",
-				"func e() (string, []byte) { return \"\", nil }",
+				'func e() (string, []byte) { return "", nil }',
 				"",
 				"func run() {",
 				"\tv1, _ := a()",
@@ -139,14 +152,14 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 	it("only resolves declarations from the caller's package", async () => {
 		write(
 			"pkg/a_test.go",
-			["package pkg_test", "", "func load() (string, string) { return \"\", \"\" }"].join("\n"),
+			["package pkg_test", "", 'func load() (string, string) { return "", "" }'].join("\n"),
 		);
 		write(
 			"pkg/b.go",
 			[
 				"package pkg",
 				"",
-				"func load() (string, error) { return \"\", nil }",
+				'func load() (string, error) { return "", nil }',
 				"",
 				"func run() {",
 				"\tv, _ := load()",
@@ -160,11 +173,11 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 	it("treats conflicting declarations across build variants as unresolved", async () => {
 		write(
 			"pkg/load_linux.go",
-			["package pkg", "", "func load() (string, string) { return \"\", \"\" }"].join("\n"),
+			["package pkg", "", 'func load() (string, string) { return "", "" }'].join("\n"),
 		);
 		write(
 			"pkg/load_other.go",
-			["package pkg", "", "func load() (string, error) { return \"\", nil }"].join("\n"),
+			["package pkg", "", 'func load() (string, error) { return "", nil }'].join("\n"),
 		);
 		write(
 			"pkg/use.go",
@@ -173,23 +186,33 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 		expect(await flaggedLines()).toEqual(["pkg/use.go:4"]);
 	});
 
-	it("treats a locally shadowed function as unresolved", async () => {
-		write(
-			"main.go",
-			[
-				"package main",
-				"",
-				"func load() (string, string) { return \"\", \"\" }",
-				"",
-				"func run() {",
-				"\tload := func() (string, error) { return \"\", nil }",
-				"\tv, _ := load()",
-				"\t_ = v",
-				"}",
-			].join("\n"),
-		);
-		expect(await flaggedLines()).toEqual(["main.go:7"]);
-	});
+	it.each([
+		["", '\tload := func() (string, error) { return "", nil }', true],
+		["load Loader", "", true],
+		["load, fallback Loader", "", true],
+		["fallback, load Loader", "", true],
+		["load, fallback func() (string, error)", "", true],
+		["callback func(load int) (string, error)", "", false],
+	])(
+		"treats locally shadowed function as unresolved: %s %s",
+		async (parameters, local, shadowed) => {
+			write(
+				"main.go",
+				[
+					"package main",
+					"type Loader func() (string, error)",
+					'func load() (string, string) { return "", "" }',
+					"",
+					`func run(${parameters}) {`,
+					local,
+					"\tv, _ := load()",
+					"\t_ = v",
+					"}",
+				].join("\n"),
+			);
+			expect(await flaggedLines()).toEqual(shadowed ? ["main.go:7"] : []);
+		},
+	);
 
 	it("ignores declarations inside comments", async () => {
 		write(
@@ -200,7 +223,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 				"/*",
 				"func load() (string, string)",
 				"*/",
-				"func load() (string, error) { return \"\", nil }",
+				'func load() (string, error) { return "", nil }',
 				"",
 				"func run() {",
 				"\tv, _ := load()",
@@ -234,7 +257,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 			[
 				"package pkg",
 				"",
-				"func safe() (int, string) { return 0, \"\" }",
+				'func safe() (int, string) { return 0, "" }',
 				"func risky() (int, error) { return 0, nil }",
 				"",
 				"func first() {",
@@ -256,7 +279,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 			[
 				"package main",
 				"",
-				"func safe() (int, string) { return 0, \"\" }",
+				'func safe() (int, string) { return 0, "" }',
 				"",
 				"func other() {",
 				"\tsafe := func() (int, error) { return 0, nil }",

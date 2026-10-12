@@ -1,22 +1,20 @@
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
-import { ensureDir, PACKAGE_ROOT, relativeToRoot, repoKey, writeJson } from "./fs-utils.mjs";
+import { containedPath, validateRepo } from "./containment.mjs";
+import {
+	ensureDir,
+	PACKAGE_ROOT,
+	relativeToRoot,
+	repoKey,
+	writeFile,
+	writeJson,
+} from "./fs-utils.mjs";
 import { repoHeadSha, syncRepo } from "./repo-sync.mjs";
 import { topRulesForDiagnostics } from "./rules.mjs";
-import { runCommand } from "./run-command.mjs";
+import { runIsolatedScan } from "./sandbox.mjs";
 
-const SCAN_ENV = {
-	AISLOP_NO_TELEMETRY: "1",
-	DO_NOT_TRACK: "1",
-	CI: "1",
-	NO_COLOR: "1",
-};
-const SCAN_ENV_PREFIX = Object.entries(SCAN_ENV)
-	.map(([key, value]) => `${key}=${value}`)
-	.join(" ");
-
-export const SCAN_COMMAND_TEMPLATE = `${SCAN_ENV_PREFIX} node dist/cli.js scan "<repo>" --json`;
+export const SCAN_COMMAND_TEMPLATE =
+	"bwrap <offline read-only policy> /scanner/node /scanner/dist/cli.js scan /repo --json";
 
 export const ensureBuiltCli = () => {
 	const build = spawnSync("pnpm", ["build"], {
@@ -47,13 +45,10 @@ const cloneFailure = (repo, startedAt, error) => ({
 
 const executeScan = async ({ repo, repoDirectory, paths, startedAt }) => {
 	const startedMs = Date.now();
-	const result = await runCommand("node", ["dist/cli.js", "scan", repoDirectory, "--json"], {
-		cwd: PACKAGE_ROOT,
-		env: SCAN_ENV,
-	});
+	const result = await runIsolatedScan(repoDirectory);
 	const elapsedMs = Date.now() - startedMs;
-	fs.writeFileSync(paths.stdout, result.stdout);
-	fs.writeFileSync(paths.stderr, result.stderr);
+	writeFile(paths.stdout, result.stdout);
+	writeFile(paths.stderr, result.stderr);
 
 	const metadata = {
 		...repoIdentity(repo),
@@ -63,7 +58,7 @@ const executeScan = async ({ repo, repoDirectory, paths, startedAt }) => {
 		startedAt,
 		finishedAt: new Date().toISOString(),
 		elapsedMs,
-		command: `${SCAN_ENV_PREFIX} node dist/cli.js scan ${JSON.stringify(repoDirectory)} --json`,
+		command: SCAN_COMMAND_TEMPLATE,
 		exitCode: result.code,
 		stdoutPath: relativeToRoot(paths.stdout),
 		stderrPath: relativeToRoot(paths.stderr),
@@ -102,7 +97,11 @@ const successResult = (metadata, parsed, scanJsonPath, repoDirectory) => {
 const classifyScan = ({ metadata, stdout, paths, repoDirectory }) => {
 	const output = parseScanOutput(stdout);
 	if (!output.ok) {
-		return { ...metadata, status: "parse_failed", message: "aislop did not produce parseable JSON" };
+		return {
+			...metadata,
+			status: "parse_failed",
+			message: "aislop did not produce parseable JSON",
+		};
 	}
 
 	const { parsed } = output;
@@ -142,14 +141,15 @@ const classifyScan = ({ metadata, stdout, paths, repoDirectory }) => {
 };
 
 export const scanRepo = async ({ repo, runRoot }) => {
-	const repoRunRoot = path.join(runRoot, "repos", repo.language, repoKey(repo));
+	repo = validateRepo(repo);
+	const repoRunRoot = containedPath(runRoot, "repos", repo.language, repoKey(repo));
 	ensureDir(repoRunRoot);
 
 	const paths = {
-		stdout: path.join(repoRunRoot, "stdout.txt"),
-		stderr: path.join(repoRunRoot, "stderr.txt"),
-		scanJson: path.join(repoRunRoot, "scan.json"),
-		metadata: path.join(repoRunRoot, "metadata.json"),
+		stdout: containedPath(runRoot, path.relative(runRoot, repoRunRoot), "stdout.txt"),
+		stderr: containedPath(runRoot, path.relative(runRoot, repoRunRoot), "stderr.txt"),
+		scanJson: containedPath(runRoot, path.relative(runRoot, repoRunRoot), "scan.json"),
+		metadata: containedPath(runRoot, path.relative(runRoot, repoRunRoot), "metadata.json"),
 	};
 	const startedAt = new Date().toISOString();
 
@@ -162,8 +162,16 @@ export const scanRepo = async ({ repo, runRoot }) => {
 		return failure;
 	}
 
-	const { metadata, stdout } = await executeScan({ repo, repoDirectory, paths, startedAt });
-	const outcome = classifyScan({ metadata, stdout, paths, repoDirectory });
+	let execution;
+	try {
+		execution = await executeScan({ repo, repoDirectory, paths, startedAt });
+	} catch (error) {
+		const failure = { ...cloneFailure(repo, startedAt, error), status: "scan_failed" };
+		writeJson(paths.metadata, failure);
+		return failure;
+	}
+	const { metadata, stdout } = execution;
+	const outcome = classifyScan({ metadata, stdout, paths, repoDirectory: "/repo" });
 	if (!outcome.success) {
 		writeJson(paths.metadata, outcome);
 		return outcome;

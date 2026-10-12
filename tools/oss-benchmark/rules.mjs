@@ -3,8 +3,14 @@ import { toPosix } from "./fs-utils.mjs";
 
 export const relativeDiagnosticPath = (repoDirectory, diagnosticPath) => {
 	if (!diagnosticPath) return diagnosticPath;
-	if (path.isAbsolute(diagnosticPath) && diagnosticPath.startsWith(repoDirectory)) {
-		return toPosix(path.relative(repoDirectory, diagnosticPath));
+	const relative = path.relative(repoDirectory, diagnosticPath);
+	if (
+		path.isAbsolute(diagnosticPath) &&
+		relative !== ".." &&
+		!relative.startsWith(`..${path.sep}`) &&
+		!path.isAbsolute(relative)
+	) {
+		return toPosix(relative);
 	}
 	return toPosix(diagnosticPath);
 };

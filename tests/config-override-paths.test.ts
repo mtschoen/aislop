@@ -71,13 +71,20 @@ describe("file policy matching", () => {
 		expect(resolveFilePolicy(config, "a.service.ts").quality.maxParams).toBe(6);
 	});
 
-	it("applies negative patterns after every positive pattern in an entry", () => {
-		const config = parseConfig({
-			overrides: [{ files: ["!**/*.generated.ts", "**/*.ts"], quality: { maxFileLoc: 700 } }],
-		});
-		expect(resolveFilePolicy(config, "src/users.ts").quality.maxFileLoc).toBe(700);
-		expect(resolveFilePolicy(config, "src/api.generated.ts").quality.maxFileLoc).not.toBe(700);
-	});
+	it.each([
+		["**/*.ts", "!**/*.generated.ts", "src/users.ts", "src/api.generated.ts"],
+		["src/f{1..10}.ts", "!src/f{1..5..2}.ts", "src/f10.ts", "src/f3.ts"],
+		["src/f{01..03}.ts", "!src/f{01..02}.ts", "src/f03.ts", "src/f02.ts"],
+	])(
+		"applies negative patterns after positive pattern %s",
+		(positive, negative, included, excluded) => {
+			const config = parseConfig({
+				overrides: [{ files: [negative, positive], quality: { maxFileLoc: 700 } }],
+			});
+			expect(resolveFilePolicy(config, included).quality.maxFileLoc).toBe(700);
+			expect(resolveFilePolicy(config, excluded).quality.maxFileLoc).not.toBe(700);
+		},
+	);
 
 	it("treats a negated extglob as a positive selector", () => {
 		const config = parseConfig({

@@ -2,11 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	readBaseline,
-	serializeBaseline,
-	writeBaseline,
-} from "../src/baseline/baseline-file.js";
+import { readBaseline, serializeBaseline, writeBaseline } from "../src/baseline/baseline-file.js";
 import { buildBaseline, matchBaseline, pruneBaseline } from "../src/baseline/match.js";
 import { computeScanExitCode } from "../src/commands/scan-exit-code.js";
 import type { Diagnostic, EngineName } from "../src/engines/types.js";
@@ -44,7 +40,8 @@ const match = (
 	diagnostics: Diagnostic[],
 	scopeFiles: Set<string> | null = null,
 	engines = ALL_ENGINES,
-) => matchBaseline({ baseline, diagnostics, rootDirectory: root, scopeFiles, staleEngines: engines });
+) =>
+	matchBaseline({ baseline, diagnostics, rootDirectory: root, scopeFiles, staleEngines: engines });
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-baseline-"));
@@ -79,9 +76,7 @@ describe("baseline matching", () => {
 	it("counts duplicate findings so only the recorded number is accepted", () => {
 		writeSource("src/a.ts", "} catch {}\n} catch {}\n} catch {}\n");
 		const baseline = buildBaseline([diag("src/a.ts", 1), diag("src/a.ts", 2)], root);
-		expect(baseline.entries).toEqual([
-			expect.objectContaining({ file: "src/a.ts", count: 2 }),
-		]);
+		expect(baseline.entries).toEqual([expect.objectContaining({ file: "src/a.ts", count: 2 })]);
 
 		const result = match(baseline, [diag("src/a.ts", 1), diag("src/a.ts", 2), diag("src/a.ts", 3)]);
 		expect(result.accepted).toBe(2);
@@ -100,10 +95,15 @@ describe("baseline matching", () => {
 
 	it("matches file-level findings regardless of content changes", () => {
 		writeSource("src/big.ts", "a\n");
-		const baseline = buildBaseline([diag("src/big.ts", 0, "complexity/file-too-large", "code-quality")], root);
+		const baseline = buildBaseline(
+			[diag("src/big.ts", 0, "complexity/file-too-large", "code-quality")],
+			root,
+		);
 		writeSource("src/big.ts", "a\nb\nc\n");
 
-		const result = match(baseline, [diag("src/big.ts", 0, "complexity/file-too-large", "code-quality")]);
+		const result = match(baseline, [
+			diag("src/big.ts", 0, "complexity/file-too-large", "code-quality"),
+		]);
 		expect(result.accepted).toBe(1);
 		expect(baseline.entries[0].fingerprint).toMatch(/^message:/);
 	});
@@ -161,11 +161,8 @@ describe("baseline matching", () => {
 		writeSource("src/a.ts", "} catch {}\nhandled();\n");
 		fs.rmSync(path.join(root, "src", "b.ts"));
 		const result = match(baseline, [diag("src/a.ts", 1)]);
-		expect(result.staleCount).toBe(2);
-		expect(result.stale.map((entry) => [entry.file, entry.count])).toEqual([
-			["src/a.ts", 1],
-			["src/b.ts", 1],
-		]);
+		expect(result.staleCount).toBe(1);
+		expect(result.stale.map((entry) => [entry.file, entry.count])).toEqual([["src/b.ts", 1]]);
 	});
 
 	it("does not report stale entries for files outside a scoped scan", () => {
@@ -191,26 +188,38 @@ describe("baseline matching", () => {
 		expect(result.stale.map((entry) => entry.rule)).toEqual(["ai-slop/swallowed-exception"]);
 	});
 
-	it("prunes stale entries and lowers counts without adding new findings", () => {
-		writeSource("src/a.ts", "} catch {}\n} catch {}\nconst y = 2;\n");
-		writeSource("src/b.ts", "} catch {}\n");
-		const baseline = buildBaseline(
-			[diag("src/a.ts", 1), diag("src/a.ts", 2), diag("src/b.ts", 1)],
-			root,
-		);
+	it.each([false, true])(
+		"prunes stale entries and lowers counts without adding new findings (duplicate rows: %s)",
+		(duplicates) => {
+			writeSource("src/a.ts", "} catch {}\n} catch {}\nconst y = 2;\n");
+			writeSource("src/b.ts", "} catch {}\n");
+			const baseline = buildBaseline(
+				[diag("src/a.ts", 0), diag("src/a.ts", 0), diag("src/b.ts", 1)],
+				root,
+			);
+			if (duplicates)
+				baseline.entries = baseline.entries.flatMap((entry) =>
+					Array.from({ length: entry.count }, () => ({ ...entry, count: 1 })),
+				);
 
-		writeSource("src/a.ts", "} catch {}\nhandled();\nconst y = 2;\n");
-		writeSource("src/b.ts", "handled();\n");
-		const result = match(baseline, [diag("src/a.ts", 1), diag("src/a.ts", 3)]);
-		const pruned = pruneBaseline(baseline, result);
-		expect(pruned.entries.map((entry) => [entry.file, entry.count])).toEqual([["src/a.ts", 1]]);
-	});
+			writeSource("src/a.ts", "} catch {}\nhandled();\nconst y = 2;\n");
+			writeSource("src/b.ts", "handled();\n");
+			const result = match(baseline, [diag("src/a.ts", 0), diag("src/a.ts", 3)]);
+			const pruned = pruneBaseline(baseline, result);
+			expect(pruned.entries.map((entry) => [entry.file, entry.count])).toEqual([["src/a.ts", 1]]);
+			expect(pruneBaseline(baseline, match(baseline, [])).entries).toEqual([]);
+		},
+	);
 
 	it("keeps entries whose flagged line is still present when nothing reports them", () => {
 		writeSource("src/a.ts", "} catch {}\n");
 		writeSource("src/big.ts", "a\n");
 		const baseline = buildBaseline(
-			[diag("src/a.ts", 1, "ruff/E722", "lint"), diag("src/gone.ts", 0, "complexity/file-too-large", "code-quality")],
+			[
+				diag("src/a.ts", 1, "ruff/E722", "lint"),
+				diag("src/a.ts", 1, "ruff/E722", "lint"),
+				diag("src/gone.ts", 0, "complexity/file-too-large", "code-quality"),
+			],
 			root,
 		);
 
@@ -219,13 +228,21 @@ describe("baseline matching", () => {
 		expect(pruneBaseline(baseline, result).entries.map((entry) => entry.file)).toEqual([
 			"src/a.ts",
 		]);
+		expect(pruneBaseline(baseline, result).entries[0].count).toBe(2);
 	});
 
-	it("normalizes absolute and backslash paths to project-relative posix", () => {
+	it("normalizes paths without conflating POSIX backslash filenames", () => {
 		writeSource("src/a.ts", "} catch {}\n");
 		const baseline = buildBaseline([diag(path.join(root, "src", "a.ts"), 1)], root);
 		expect(baseline.entries[0].file).toBe("src/a.ts");
-		expect(match(baseline, [diag("src\\a.ts", 1)]).accepted).toBe(1);
+		expect(match(baseline, [diag("src\\a.ts", 1)]).accepted).toBe(path.sep === "\\" ? 1 : 0);
+		if (path.sep === "\\") return;
+		writeSource("src\\a.ts", "different();\n");
+		const literal = buildBaseline([diag(path.join(root, "src\\a.ts"), 1)], root);
+		expect(literal.entries[0].file).toBe("src\\a.ts");
+		expect(literal.entries[0].fingerprint).not.toBe(baseline.entries[0].fingerprint);
+		writeSource("src\\a.ts", "changed();\n");
+		expect(match(literal, [diag("src\\a.ts", 1)]).accepted).toBe(0);
 	});
 });
 
@@ -239,11 +256,9 @@ describe("baseline file", () => {
 		);
 		const parsed = JSON.parse(serializeBaseline(baseline));
 		expect(parsed.version).toBe(1);
-		expect(parsed.entries.map((e: { file: string; rule: string }) => `${e.file} ${e.rule}`)).toEqual([
-			"src/a.ts a-rule",
-			"src/a.ts z-rule",
-			"src/b.ts ai-slop/swallowed-exception",
-		]);
+		expect(
+			parsed.entries.map((e: { file: string; rule: string }) => `${e.file} ${e.rule}`),
+		).toEqual(["src/a.ts a-rule", "src/a.ts z-rule", "src/b.ts ai-slop/swallowed-exception"]);
 		expect(serializeBaseline(baseline).endsWith("\n")).toBe(true);
 	});
 

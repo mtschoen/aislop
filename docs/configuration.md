@@ -161,6 +161,8 @@ Both size rules allow 10% over the limit before reporting, so with the defaults 
 
 `ai-slop/hallucinated-import` reports imports that no manifest declares. Python dependencies come from `pyproject.toml`, `Pipfile`, `requirements*.txt` files (including `-r` includes and a `requirements/` directory), and PEP 723 inline script metadata.
 
+Inline metadata must be actual Python comments, not examples inside strings. A file referenced by both `-r` and `-c` contributes dependencies through its explicit requirements edge; a constraint-only file does not.
+
 Some modules come from the runtime instead of a manifest, for example `homeassistant` in a Home Assistant integration, Sage's bundled packages, or `vscode` in a VS Code extension. List them under `imports.provided` so they are not reported:
 
 ```yaml

@@ -264,6 +264,8 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 
 Note: `ai-slop/trivial-comment`, `ai-slop/narrative-comment`, and `ai-slop/swallowed-exception` also cover C# (`.cs`) and C/C++ (`.c`, `.cpp`, `.h`, `.hpp`).
 
+For Go blank-identifier assignments, `ai-slop/swallowed-exception` checks explicit unqualified calls and indexes package-level function signatures once per directory per scan. A known non-error last result suppresses the finding. Matching local parameter names (including grouped parameters and named callback types) leave the call unresolved; the detector does not resolve callback types, imports, or aliases. This is a bounded lexical check, not Go type or scope analysis.
+
 ### Python dependency names (`ai-slop/hallucinated-import`)
 
 For names extracted from `pyproject.toml`, `requirements.txt`, and `Pipfile`,

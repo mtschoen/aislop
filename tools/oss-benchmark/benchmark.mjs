@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { aggregateResults } from "./aggregate.mjs";
+import { containedPath, validateRepo } from "./containment.mjs";
 import {
 	ensureDir,
 	info,
@@ -10,9 +11,11 @@ import {
 	slugify,
 	timestampStamp,
 	writeJson,
+	writeFile,
 } from "./fs-utils.mjs";
 import { renderMarkdownReport } from "./report.mjs";
 import { ensureBuiltCli, SCAN_COMMAND_TEMPLATE, scanRepo } from "./scan-runner.mjs";
+import { checkSandbox } from "./sandbox.mjs";
 
 const runPool = async (items, jobs, worker) => {
 	const results = Array.from({ length: items.length });
@@ -34,7 +37,7 @@ const writeReports = (runRoot, report) => {
 	const summaryJsonPath = path.join(runRoot, "summary.json");
 	const summaryMdPath = path.join(runRoot, "summary.md");
 	writeJson(summaryJsonPath, report);
-	fs.writeFileSync(summaryMdPath, renderMarkdownReport(report));
+	writeFile(summaryMdPath, renderMarkdownReport(report));
 	info(`Wrote JSON summary to ${relativeToRoot(summaryJsonPath)}`);
 	info(`Wrote Markdown summary to ${relativeToRoot(summaryMdPath)}`);
 };
@@ -53,12 +56,18 @@ const pinRevisions = (manifestPath, manifest, results) => {
 };
 
 export const runBenchmark = async ({ manifestPath, iteration, jobs }) => {
-	ensureBuiltCli();
 	const manifest = readJson(manifestPath);
+	if (!Array.isArray(manifest.repos) || !Array.isArray(manifest.languages))
+		throw new Error("Invalid benchmark manifest");
+	manifest.repos = manifest.repos.map(validateRepo);
+	if (!Number.isSafeInteger(jobs) || jobs < 1)
+		throw new Error("Benchmark jobs must be a positive integer");
+	ensureBuiltCli();
+	await checkSandbox();
 	const iterationName = iteration ?? "pass-1";
 	const runId = `${timestampStamp()}-${slugify(iterationName)}`;
-	const runRoot = path.join(RUNS_DIR, runId);
-	ensureDir(runRoot);
+	ensureDir(RUNS_DIR);
+	const runRoot = fs.mkdtempSync(`${containedPath(RUNS_DIR, runId)}-`);
 
 	const startedAt = new Date().toISOString();
 	const total = manifest.repos.length;

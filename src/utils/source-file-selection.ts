@@ -7,6 +7,7 @@ import {
 } from "./exclude.js";
 import { isGeneratedArtifactFile } from "./generated-files.js";
 import { getIgnoredPaths } from "./git-ignore.js";
+import { createGlobMatcher } from "./globs.js";
 import { enumerateProjectFiles } from "./project-file-list.js";
 import {
 	EXCLUDED_SOURCE_DIRECTORIES,
@@ -43,8 +44,7 @@ const normalizeIncludePatterns = (patterns: string[]): string[] =>
 	});
 
 const createPathMatcher = (patterns: string[]): ((filePath: string) => boolean) => {
-	const matchers = patterns.map((pattern) => picomatch(pattern, { dot: true }));
-	return (filePath) => matchers.some((matches) => matches(filePath));
+	return createGlobMatcher(patterns, { dot: true });
 };
 
 interface FileFilterOptions {

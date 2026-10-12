@@ -126,6 +126,12 @@ describe("provider output formatting", () => {
 				assistantMessageEvent: { type: "toolcall_start", id: "t1", toolName: "edit" },
 			}),
 			JSON.stringify({ type: "tool_execution_start", toolCallId: "t1", toolName: "edit" }),
+			JSON.stringify({
+				type: "message_end",
+				message: { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "edit" }] },
+			}),
+			JSON.stringify({ type: "tool_execution_update", toolCallId: "t1", toolName: "edit" }),
+			JSON.stringify({ type: "tool_execution_end", toolCallId: "t1", toolName: "edit" }),
 		].map(formatProviderOutputLine);
 		expect(lines.filter((line) => line?.startsWith("tool:"))).toEqual(["tool: edit"]);
 	});
@@ -136,12 +142,12 @@ describe("provider output formatting", () => {
 				JSON.stringify({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash" }),
 			),
 		).toBe("tool: bash");
-		expect(formatProviderOutputLine(JSON.stringify({ type: "tool_execution_end", isError: false }))).toBe(
-			"tool done",
-		);
-		expect(formatProviderOutputLine(JSON.stringify({ type: "tool_execution_end", isError: true }))).toBe(
-			"tool done (error)",
-		);
+		expect(
+			formatProviderOutputLine(JSON.stringify({ type: "tool_execution_end", isError: false })),
+		).toBe("tool done");
+		expect(
+			formatProviderOutputLine(JSON.stringify({ type: "tool_execution_end", isError: true })),
+		).toBe("tool done (error)");
 	});
 
 	it("extracts token usage from pi message_end events, not partial message_update ones", () => {
@@ -182,14 +188,21 @@ describe("provider output formatting", () => {
 		expect(final.usageScope).toBe("response");
 	});
 
-	it("labels only assistant pi message_end events as assistant output", () => {
+	it.each([
+		["stop", undefined, "assistant: fix the slop"],
+		["error", "Unauthorized", "error: Unauthorized"],
+		["aborted", undefined, "error: Pi response aborted"],
+	])("labels pi message_end outcome %s", (stopReason, errorMessage, expected) => {
 		const end = (role: string) =>
 			formatProviderOutputLine(
-				JSON.stringify({ type: "message_end", message: { role, content: "fix the slop" } }),
+				JSON.stringify({
+					type: "message_end",
+					message: { role, content: "fix the slop", stopReason, errorMessage },
+				}),
 			);
 		expect(end("user")).toBeNull();
 		expect(end("toolResult")).toBeNull();
-		expect(end("assistant")).toBe("assistant: fix the slop");
+		expect(end("assistant")).toBe(expected);
 	});
 
 	it("suppresses pi text delta message_update events", () => {
@@ -225,8 +238,8 @@ describe("provider output formatting", () => {
 			JSON.stringify({
 				type: "message_end",
 				usage: { in: 500, out: 120, cached: 0, total: 620, cost: 0.0123 },
-				}),
-			);
+			}),
+		);
 
 		expect(metadata.usage).toMatchObject({ totalTokens: 620, costUsd: 0.0123 });
 	});

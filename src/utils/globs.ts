@@ -103,6 +103,20 @@ export const expandBraceLists = (pattern: string): string[] => {
 
 const isNegated = (pattern: string): boolean => picomatch.scan(pattern).negated;
 
+export const createGlobMatcher = (
+	patterns: string[],
+	options: picomatch.PicomatchOptions = {},
+): ((value: string) => boolean) =>
+	picomatch(patterns, {
+		...options,
+		// Expand the range atom, not the entire pattern: negation must wrap the whole union.
+		expandRange: (from: string, to: string, stepOrOptions: string | picomatch.PicomatchOptions) => {
+			const step = typeof stepOrOptions === "string" ? `..${stepOrOptions}` : "";
+			const values = expandBraceLists(`{${from}..${to}${step}}`);
+			return `(?:${values.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`;
+		},
+	});
+
 export const matchesGlobList = (
 	value: string,
 	patterns: string[],
@@ -110,7 +124,7 @@ export const matchesGlobList = (
 ): boolean => {
 	const positives = patterns.filter((pattern) => !isNegated(pattern));
 	const negatives = patterns.filter(isNegated).map((pattern) => pattern.slice(1));
-	const included = positives.length === 0 || picomatch.isMatch(value, positives, options);
-	const excluded = negatives.length > 0 && picomatch.isMatch(value, negatives, options);
+	const included = positives.length === 0 || createGlobMatcher(positives, options)(value);
+	const excluded = negatives.length > 0 && createGlobMatcher(negatives, options)(value);
 	return included && !excluded;
 };

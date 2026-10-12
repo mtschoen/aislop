@@ -12,9 +12,9 @@ import {
 } from "./unused-removal-ast.js";
 import type { RemovalResult, UnusedDeclaration } from "./unused-removal-types.js";
 
+export { detectUnusedDeclarations, diagnosticsToDeclarations } from "./unused-removal-detect.js";
 // Re-export the public type so external callers only need a single import path.
 export type { UnusedDeclaration };
-export { detectUnusedDeclarations, diagnosticsToDeclarations } from "./unused-removal-detect.js";
 
 export const removeUnusedDeclarations = (
 	rootDirectory: string,
@@ -75,7 +75,13 @@ export const removeUnusedDeclarations = (
 			continue;
 		}
 
-		const updated = applyRemovals(original, pending);
+		let updated = applyRemovals(original, pending);
+		if (
+			ts.isExternalModule(sourceFile) &&
+			!ts.isExternalModule(ts.createSourceFile(filePath, updated, ts.ScriptTarget.Latest, true))
+		) {
+			updated += "\nexport {};\n";
+		}
 		// If file ends up empty or whitespace-only, normalize to a single newline.
 		const normalized = updated.trim() === "" ? "\n" : updated;
 

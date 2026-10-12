@@ -86,6 +86,7 @@ export const agentConnectCommand = async (
 	}
 
 	log.raw(`Running ${style(theme, "bold", commandText(selected))}`);
+	log.muted(selected.provider.loginHint);
 	const result = spawnSync(
 		selected.provider.loginCommand.command,
 		selected.provider.loginCommand.args,

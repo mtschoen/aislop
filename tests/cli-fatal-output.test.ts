@@ -52,15 +52,12 @@ describe("CLI fatal error output", () => {
 			},
 		);
 
-	it("prints an uncaught exception to stderr and exits 1", () => {
-		const result = runWithPreload("throw.mjs");
+	it.each([
+		["uncaught exception", "throw.mjs", "fatal-uncaught-marker"],
+		["unhandled rejection", "reject.mjs", "fatal-rejection-marker"],
+	])("prints an %s to stderr and exits 1", (_kind, preload, marker) => {
+		const result = runWithPreload(preload);
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain("fatal-uncaught-marker");
-	});
-
-	it("prints an unhandled rejection to stderr and exits 1", () => {
-		const result = runWithPreload("reject.mjs");
-		expect(result.status).toBe(1);
-		expect(result.stderr).toContain("fatal-rejection-marker");
+		expect(result.stderr).toContain(marker);
 	});
 });

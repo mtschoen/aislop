@@ -50,11 +50,17 @@ describe("expandBraceLists", () => {
 });
 
 describe("matchesGlobList", () => {
-	it("matches positives minus negated patterns", () => {
-		const globs = ["packages/*", "!packages/legacy"];
-		expect(matchesGlobList("packages/api", globs)).toBe(true);
-		expect(matchesGlobList("packages/legacy", globs)).toBe(false);
-		expect(matchesGlobList("apps/web", globs)).toBe(false);
+	it.each([
+		["packages/*", "packages/api", "packages/legacy", "apps/web"],
+		["src/f{1..10}.ts", "src/f10.ts", "src/f1.ts", "src/f11.ts"],
+		["src/f{01..03}.ts", "src/f02.ts", "src/f01.ts", "src/f2.ts"],
+		["src/f{1..5..2}.ts", "src/f3.ts", "src/f1.ts", "src/f2.ts"],
+		["src/!(f{1..3}).ts", "src/f4.ts", "src/f5.ts", "src/f1.ts"],
+	])("matches positive and negative range/list %s", (pattern, included, excluded, outside) => {
+		expect(matchesGlobList(included, [pattern, `!${excluded}`])).toBe(true);
+		expect(matchesGlobList(excluded, [pattern, `!${excluded}`])).toBe(false);
+		expect(matchesGlobList(included, ["**", `!${pattern}`])).toBe(false);
+		expect(matchesGlobList(outside, [pattern])).toBe(false);
 	});
 
 	it("treats a list of only negations as matching everything else", () => {

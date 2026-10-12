@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { Diagnostic, EngineName } from "../engines/types.js";
+import { toProjectPath } from "../utils/source-file-policy.js";
 import {
 	BASELINE_VERSION,
 	type Baseline,
@@ -24,12 +25,6 @@ interface MatchInput {
 	scopeFiles: Set<string> | null;
 	staleEngines: Set<EngineName>;
 }
-
-const toProjectPath = (rootDirectory: string, filePath: string): string => {
-	const posix = filePath.replaceAll("\\", "/");
-	if (!path.isAbsolute(filePath) && !path.posix.isAbsolute(posix)) return posix;
-	return path.relative(rootDirectory, filePath).replaceAll("\\", "/");
-};
 
 const MESSAGE_FINGERPRINT_PREFIX = "message:";
 
@@ -124,10 +119,8 @@ export const matchBaseline = (input: MatchInput): BaselineMatch => {
 	}
 	let accepted = 0;
 	const sources = createSourceCache(input.rootDirectory);
-	const reported = new Map<string, number>();
 	const diagnostics = keyDiagnostics(input.diagnostics, input.rootDirectory, sources).map(
 		({ diagnostic, key }) => {
-			reported.set(key, (reported.get(key) ?? 0) + 1);
 			const left = remaining.get(key) ?? 0;
 			if (left === 0) return diagnostic;
 			remaining.set(key, left - 1);
@@ -143,13 +136,12 @@ export const matchBaseline = (input: MatchInput): BaselineMatch => {
 		remaining.set(key, (remaining.get(key) ?? 0) - left);
 		if (input.scopeFiles && !input.scopeFiles.has(entry.file)) continue;
 		if (!input.staleEngines.has(entry.engine)) continue;
-		const unreportedLines = Math.max(
-			0,
-			sources.occurrences(entry.file, entry.fingerprint) - (reported.get(key) ?? 0),
-		);
+		// A physical line may produce several diagnostics; its count cannot prove an allowance stale.
 		const unconfirmed = isFileLevel(entry.fingerprint)
 			? fileLevelStale(entry, left, sources)
-			: Math.max(0, left - unreportedLines);
+			: sources.occurrences(entry.file, entry.fingerprint) > 0
+				? 0
+				: left;
 		if (unconfirmed > 0) stale.push({ ...entry, count: unconfirmed });
 	}
 	return {
@@ -162,9 +154,18 @@ export const matchBaseline = (input: MatchInput): BaselineMatch => {
 };
 
 export const pruneBaseline = (baseline: Baseline, match: BaselineMatch): Baseline => {
-	const staleByKey = new Map(match.stale.map((entry) => [keyOf(entry), entry.count]));
+	const staleByKey = new Map<string, number>();
+	for (const entry of match.stale) {
+		const key = keyOf(entry);
+		staleByKey.set(key, (staleByKey.get(key) ?? 0) + entry.count);
+	}
 	const entries = baseline.entries
-		.map((entry) => ({ ...entry, count: entry.count - (staleByKey.get(keyOf(entry)) ?? 0) }))
+		.map((entry) => {
+			const key = keyOf(entry);
+			const stale = Math.min(entry.count, staleByKey.get(key) ?? 0);
+			staleByKey.set(key, (staleByKey.get(key) ?? 0) - stale);
+			return { ...entry, count: entry.count - stale };
+		})
 		.filter((entry) => entry.count > 0);
 	return { version: BASELINE_VERSION, entries: sortEntries(entries) };
 };

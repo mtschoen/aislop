@@ -47,17 +47,19 @@ const toolNameFromContent = (content: unknown): string | null => {
 const messageFrom = (event: JsonObject): JsonObject | null =>
 	isObject(event.message) ? event.message : isObject(event.item) ? event.item : null;
 
-// pi nests toolcall events under `message_update.assistantMessageEvent`.
-const piToolNameFrom = (event: JsonObject): string | null => {
-	if (!isObject(event.assistantMessageEvent)) return null;
-	const innerType = asString(event.assistantMessageEvent.type);
-	if (!innerType?.startsWith("toolcall")) return null;
-	return asString(event.assistantMessageEvent.toolName);
+const piAssistantOutcome = (event: JsonObject): string | null | undefined => {
+	const message = messageFrom(event);
+	if (event.type !== "message_end" || message?.role !== "assistant") return undefined;
+	if (message.stopReason === "error" || message.stopReason === "aborted") {
+		return asString(message.errorMessage) ?? `Pi response ${message.stopReason}`;
+	}
+	return message.stopReason === "stop" || message.stopReason === "toolUse" ? null : undefined;
 };
 
-// pi also reports `tool_execution_start` / `tool_execution_end` events.
-const piToolExecutionFrom = (event: JsonObject): string | null =>
-	asString(event.type)?.startsWith("tool_execution") ? asString(event.toolName) : null;
+export const readPiAssistantOutcome = (line: string): string | null | undefined => {
+	const event = parseJsonObject(line);
+	return event ? piAssistantOutcome(event) : undefined;
+};
 
 export const formatProviderOutputLine = (line: string): string | null => {
 	const raw = asString(line);
@@ -71,13 +73,11 @@ export const formatProviderOutputLine = (line: string): string | null => {
 	const messageContent = message ? textFromContent(message.content) : null;
 	const eventContent = textFromContent(event.content);
 	const directText = asString(event.text) ?? asString(event.message);
-	const piToolName = piToolNameFrom(event) ?? piToolExecutionFrom(event);
 	const toolName =
 		toolNameFromContent(message?.content) ??
 		toolNameFromContent(event.content) ??
 		asString(event.name) ??
 		asString(event.toolName) ??
-		piToolName ??
 		asString(message?.name);
 	const command = asString(event.command) ?? asString(message?.command);
 
@@ -85,13 +85,16 @@ export const formatProviderOutputLine = (line: string): string | null => {
 		return compact(`tool: ${toolName}`);
 	}
 	// pi's final text arrives on `message_end`; `message_update` deltas are skipped.
-	if (type === "message_update") return null;
+	if (type === "message_update" || type === "tool_execution_update") return null;
 	if (type === "tool_execution_end") {
 		const failed = event.isError === true;
 		return compact(`tool done${failed ? " (error)" : ""}`);
 	}
 	if (type === "message_end" && asString(message?.role) !== "assistant") return null;
+	const failure = piAssistantOutcome(event);
+	if (failure) return compact(`error: ${failure}`);
 	if (messageContent) return compact(`assistant: ${messageContent}`);
+	if (type === "message_end") return null;
 	if (eventContent) return compact(`assistant: ${eventContent}`);
 	if (directText) return compact(`${type ?? "message"}: ${directText}`);
 	if (command) return compact(`exec: ${command}`);

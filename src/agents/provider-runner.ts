@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readPiAssistantOutcome } from "./provider-output.js";
 import type { AgentProvider, AgentProviderId } from "./providers.js";
 
 class ProviderExitError extends Error {
@@ -8,11 +9,14 @@ class ProviderExitError extends Error {
 		readonly providerId: AgentProviderId,
 		providerLabel: string,
 		readonly exitCode: number | null,
+		failure?: string | null,
 	) {
 		super(
-			exitCode === null
-				? `${providerLabel} exited without reporting a status code.`
-				: `${providerLabel} exited with code ${exitCode}.`,
+			failure
+				? `${providerLabel} failed: ${failure}`
+				: exitCode === null
+					? `${providerLabel} exited without reporting a status code.`
+					: `${providerLabel} exited with code ${exitCode}.`,
 		);
 	}
 }
@@ -32,6 +36,7 @@ export const runProvider = (
 	},
 ): Promise<number | null> =>
 	new Promise((resolve, reject) => {
+		let terminalFailure: string | null = null;
 		const child = spawn(
 			provider.bin,
 			provider.buildArgs(input.prompt, { maxTurns: input.maxTurns }),
@@ -46,6 +51,10 @@ export const runProvider = (
 			let buffer = "";
 			const emit = (line: string) => {
 				const trimmed = line.trimEnd();
+				if (provider.id === "pi" && stream === "stdout") {
+					const outcome = readPiAssistantOutcome(trimmed);
+					if (outcome !== undefined) terminalFailure = outcome;
+				}
 				if (trimmed.trim().length > 0) input.onEvent?.({ stream, line: trimmed });
 			};
 			return {
@@ -70,10 +79,12 @@ export const runProvider = (
 		child.stderr?.on("end", stderr.flush);
 		child.once("error", (error) => reject(error));
 		child.once("close", (code) => {
-			if (code === 0) {
+			stdout.flush();
+			stderr.flush();
+			if (code === 0 && !terminalFailure) {
 				resolve(code);
 				return;
 			}
-			reject(new ProviderExitError(provider.id, provider.label, code));
+			reject(new ProviderExitError(provider.id, provider.label, code, terminalFailure));
 		});
 	});

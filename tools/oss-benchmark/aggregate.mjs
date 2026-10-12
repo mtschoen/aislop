@@ -1,4 +1,3 @@
-import { repoDirectoryFor } from "./repo-sync.mjs";
 import { addRuleFinding, relativeDiagnosticPath, sortRuleAggregate } from "./rules.mjs";
 
 const mean = (values) => {
@@ -40,11 +39,9 @@ const addLanguageTotals = (languageSummaries, repo) => {
 const addRepoRules = (overallRules, languageRules, repo) => {
 	const perLanguageRules = languageRules.get(repo.language) ?? new Map();
 	languageRules.set(repo.language, perLanguageRules);
-	const [owner, name] = repo.repo.split("/");
-	const repoDirectory = repoDirectoryFor(repo.language, owner, name);
 
 	for (const diagnostic of repo.diagnostics) {
-		const relativePath = relativeDiagnosticPath(repoDirectory, diagnostic.filePath);
+		const relativePath = relativeDiagnosticPath("/repo", diagnostic.filePath);
 		addRuleFinding(overallRules, repo.repo, diagnostic, relativePath);
 		addRuleFinding(perLanguageRules, repo.repo, diagnostic, relativePath);
 	}

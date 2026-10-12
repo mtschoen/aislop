@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { maskComments } from "../../utils/source-masker.js";
 
 const MAX_PYTHON_MANIFEST_BYTES = 1_048_576;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -137,6 +138,7 @@ export const collectFromRequirementsFiles = (rootDir: string, pyDeps: Set<string
 	const pending = requirementsFilesIn(rootDir, listDirectory(rootDir));
 	const visited = new Set<string>();
 	const constraints = new Set<string>();
+	const explicitRequirements = new Set<string>();
 	const files = new Map<string, string>();
 	for (let i = 0; i < pending.length && visited.size < MAX_REQUIREMENTS_FILES; i += 1) {
 		const filePath = pending[i];
@@ -146,10 +148,12 @@ export const collectFromRequirementsFiles = (rootDir: string, pyDeps: Set<string
 		if (!file) continue;
 		files.set(filePath, file.content);
 		pending.push(...file.requirements);
+		for (const requirement of file.requirements) explicitRequirements.add(requirement);
 		for (const constraint of file.constraints) constraints.add(constraint);
 	}
 	for (const [filePath, content] of files) {
-		if (!constraints.has(filePath)) addRequirementsLines(content, pyDeps);
+		if (!constraints.has(filePath) || explicitRequirements.has(filePath))
+			addRequirementsLines(content, pyDeps);
 	}
 	return files.size > 0;
 };
@@ -332,10 +336,15 @@ export const collectFromPipfile = (rootDir: string, pyDeps: Set<string>): boolea
 };
 
 const TOML_TABLE_LINE_RE = /^\s*\[{1,2}[^[\]\n]+\]{1,2}\s*(?:#.*)?$/m;
-const INLINE_SCRIPT_BLOCK_RE = /^# \/\/\/ script\r?\n((?:^#(?: .*)?\r?\n)+)^# \/\/\/\s*$/m;
+const INLINE_SCRIPT_BLOCK_RE = /^# \/\/\/ script\r?\n((?:^#(?: .*)?\r?\n)+)^# \/\/\/[ \t]*\r?$/gm;
 
 export const collectFromInlineScriptMetadata = (source: string, pyDeps: Set<string>): boolean => {
-	const block = INLINE_SCRIPT_BLOCK_RE.exec(source);
+	const commentMasked = maskComments(source, ".py");
+	const block = [...source.matchAll(INLINE_SCRIPT_BLOCK_RE)].find((candidate) =>
+		[...candidate[0].matchAll(/^#/gm)].every(
+			(marker) => commentMasked[candidate.index + marker.index] !== "#",
+		),
+	);
 	if (!block) return false;
 	const toml = block[1]
 		.split(/\r?\n/)

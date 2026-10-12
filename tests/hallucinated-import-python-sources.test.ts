@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("Python dependency sources", () => {
 	it("reads requirements file variants next to pyproject.toml", async () => {
-		writeFile("pyproject.toml", '[tool.ruff]\nline-length = 88\n');
+		writeFile("pyproject.toml", "[tool.ruff]\nline-length = 88\n");
 		writeFile("requirements_dev.txt", "voluptuous==0.15\n");
 		writeFile("requirements-test.txt", "pytest\n");
 		writeFile("dev-requirements.txt", "PyYAML>=6\n");
@@ -58,7 +58,10 @@ describe("Python dependency sources", () => {
 		writeFile("requirements/dev.txt", "-r base.txt\nblack\n");
 		writeFile("requirements_lint.txt", "--requirement extra/lint.txt\n");
 		writeFile("extra/lint.txt", "ruff\n");
-		writeFile("app/main.py", ["import requests", "import black", "import ruff", "import ghostlib"].join("\n"));
+		writeFile(
+			"app/main.py",
+			["import requests", "import black", "import ruff", "import ghostlib"].join("\n"),
+		);
 
 		expect(await flaggedImports()).toEqual(["ghostlib"]);
 	});
@@ -76,37 +79,52 @@ describe("Python dependency sources", () => {
 		}
 	});
 
-	it("reads PEP 723 inline script dependencies for that script only", async () => {
-		writeFile("pyproject.toml", '[project]\nname = "app"\ndependencies = ["requests"]\n');
-		writeFile(
-			"tools/shot.py",
-			[
-				"# /// script",
-				'# requires-python = ">=3.11"',
-				"# dependencies = [",
-				'#   "playwright>=1.40",',
-				'#   "rich",',
-				"# ]",
-				"# ///",
-				"import playwright",
-				"import rich",
-				"import requests",
-			].join("\n"),
-		);
-		writeFile("app/main.py", ["import requests", "import playwright"].join("\n"));
+	it.each(["", '"""', "'''", 'r"""'])(
+		"reads real PEP 723 comments, not string examples %s",
+		async (quote) => {
+			writeFile("pyproject.toml", '[project]\nname = "app"\ndependencies = ["requests"]\n');
+			if (quote)
+				writeFile(
+					"app/example.py",
+					`${quote}\n# /// script\n# dependencies = []\n# ///\n${quote.replace(/^r/, "")}\nimport requests\n`,
+				);
+			writeFile(
+				"tools/shot.py",
+				[
+					...(quote
+						? [quote, "# /// script", "# dependencies = []", "# ///", quote.replace(/^r/, "")]
+						: []),
+					"# /// script",
+					'# requires-python = ">=3.11"',
+					"# dependencies = [",
+					'#   "playwright>=1.40",',
+					'#   "rich",',
+					"# ]",
+					"# ///",
+					"import playwright",
+					"import rich",
+					"import requests",
+				].join("\n"),
+			);
+			writeFile("app/main.py", ["import requests", "import playwright"].join("\n"));
 
-		const diagnostics = await detectHallucinatedImports(buildContext());
-		expect(
-			diagnostics.map((d) => `${d.filePath} ${d.message.match(/"([^"]+)"/)?.[1]}`).sort(),
-		).toEqual(["app/main.py playwright", "tools/shot.py requests"]);
-	});
+			const diagnostics = await detectHallucinatedImports(buildContext());
+			expect(
+				diagnostics.map((d) => `${d.filePath} ${d.message.match(/"([^"]+)"/)?.[1]}`).sort(),
+			).toEqual(["app/main.py playwright", "tools/shot.py requests"]);
+		},
+	);
 
 	it("checks a standalone PEP 723 script when the project has no manifest", async () => {
 		writeFile(
 			"shot.py",
-			["# /// script", '# dependencies = ["playwright"]', "# ///", "import playwright", "import ghostlib"].join(
-				"\n",
-			),
+			[
+				"# /// script",
+				'# dependencies = ["playwright"]',
+				"# ///",
+				"import playwright",
+				"import ghostlib",
+			].join("\n"),
 		);
 		writeFile("plain.py", "import ghostlib\n");
 
@@ -158,8 +176,12 @@ describe("Python dependency sources", () => {
 		expect(await flaggedImports()).toEqual(["ghostlib"]);
 	});
 
-	it("still reads a constraints-named file included with -r", async () => {
-		writeFile("requirements.txt", "-r requirements/constraints.txt\n");
+	it.each([
+		"-r requirements/constraints.txt\n",
+		"-r requirements/constraints.txt\n-c requirements/constraints.txt\n",
+		"-c requirements/constraints.txt\n-r requirements/constraints.txt\n",
+	])("still reads a constraints-named file explicitly required by %s", async (directives) => {
+		writeFile("requirements.txt", directives);
 		writeFile("requirements/constraints.txt", "requests\n");
 		writeFile("app/main.py", "import requests\n");
 
@@ -224,9 +246,11 @@ describe("Python dependency sources", () => {
 		writeFile("package.json", JSON.stringify({ name: "ext", dependencies: {} }));
 		writeFile(
 			"src/extension.ts",
-			['import * as vscode from "vscode";', 'import x from "vscode/sub";', 'import g from "ghost-pkg";'].join(
-				"\n",
-			),
+			[
+				'import * as vscode from "vscode";',
+				'import x from "vscode/sub";',
+				'import g from "ghost-pkg";',
+			].join("\n"),
 		);
 
 		expect(await flaggedImports(["vscode"])).toEqual(["ghost-pkg"]);

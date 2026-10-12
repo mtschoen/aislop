@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	type AgentProvider,
-	type ProviderStatus,
 	PROVIDERS,
+	type ProviderStatus,
 	resolveProvider,
 } from "../../src/agents/providers.js";
 
@@ -56,7 +56,8 @@ describe("agent providers", () => {
 			command: "opencode",
 			args: ["auth", "login"],
 		});
-		expect(pi?.loginCommand).toEqual({ command: "pi", args: ["/login"] });
+		expect(pi?.loginCommand).toEqual({ command: "pi", args: [] });
+		expect(pi?.loginHint).toContain("/login");
 	});
 
 	it("auto-selects the first installed and authenticated provider", () => {
