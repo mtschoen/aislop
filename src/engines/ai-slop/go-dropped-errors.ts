@@ -327,6 +327,9 @@ const declarationBodyStart = (scope: string, paramsEnd: number): number => {
 			return -1;
 		}
 		const char = scope[cursor];
+		if (char === ";") {
+			return -1;
+		}
 		if (char === "(") {
 			const close = closingParen(scope, cursor);
 			if (close === -1) return -1;

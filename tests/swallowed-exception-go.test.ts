@@ -357,6 +357,16 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 				"\tother, _ := safe()",
 				"\t_ = other",
 				"}",
+				"",
+				"func external(safe func() (int, error)); var externalCallback = func() {",
+				"\totherExternal, _ := safe()",
+				"\t_ = otherExternal",
+				"}",
+				"",
+				"func externalAgain(safe func() (int, error)); func runAgain() {",
+				"\tvalueAgain, _ := safe()",
+				"\t_ = valueAgain",
+				"}",
 			].join("\n"),
 		);
 		expect(await flaggedLines()).toEqual(["main.go:7"]);
