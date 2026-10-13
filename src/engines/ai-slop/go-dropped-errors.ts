@@ -318,6 +318,13 @@ const functionBodyStart = (
 };
 
 const shadowedInFunctions = (scope: string, name: string): boolean => {
+	// The enclosing declaration's parameters do not depend on parsing its result type.
+	const declaration = /^\s*func\s+(?:\([^)]*\)\s*)?\w+(?:\[[^\]]*\])?\s*\(/.exec(scope);
+	if (declaration) {
+		const open = declaration[0].length - 1;
+		const end = closingParen(scope, open);
+		if (end !== -1 && bindsName(scope.slice(open + 1, end), name)) return true;
+	}
 	const functions = /\bfunc\s+(?:\([^)]*\)\s*)?(?!func\b)\w+(?:\[[^\]]*\])?\s*\(|\bfunc\s*\(/g;
 	let signatureEnd = 0;
 	for (const match of scope.matchAll(functions)) {

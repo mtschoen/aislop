@@ -191,6 +191,18 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 		["load Loader", "", true],
 		["load, fallback Loader", "", true],
 		["fallback, load Loader", "", true],
+		...[
+			"R\u00e9sultat",
+			"*R\u00e9sultat",
+			"[]R\u00e9sultat",
+			"[1]R\u00e9sultat",
+			"map[string]R\u00e9sultat",
+			"<-chan R\u00e9sultat",
+			"chan<- R\u00e9sultat",
+			"func() R\u00e9sultat",
+			"t\u00e9mps.Time",
+			"Value\u0661",
+		].map((result, index) => ["load Loader", "", true, "", result, `F5-${index + 1}`] as const),
 		["load, fallback func() (string, error)", "", true],
 		["callback func(load int) (string, error)", "", false],
 		["callback func(load int) struct{}", "", false],
@@ -218,7 +230,7 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 			],
 		),
 	])(
-		"treats locally shadowed function as unresolved: %s %s (results: %s %s %s)",
+		"treats locally shadowed function as unresolved: %s %s (results: %s %s %s) %s",
 		async (parameters, local, shadowed, tail = "", result = "") => {
 			write(
 				"main.go",
