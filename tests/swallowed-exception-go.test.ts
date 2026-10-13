@@ -349,6 +349,14 @@ describe("detectSwallowedExceptions (Go blank identifier)", () => {
 				"\tv, _ := safe()",
 				"\t_ = v",
 				"}",
+				"",
+				"func completed(safe func() (int, error)) {}",
+				"",
+				"var value, _ = safe()",
+				"var callback = func() {",
+				"\tother, _ := safe()",
+				"\t_ = other",
+				"}",
 			].join("\n"),
 		);
 		expect(await flaggedLines()).toEqual(["main.go:7"]);

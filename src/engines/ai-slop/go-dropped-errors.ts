@@ -317,13 +317,65 @@ const functionBodyStart = (
 	return null;
 };
 
+const declarationBodyStart = (scope: string, paramsEnd: number): number => {
+	let cursor = paramsEnd + 1;
+	while (cursor < scope.length) {
+		if (
+			scope[cursor] === "\n" &&
+			/^\n\s*(?:var|func|type|const|import|package)\b/.test(scope.slice(cursor))
+		) {
+			return -1;
+		}
+		const char = scope[cursor];
+		if (char === "(") {
+			const close = closingParen(scope, cursor);
+			if (close === -1) return -1;
+			cursor = close + 1;
+			continue;
+		}
+		if (char === "[") {
+			const close = closingBracket(scope, cursor);
+			if (close === -1) return -1;
+			cursor = close + 1;
+			continue;
+		}
+		if (char === "{") {
+			if (/\b(?:struct|interface)\s*$/.test(scope.slice(0, cursor))) {
+				const close = closingBrace(scope, cursor);
+				if (close === -1) return -1;
+				cursor = close + 1;
+				continue;
+			}
+			return cursor;
+		}
+		cursor += 1;
+	}
+	return -1;
+};
+
+const isEnclosingScope = (scope: string, bodyOpen: number): boolean => {
+	let depth = 0;
+	for (let i = bodyOpen; i < scope.length; i += 1) {
+		if (scope[i] === "{") {
+			depth += 1;
+		} else if (scope[i] === "}") {
+			depth -= 1;
+			if (depth === 0) return false;
+		}
+	}
+	return depth > 0;
+};
+
 const shadowedInFunctions = (scope: string, name: string): boolean => {
 	// The enclosing declaration's parameters do not depend on parsing its result type.
 	const declaration = /^\s*func\s+(?:\([^)]*\)\s*)?\w+(?:\[[^\]]*\])?\s*\(/.exec(scope);
 	if (declaration) {
 		const open = declaration[0].length - 1;
 		const end = closingParen(scope, open);
-		if (end !== -1 && bindsName(scope.slice(open + 1, end), name)) return true;
+		if (end !== -1 && bindsName(scope.slice(open + 1, end), name)) {
+			const bodyOpen = declarationBodyStart(scope, end);
+			if (bodyOpen !== -1 && isEnclosingScope(scope, bodyOpen)) return true;
+		}
 	}
 	const functions = /\bfunc\s+(?:\([^)]*\)\s*)?(?!func\b)\w+(?:\[[^\]]*\])?\s*\(|\bfunc\s*\(/g;
 	let signatureEnd = 0;
@@ -341,20 +393,7 @@ const shadowedInFunctions = (scope: string, name: string): boolean => {
 		signatureEnd = body?.bodyOpen ?? Math.max(end + 1, skipGoType(scope, match.index));
 		if (!body) continue;
 
-		let depth = 0;
-		let closed = false;
-		for (let i = body.bodyOpen; i < scope.length; i += 1) {
-			if (scope[i] === "{") {
-				depth += 1;
-			} else if (scope[i] === "}") {
-				depth -= 1;
-				if (depth === 0) {
-					closed = true;
-					break;
-				}
-			}
-		}
-		if (!closed && depth > 0) {
+		if (isEnclosingScope(scope, body.bodyOpen)) {
 			if (bindsName(scope.slice(open + 1, end), name)) return true;
 			if (body.resultsSlice && bindsName(body.resultsSlice, name)) return true;
 		}
