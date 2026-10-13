@@ -1,7 +1,14 @@
 import { projectRelativePosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic } from "../types.js";
-import { SEVERITY_RANK, toSeverity } from "./audit-shared.js";
+import {
+	type AuditOutcome,
+	advisoryIdFromUrl,
+	incompleteAudit,
+	SEVERITY_RANK,
+	toDependencyAdvisory,
+	toSeverity,
+} from "./audit-shared.js";
 import { isRecord, readRecordArray, readString } from "./audit-value.js";
 
 // `dotnet list package --vulnerable --include-transitive --format json` emits the
@@ -112,6 +119,11 @@ const toDotnetDiagnostic = (finding: DotnetFinding): Diagnostic => {
 		category: "Security",
 		fixable: false,
 		detail: "dotnet",
+		packageName: finding.packageId,
+		// NuGet names an advisory only by its advisory url.
+		advisories: finding.vulnerabilities.map((vulnerability) =>
+			toDependencyAdvisory([advisoryIdFromUrl(vulnerability.advisoryurl)]),
+		),
 	};
 };
 
@@ -156,7 +168,22 @@ export const parseDotnetAudit = (output: string, rootDirectory: string): Diagnos
 	return [...findings.values()].map(toDotnetDiagnostic);
 };
 
-export const runDotnetAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
+// The report always carries a `projects` array, even when nothing is vulnerable.
+const isDotnetReport = (text: string): boolean => {
+	try {
+		const parsed: unknown = JSON.parse(text);
+		return isRecord(parsed) && Array.isArray(parsed.projects);
+	} catch {
+		return false;
+	}
+};
+
+// The listing exits zero whether or not a package is vulnerable, so a non-zero exit
+// or output that is not the JSON report is a failed run.
+export const inspectDotnetAudit = async (
+	rootDir: string,
+	timeout: number,
+): Promise<AuditOutcome> => {
 	try {
 		const result = await runSubprocess(
 			"dotnet",
@@ -171,8 +198,11 @@ export const runDotnetAudit = async (rootDir: string, timeout: number): Promise<
 			],
 			{ cwd: rootDir, timeout },
 		);
-		return parseDotnetAudit(result.stdout, rootDir);
+		return {
+			diagnostics: parseDotnetAudit(result.stdout, rootDir),
+			completed: result.exitCode === 0 && isDotnetReport(result.stdout),
+		};
 	} catch {
-		return [];
+		return incompleteAudit();
 	}
 };

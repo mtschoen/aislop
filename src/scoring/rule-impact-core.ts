@@ -1,4 +1,11 @@
-import { advisory, maintainability, mechanical, strict, style } from "./rule-impact-builders.js";
+import {
+	advisory,
+	maintainability,
+	mechanical,
+	reportOnly,
+	strict,
+	style,
+} from "./rule-impact-builders.js";
 import type { RuleScoreImpact } from "./rule-impact-types.js";
 
 export const CORE_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
@@ -63,6 +70,12 @@ export const CORE_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	),
 	"security/dependency-audit-skipped": advisory(
 		"An unavailable audit is visibility loss, not evidence of a vulnerability.",
+	),
+	"security/accepted-advisory": reportOnly(
+		"The project reviewed and accepted every advisory behind this finding; it stays visible at no cost.",
+	),
+	"security/stale-accepted-advisory": reportOnly(
+		"A dead acceptance entry is configuration cleanup, not evidence of a vulnerability.",
 	),
 	"dotnet/projects-skipped": advisory(
 		"Skipping unrestored C# projects is visibility loss, not evidence of a defect.",

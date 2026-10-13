@@ -215,7 +215,8 @@
 		"security": {
 			"default": {
 				"audit": true,
-				"auditTimeout": 25000
+				"auditTimeout": 25000,
+				"acceptedAdvisories": []
 			},
 			"type": "object",
 			"properties": {
@@ -227,6 +228,31 @@
 					"default": 25000,
 					"type": "number",
 					"exclusiveMinimum": 0
+				},
+				"acceptedAdvisories": {
+					"default": [],
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"reason": {
+								"type": "string"
+							},
+							"package": {
+								"type": "string"
+							},
+							"expires": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"reason"
+						]
+					}
 				}
 			}
 		},

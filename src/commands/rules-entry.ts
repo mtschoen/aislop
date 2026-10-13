@@ -13,6 +13,11 @@ const AI_SLOP_INFO = new Set<string>(["ai-slop/em-dash", "ai-slop/smart-punctuat
 
 const SECURITY_WARNINGS = new Set<string>(["security/dependency-audit-skipped"]);
 
+const SECURITY_INFO = new Set<string>([
+	"security/accepted-advisory",
+	"security/stale-accepted-advisory",
+]);
+
 export const toRuleEntry = (engine: string, ruleId: string): RuleEntry => {
 	if (engine === "format") {
 		return { id: ruleId, engine, severity: "warning", fixable: true };
@@ -21,7 +26,11 @@ export const toRuleEntry = (engine: string, ruleId: string): RuleEntry => {
 		return {
 			id: ruleId,
 			engine,
-			severity: SECURITY_WARNINGS.has(ruleId) ? "warning" : "error",
+			severity: SECURITY_INFO.has(ruleId)
+				? "info"
+				: SECURITY_WARNINGS.has(ruleId)
+					? "warning"
+					: "error",
 			fixable: false,
 		};
 	}

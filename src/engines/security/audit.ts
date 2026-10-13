@@ -4,13 +4,21 @@ import path from "node:path";
 import { isDependencyAuditInputFile } from "../../utils/source-file-selection.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic, EngineContext } from "../types.js";
-import { runCargoAudit, runDotnetAudit, runGovulncheck, runPipAudit } from "./audit-ecosystem.js";
+import { applyAcceptedAdvisories, dateStamp } from "./accepted-advisories.js";
+import {
+	inspectCargoAudit,
+	inspectDotnetAudit,
+	inspectGovulncheck,
+	inspectPipAudit,
+} from "./audit-ecosystem.js";
 import {
 	type JsAuditManifest,
 	type JsAuditSource,
 	parseBunAudit,
 	parseJsAudit,
 } from "./audit-js-parser.js";
+import { type AuditOutcome, exitedAsAuditTool } from "./audit-shared.js";
+import { isJsonRecord } from "./audit-value.js";
 import { readRuntimeDependencies } from "./runtime-dependencies.js";
 
 export { parseDotnetAudit } from "./audit-ecosystem.js";
@@ -48,6 +56,15 @@ const PYTHON_DEPENDENCY_MANIFESTS = [
 const hasPythonDependencyManifest = (rootDir: string): boolean =>
 	PYTHON_DEPENDENCY_MANIFESTS.some((file) => fs.existsSync(path.join(rootDir, file)));
 
+const countRelevantEcosystems = (auditLanguages: readonly string[]): number =>
+	[
+		auditLanguages.includes("typescript") || auditLanguages.includes("javascript"),
+		auditLanguages.includes("python"),
+		auditLanguages.includes("go"),
+		auditLanguages.includes("rust"),
+		auditLanguages.includes("csharp"),
+	].filter(Boolean).length;
+
 export const runDependencyAudit = async (context: EngineContext): Promise<Diagnostic[]> => {
 	if (!shouldRunDependencyAudit(context)) return [];
 
@@ -55,19 +72,19 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 	const timeout = context.config.security.auditTimeout;
 	const auditLanguages = context.dependencyAuditLanguages ?? context.languages;
 
-	const promises: Promise<Diagnostic[]>[] = [];
+	const promises: Promise<AuditOutcome>[] = [];
 
 	// npm/pnpm/bun audit
 	if (auditLanguages.includes("typescript") || auditLanguages.includes("javascript")) {
 		if (fs.existsSync(path.join(context.rootDirectory, "pnpm-lock.yaml"))) {
-			promises.push(runPnpmAuditWithFallback(context.rootDirectory, timeout));
+			promises.push(reportedOutcome(runPnpmAuditWithFallback(context.rootDirectory, timeout)));
 		} else if (hasBunLockfile(context.rootDirectory)) {
 			promises.push(runBunAudit(context.rootDirectory, timeout));
 		} else if (
 			fs.existsSync(path.join(context.rootDirectory, "package-lock.json")) ||
 			fs.existsSync(path.join(context.rootDirectory, "package.json"))
 		) {
-			promises.push(runNpmAudit(context.rootDirectory, timeout));
+			promises.push(reportedOutcome(runNpmAudit(context.rootDirectory, timeout)));
 		}
 	}
 
@@ -79,17 +96,17 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 		context.installedTools["pip-audit"] &&
 		hasPythonDependencyManifest(context.rootDirectory)
 	) {
-		promises.push(runPipAudit(context.rootDirectory, timeout));
+		promises.push(inspectPipAudit(context.rootDirectory, timeout));
 	}
 
 	// govulncheck
 	if (auditLanguages.includes("go") && context.installedTools.govulncheck) {
-		promises.push(runGovulncheck(context.rootDirectory, timeout));
+		promises.push(inspectGovulncheck(context.rootDirectory, timeout));
 	}
 
 	// cargo audit
 	if (auditLanguages.includes("rust")) {
-		promises.push(runCargoAudit(context.rootDirectory, timeout));
+		promises.push(inspectCargoAudit(context.rootDirectory, timeout));
 	}
 
 	// dotnet list package --vulnerable (NuGet). Keyed to the manifest-aware
@@ -100,17 +117,42 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 		context.installedTools.dotnet &&
 		context.config.lint.csharp?.projectEvaluation === true
 	) {
-		promises.push(runDotnetAudit(context.rootDirectory, timeout));
+		promises.push(inspectDotnetAudit(context.rootDirectory, timeout));
 	}
 
 	const results = await Promise.allSettled(promises);
 	for (const result of results) {
 		if (result.status === "fulfilled") {
-			diagnostics.push(...result.value);
+			diagnostics.push(...result.value.diagnostics);
 		}
 	}
 
-	return diagnostics;
+	// An acceptance entry names an advisory id, which does not say which ecosystem it
+	// belongs to. So an entry is judged stale only when EVERY audit ecosystem the
+	// project uses was audited in this run and vouched for its own result: a tool that
+	// failed, was offline, was not installed or printed something other than its report
+	// proves nothing about what is absent. Missing a stale notice is preferred to a
+	// false one.
+	const auditedEcosystems = promises.length;
+	const auditCompleted =
+		auditedEcosystems === countRelevantEcosystems(auditLanguages) &&
+		auditedEcosystems > 0 &&
+		results.every((result) => result.status === "fulfilled" && result.value.completed);
+	return applyAcceptedAdvisories(diagnostics, context.config.security.acceptedAdvisories ?? [], {
+		today: dateStamp(new Date()),
+		auditCompleted,
+	});
+};
+
+const AUDIT_SKIPPED_RULE = "security/dependency-audit-skipped";
+
+// npm and pnpm report a run that did not complete as an audit-skipped diagnostic.
+const reportedOutcome = async (run: Promise<Diagnostic[]>): Promise<AuditOutcome> => {
+	const diagnostics = await run;
+	return {
+		diagnostics,
+		completed: !diagnostics.some((diagnostic) => diagnostic.rule === AUDIT_SKIPPED_RULE),
+	};
 };
 
 const hasBunLockfile = (rootDir: string): boolean =>
@@ -278,26 +320,41 @@ const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic
 	}
 };
 
-const runBunAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
+const isBunErrorReport = (text: string): boolean => {
+	try {
+		const parsed: unknown = JSON.parse(text);
+		return isRecord(parsed) && "error" in parsed;
+	} catch {
+		return false;
+	}
+};
+
+const runBunAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+	const skipped = (reason: string): AuditOutcome => ({
+		diagnostics: [auditSkippedDiagnostic("bun audit", `Failed to run bun audit: ${reason}`)],
+		completed: false,
+	});
 	try {
 		const result = await runSubprocess("bun", ["audit", "--json"], {
 			cwd: rootDir,
 			timeout,
 		});
 		if (result.stdout) {
-			return parseBunAudit(result.stdout);
+			// bun audit exits 1 when it finds vulnerabilities and 0 when it finds none;
+			// a report is a package map, so an `error` entry is a failed run.
+			const diagnostics = parseBunAudit(result.stdout);
+			return {
+				diagnostics,
+				completed:
+					isJsonRecord(result.stdout) &&
+					!isBunErrorReport(result.stdout) &&
+					exitedAsAuditTool(result.exitCode, diagnostics.length > 0),
+			};
 		}
-		if (result.exitCode === 0) return [];
-		return [
-			auditSkippedDiagnostic(
-				"bun audit",
-				`Failed to run bun audit: ${result.stderr || "unknown error"}`,
-			),
-		];
+		if (result.exitCode === 0) return { diagnostics: [], completed: true };
+		return skipped(result.stderr || "unknown error");
 	} catch (error) {
-		return [
-			auditSkippedDiagnostic("bun audit", `Failed to run bun audit: ${errorMessageOf(error)}`),
-		];
+		return skipped(errorMessageOf(error));
 	}
 };
 

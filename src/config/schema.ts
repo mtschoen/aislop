@@ -75,9 +75,74 @@ const LintConfigSchema = z.object({
 	})),
 });
 
+const isCalendarDate = (value: string): boolean => {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+	const parsed = new Date(`${value}T00:00:00Z`);
+	return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value);
+};
+
+const ACCEPTED_ADVISORY_FIELDS = new Set(["id", "reason", "package", "expires"]);
+
+const isFilledText = (value: unknown): value is string =>
+	typeof value === "string" && value.trim() !== "";
+
+// Returns what is wrong with an entry, or undefined when it may apply as written.
+// A field that cannot be honored (a non-text `package`, an `expires` that is not a
+// date, a misspelled key) fails the whole entry: dropping only that field would make
+// the entry apply more broadly than what the user wrote.
+const acceptedAdvisoryProblem = (entry: unknown): string | undefined => {
+	if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+		return "must be a mapping with an id and a reason";
+	}
+	const fields = entry as Record<string, unknown>;
+	const unknownField = Object.keys(fields).find((key) => !ACCEPTED_ADVISORY_FIELDS.has(key));
+	if (unknownField !== undefined) return `has an unknown field ${JSON.stringify(unknownField)}`;
+	if (!isFilledText(fields.id)) return "needs a non-empty id";
+	if (!isFilledText(fields.reason)) return "needs a non-empty reason";
+	if ("package" in fields && !isFilledText(fields.package)) {
+		return "has a package that is not a non-empty text value";
+	}
+	if (
+		"expires" in fields &&
+		!(typeof fields.expires === "string" && isCalendarDate(fields.expires))
+	) {
+		return "has an expires that is not a calendar date written as a YYYY-MM-DD text value";
+	}
+	return undefined;
+};
+
+// The whole entry is checked in one step, ahead of the field schema, and reports at
+// most one issue on the entry itself. The loader's recovery removes the value at an
+// issue's path: a field-level issue would remove only the field and keep the entry,
+// an issue on a missing key cannot be removed at all (which costs the whole
+// configuration), and two issues on one entry would remove two list items.
+const AcceptedAdvisorySchema = z.preprocess(
+	(entry, context) => {
+		const problem = acceptedAdvisoryProblem(entry);
+		if (problem === undefined) return entry;
+		context.issues.push({
+			code: "custom",
+			message: `an accepted advisory ${problem}; the entry is ignored`,
+			input: entry,
+		});
+		return z.NEVER;
+	},
+	z.object({
+		id: z.string(),
+		reason: z.string(),
+		package: z.string().optional(),
+		expires: z.string().optional(),
+	}),
+);
+
 const SecurityConfigSchema = z.object({
 	audit: z.boolean().default(true),
 	auditTimeout: z.number().positive().default(25000),
+	/**
+	 * Dependency-audit advisories the project has reviewed and accepted. A package
+	 * finding stops costing score only when every advisory behind it is listed here.
+	 */
+	acceptedAdvisories: z.array(AcceptedAdvisorySchema).default(() => []),
 });
 
 // Mirrors the drive-root and UNC-root detection in
@@ -195,6 +260,7 @@ const AislopConfigSchema = z.object({
 	security: SecurityConfigSchema.default(() => ({
 		audit: true,
 		auditTimeout: 25000,
+		acceptedAdvisories: [],
 	})),
 	aiSlop: AiSlopConfigSchema.default(() => ({
 		hardcodedUserPath: { bannedRoots: [] },

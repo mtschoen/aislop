@@ -13,3 +13,11 @@ export const readRecordArray = (
 	const value = record[key];
 	return Array.isArray(value) ? value.filter(isRecord) : [];
 };
+
+export const isJsonRecord = (text: string): boolean => {
+	try {
+		return isRecord(JSON.parse(text));
+	} catch {
+		return false;
+	}
+};

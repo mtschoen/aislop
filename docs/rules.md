@@ -688,6 +688,8 @@ Finds secrets, risky constructs, and vulnerable dependencies.
 | `security/unsafe-c-call` | Memory-unsafe C string functions (`gets`, `strcpy`, `strcat`, `sprintf`) |
 | `security/vulnerable-dependency` | npm/pip/cargo/go dependency audit |
 | `security/dependency-audit-skipped` | Dependency audit could not run because tooling or lockfile context was missing |
+| `security/accepted-advisory` | Vulnerable dependency whose every advisory is listed in `security.acceptedAdvisories`; shown at info severity and costs no score (see [configuration](configuration.md#accepted-advisories)) |
+| `security/stale-accepted-advisory` | A `security.acceptedAdvisories` entry that matches nothing in the current dependency audit; shown at info severity and costs no score |
 
 ## Architecture (opt-in)
 

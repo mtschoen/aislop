@@ -13,6 +13,12 @@ export type EngineName =
 
 export type ChangeContext = "changed-line" | "existing-file-context" | "unknown";
 
+// One advisory behind a vulnerable-dependency finding, as the audit source names it.
+export interface DependencyAdvisory {
+	id: string;
+	aliases?: string[];
+}
+
 export interface Diagnostic {
 	filePath: string;
 	engine: EngineName;
@@ -27,6 +33,8 @@ export interface Diagnostic {
 	detail?: string;
 	changeContext?: ChangeContext;
 	baselined?: boolean;
+	packageName?: string;
+	advisories?: DependencyAdvisory[];
 }
 
 export interface EngineResult {
@@ -72,6 +80,7 @@ export interface EngineConfig {
 	security: {
 		audit: boolean;
 		auditTimeout: number;
+		acceptedAdvisories?: AislopConfig["security"]["acceptedAdvisories"];
 	};
 	aiSlop?: {
 		hardcodedUserPath?: {

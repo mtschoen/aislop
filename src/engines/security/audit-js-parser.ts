@@ -1,4 +1,5 @@
-import type { Diagnostic } from "../types.js";
+import type { DependencyAdvisory, Diagnostic } from "../types.js";
+import { advisoryIdFromUrl, mergeAdvisories, toDependencyAdvisory } from "./audit-shared.js";
 import { isRecord, readString } from "./audit-value.js";
 
 export type JsAuditSource = "npm audit" | "pnpm audit" | "bun audit";
@@ -18,6 +19,7 @@ interface VulnAggregate {
 	worstSeverity: string;
 	advisories: number;
 	recommendations: Set<string>;
+	identified: DependencyAdvisory[];
 	devOnly?: boolean;
 }
 
@@ -52,10 +54,12 @@ const upsertVuln = (
 	packageName: string,
 	severity: string,
 	recommendation: string,
+	identified: DependencyAdvisory[],
 ): void => {
 	const existing = bucket.get(packageName);
 	if (existing) {
 		existing.advisories++;
+		existing.identified = mergeAdvisories(existing.identified, identified);
 		if ((SEVERITY_RANK[severity] ?? 0) > (SEVERITY_RANK[existing.worstSeverity] ?? 0)) {
 			existing.worstSeverity = severity;
 		}
@@ -66,6 +70,7 @@ const upsertVuln = (
 			worstSeverity: severity,
 			advisories: 1,
 			recommendations: recommendation ? new Set([recommendation]) : new Set(),
+			identified: mergeAdvisories([], identified),
 		});
 	}
 };
@@ -110,6 +115,8 @@ const aggregateToDiagnostic = (agg: VulnAggregate, source: JsAuditSource): Diagn
 		category: "Security",
 		fixable: false,
 		detail: source === "npm audit" ? "npm" : source === "pnpm audit" ? "pnpm" : "bun",
+		packageName: agg.packageName,
+		...(agg.identified.length > 0 ? { advisories: agg.identified } : {}),
 	};
 };
 
@@ -130,7 +137,9 @@ export const parseBunAudit = (output: string): Diagnostic[] => {
 					readString(advisory, "vulnerable_versions") ??
 					readString(advisory, "url") ??
 					"";
-				upsertVuln(bucket, packageName, severity, recommendation);
+				// bun names an advisory only by its GitHub advisory url.
+				const identified = toDependencyAdvisory([advisoryIdFromUrl(readString(advisory, "url"))]);
+				upsertVuln(bucket, packageName, severity, recommendation, [identified]);
 			}
 		}
 
@@ -156,8 +165,13 @@ const parseLegacyAdvisories = (
 		const severity = (readString(advisory, "severity") ?? "moderate").toLowerCase();
 		const recommendation =
 			readString(advisory, "recommendation") ?? readString(advisory, "title") ?? "";
+		// pnpm reports `github_advisory_id` and the advisory url; older releases add `cves`.
+		const identified = toDependencyAdvisory(
+			[readString(advisory, "github_advisory_id"), advisoryIdFromUrl(readString(advisory, "url"))],
+			advisory.cves,
+		);
 
-		upsertVuln(bucket, packageName, severity, recommendation);
+		upsertVuln(bucket, packageName, severity, recommendation, [identified]);
 	}
 
 	return [...bucket.values()].map((agg) => aggregateToDiagnostic(agg, source));
@@ -167,6 +181,14 @@ const parseLegacyAdvisories = (
 // only affected through another, so reporting it would duplicate the root cause.
 const carriesAdvisory = (vulnerability: Record<string, unknown>): boolean =>
 	Array.isArray(vulnerability.via) && vulnerability.via.some(isRecord);
+
+// npm names an advisory only by the GitHub advisory url of its `via` object.
+const viaAdvisories = (vulnerability: Record<string, unknown>): DependencyAdvisory[] =>
+	Array.isArray(vulnerability.via)
+		? vulnerability.via
+				.filter(isRecord)
+				.map((via) => toDependencyAdvisory([advisoryIdFromUrl(readString(via, "url"))]))
+		: [];
 
 const parseModernVulnerabilities = (
 	vulnerabilities: Record<string, unknown>,
@@ -200,7 +222,7 @@ const parseModernVulnerabilities = (
 			}
 		}
 
-		upsertVuln(bucket, packageName, severity, recommendation);
+		upsertVuln(bucket, packageName, severity, recommendation, viaAdvisories(vulnerability));
 
 		if (manifest) {
 			const aggregate = bucket.get(packageName);

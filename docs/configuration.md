@@ -25,6 +25,7 @@ quality:
 security:
   audit: true
   auditTimeout: 25000
+  acceptedAdvisories: [] # reviewed dependency advisories (see Accepted advisories)
 
 aiSlop:
   hardcodedUserPath:
@@ -129,6 +130,68 @@ Control what triggers code quality warnings:
 | `maxNesting` | 5 | Max control-flow nesting depth |
 | `maxParams` | 6 | Max function parameters |
 | `repeatedLiteralThreshold` | 3 | Permitted occurrences of one named literal in one file; values are reported only when this threshold is exceeded (for example, 3 reports 4 or more occurrences) |
+
+## Accepted advisories
+
+The dependency audit reports one `security/vulnerable-dependency` finding per
+vulnerable package. When an advisory has been reviewed and cannot be fixed (no
+patched release exists, or the vulnerable code is unreachable), list it under
+`security.acceptedAdvisories` instead of switching the audit off or excluding the
+manifest:
+
+```yaml
+security:
+  acceptedAdvisories:
+    - id: GHSA-xxxx-xxxx-xxxx
+      reason: dev-only through the stylesheet linter; no untrusted input reaches it
+      package: example-package   # optional
+      expires: 2027-01-31        # optional
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `id` | yes | The advisory identifier as the audit reports it. Matching ignores case and also checks the aliases the audit source provides |
+| `reason` | yes | Why the advisory is acceptable. It is repeated in the scan output |
+| `package` | no | Apply the entry only to findings for this package |
+| `expires` | no | Last day (`YYYY-MM-DD`) the entry applies. From the next day the finding fails again and its help says the acceptance expired |
+
+How it behaves:
+
+- A package finding is accepted only when **every** advisory behind it has an
+  entry. It is then reported as `security/accepted-advisory` at info severity with
+  the reasons in its help text. It stays in the terminal and JSON output, and it
+  costs no score and does not fail the run.
+- A package with one accepted and one unaccepted advisory keeps failing as
+  `security/vulnerable-dependency`, and its help text names the advisory that is
+  not accepted.
+- The help text of every vulnerable-dependency finding lists the advisory ids
+  behind it, so the id to put in the list can be read from a scan.
+- An entry applies only as written. One without a non-empty `id` and `reason`,
+  with a `package` that is not non-empty text, with an `expires` that is not a
+  `YYYY-MM-DD` calendar date, or with an unknown field is reported
+  on stderr as an invalid configuration field and the whole entry is dropped; the
+  finding it was meant to cover keeps failing.
+- An entry that matches nothing is reported as `security/stale-accepted-advisory`
+  (info severity, no score cost) so it gets removed. This is only reported when
+  every audit source that ran completed; a tool that failed, was offline, or
+  printed something other than its report proves nothing.
+
+Which identifier each audit source provides:
+
+| Audit source | Identifier | Aliases |
+|---|---|---|
+| `npm audit`, `bun audit` | GHSA id, taken from the advisory url | none (no CVE id is reported) |
+| `pnpm audit` | GHSA id (`github_advisory_id`, or the advisory url) | CVE ids when the pnpm release reports `cves` |
+| `dotnet list package --vulnerable` | GHSA id, taken from the advisory url | none |
+| `pip-audit` | the vulnerability id (`PYSEC-...` or `GHSA-...`) | the reported aliases (CVE, GHSA) |
+| `cargo audit` | `RUSTSEC-...` | the reported aliases (CVE, GHSA) |
+
+An advisory the audit source reports without any identifier is listed as
+`unidentified` and can never be accepted. Go (`govulncheck`) findings carry no
+advisory identifiers, so they cannot be accepted this way.
+
+With `ci.baseline` set, accepted and stale advisory findings are not counted as
+new findings and do not change the exit code.
 
 ## Hardcoded user path roots
 

@@ -1,5 +1,6 @@
 import { readBaseline, resolveBaselinePath } from "../baseline/baseline-file.js";
 import { matchBaseline } from "../baseline/match.js";
+import { isAdvisoryAcceptanceRecord } from "../engines/security/accepted-advisories.js";
 import type { EngineName, EngineResult } from "../engines/types.js";
 import { symbols as defaultSymbols, type Symbols } from "../ui/symbols.js";
 import { theme as defaultTheme, style, type Theme } from "../ui/theme.js";
@@ -42,17 +43,21 @@ export const applyScanBaseline = (
 
 	const matched = matchBaseline({
 		baseline,
-		diagnostics: input.results.flatMap((result) => result.diagnostics),
+		diagnostics: input.results
+			.flatMap((result) => result.diagnostics)
+			.filter((diagnostic) => !isAdvisoryAcceptanceRecord(diagnostic)),
 		rootDirectory: input.rootDirectory,
 		scopeFiles,
 		staleEngines,
 	});
+	// Accepted and stale advisory records skip the baseline and keep their position.
 	let offset = 0;
-	const results = input.results.map((result) => {
-		const diagnostics = matched.diagnostics.slice(offset, offset + result.diagnostics.length);
-		offset += result.diagnostics.length;
-		return { ...result, diagnostics };
-	});
+	const results = input.results.map((result) => ({
+		...result,
+		diagnostics: result.diagnostics.map((diagnostic) =>
+			isAdvisoryAcceptanceRecord(diagnostic) ? diagnostic : matched.diagnostics[offset++],
+		),
+	}));
 
 	return {
 		results,

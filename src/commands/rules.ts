@@ -150,6 +150,8 @@ const BUILTIN_RULES: { engine: string; rules: string[] }[] = [
 			"security/unsafe-deserialization",
 			"security/unsafe-c-call",
 			"security/dependency-audit-skipped",
+			"security/accepted-advisory",
+			"security/stale-accepted-advisory",
 		],
 	},
 ];

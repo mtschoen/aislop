@@ -176,7 +176,10 @@ const writeAislopConfig = (configDir: string, configPath: string, choices: InitC
 			typecheck: choices.typecheck,
 			expoDoctor: DEFAULT_CONFIG.lint.expoDoctor,
 		},
-		security: { ...DEFAULT_CONFIG.security },
+		security: {
+			audit: DEFAULT_CONFIG.security.audit,
+			auditTimeout: DEFAULT_CONFIG.security.auditTimeout,
+		},
 		scoring: {
 			weights: { ...DEFAULT_CONFIG.scoring.weights },
 			thresholds: { ...DEFAULT_CONFIG.scoring.thresholds },

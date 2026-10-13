@@ -85,6 +85,8 @@ const RULE_LABELS: Record<string, string> = {
 	"security/hardcoded-secret": "Possible hardcoded secret",
 	"security/vulnerable-dependency": "Vulnerable dependency",
 	"security/dependency-audit-skipped": "Dependency audit skipped",
+	"security/accepted-advisory": "Accepted advisory",
+	"security/stale-accepted-advisory": "Stale accepted advisory",
 	"security/eval": "eval() usage",
 	"security/innerhtml": "innerHTML assignment",
 	"security/dangerously-set-innerhtml": "dangerouslySetInnerHTML (XSS risk)",
@@ -189,6 +191,10 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"security/hardcoded-secret": "Secret-looking token is embedded in source.",
 	"security/vulnerable-dependency": "Dependency audit reported a known vulnerability.",
 	"security/dependency-audit-skipped": "Audit could not run because inputs/tools are missing.",
+	"security/accepted-advisory":
+		"Vulnerable dependency whose every advisory is accepted in security.acceptedAdvisories.",
+	"security/stale-accepted-advisory":
+		"security.acceptedAdvisories entry that matches nothing in the dependency audit.",
 	"security/eval": "Dynamic code execution can run attacker-controlled input.",
 	"security/innerhtml": "Raw HTML assignment can introduce XSS.",
 	"security/dangerously-set-innerhtml": "React raw HTML escape hatch can introduce XSS.",
