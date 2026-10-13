@@ -5,6 +5,7 @@ import { terminalLink } from "./link.js";
 import { symbols as defaultSymbols, type Symbols } from "./symbols.js";
 import { theme as defaultTheme, style, type Theme, type Token } from "./theme.js";
 import { padEnd } from "./width.js";
+import { siteUrl } from "./site-url.js";
 
 // Named so callers building several NextStep rows repeat a constant rather
 // than the "primary" string literal (ai-slop/repeated-magic-literal).
@@ -214,7 +215,10 @@ export const renderStarCta = (deps: SummaryDeps = {}): string => {
 
 export const renderTeamCta = (deps: SummaryDeps = {}): string => {
 	const t = deps.theme ?? defaultTheme;
-	const href = terminalLink("https://scanaislop.com/contact?intent=team-baseline");
+	const href = terminalLink(
+		siteUrl("/contact?intent=team-baseline", "team-baseline-cta"),
+		"https://scanaislop.com/contact?intent=team-baseline",
+	);
 	return `\n ${style(t, "muted", `-> Using aislop with a team? Get a 14-day team baseline at ${href}`)}\n`;
 };
 
