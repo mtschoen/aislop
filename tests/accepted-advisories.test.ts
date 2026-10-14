@@ -761,12 +761,12 @@ describe("a failed audit run never counts as completed", () => {
 		expect(staleRuleOf(diagnostics)).toBe(false);
 	});
 
-	it("reports nothing as stale in a project that includes Go, whose audit cannot report advisories", async () => {
+	it("reports nothing as stale in a project that includes Go when govulncheck never produced a report", async () => {
 		fs.writeFileSync(path.join(directory, "package.json"), '{"name":"sample"}\n');
 		fs.writeFileSync(path.join(directory, "package-lock.json"), "{}\n");
 		runSubprocess.mockImplementation(async (command: string) =>
 			command === "govulncheck"
-				? { stdout: `${JSON.stringify({ config: {} })}\n`, stderr: "", exitCode: 0 }
+				? { stdout: `${JSON.stringify({ progress: {} })}\n`, stderr: "", exitCode: 0 }
 				: { stdout: npmAudit([ADVISORY_ONE]), stderr: "", exitCode: 1 },
 		);
 

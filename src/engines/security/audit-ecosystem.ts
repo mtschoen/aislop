@@ -10,6 +10,7 @@ import {
 import { isRecord, readRecordArray, readString } from "./audit-value.js";
 
 export { inspectDotnetAudit, parseDotnetAudit } from "./audit-dotnet.js";
+export { inspectGovulncheck, runGovulncheck } from "./audit-govulncheck.js";
 
 const withFixHint = (rest: string): string => {
 	const invocation = detectInvocation();
@@ -84,75 +85,6 @@ export const inspectPipAudit = async (rootDir: string, timeout: number): Promise
 
 export const runPipAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> =>
 	(await inspectPipAudit(rootDir, timeout)).diagnostics;
-
-const toGovulnDiagnostic = (entry: Record<string, unknown>): Diagnostic | null => {
-	const vulnerability = entry.vulnerability;
-	if (!isRecord(vulnerability)) return null;
-	const id = readString(vulnerability, "id");
-	if (!id) return null;
-	return {
-		filePath: "go.mod",
-		engine: "security",
-		rule: "security/vulnerable-dependency",
-		severity: "error",
-		message: `Go vulnerability: ${id}`,
-		help: withFixHint(readString(vulnerability, "details") ?? ""),
-		line: 0,
-		column: 0,
-		category: "Security",
-		fixable: false,
-	};
-};
-
-// The govulncheck stream is JSON-lines; entries open with this brace. Kept at
-// module scope so the literal never sits inside a function body, where a
-// brace-depth scanner that does not mask strings would miscount it.
-const JSON_OBJECT_PREFIX = "{";
-
-const parseGovulncheckOutput = (output: string): Diagnostic[] => {
-	const diagnostics: Diagnostic[] = [];
-	for (const line of output.split("\n")) {
-		if (!line.startsWith(JSON_OBJECT_PREFIX)) continue;
-
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line);
-		} catch {
-			continue;
-		}
-		if (!isRecord(parsed)) continue;
-
-		const diagnostic = toGovulnDiagnostic(parsed);
-		if (diagnostic) diagnostics.push(diagnostic);
-	}
-	return diagnostics;
-};
-
-// govulncheck exits zero in JSON mode whether or not it found anything, so a
-// non-zero exit is a failed run.
-export const inspectGovulncheck = async (
-	rootDir: string,
-	timeout: number,
-): Promise<AuditOutcome> => {
-	try {
-		const result = await runSubprocess("govulncheck", ["-json", "./..."], {
-			cwd: rootDir,
-			timeout,
-		});
-		if (!result.stdout) return incompleteAudit();
-		return {
-			diagnostics: parseGovulncheckOutput(result.stdout),
-			// The parser above cannot attach advisories yet (schoen/aislop issue 91), so
-			// this run can never vouch that an accepted advisory is gone.
-			completed: false,
-		};
-	} catch {
-		return incompleteAudit();
-	}
-};
-
-export const runGovulncheck = async (rootDir: string, timeout: number): Promise<Diagnostic[]> =>
-	(await inspectGovulncheck(rootDir, timeout)).diagnostics;
 
 export const inspectCargoAudit = async (
 	rootDir: string,

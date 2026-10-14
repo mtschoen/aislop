@@ -249,9 +249,13 @@ describe("external ecosystem audit payloads", () => {
 				exitCode: 1,
 			})
 			.mockResolvedValueOnce({
-				stdout: `${JSON.stringify({ vulnerability: { id: "GO-1", details: "unsafe" } })}\n`,
+				stdout: `${JSON.stringify({ config: { protocol_version: "v1.0.0" } })}\n${JSON.stringify({ osv: { id: "GO-1", summary: "unsafe" } })}\n${JSON.stringify(
+					{
+						finding: { osv: "GO-1", trace: [{ module: "example.com/dep", function: "Run" }] },
+					},
+				)}\n`,
 				stderr: "",
-				exitCode: 1,
+				exitCode: 0,
 			});
 
 		await expect(runPipAudit("/repo", 1000)).resolves.toHaveLength(1);
@@ -280,13 +284,16 @@ describe("external ecosystem audit payloads", () => {
 				exitCode: 1,
 			})
 			.mockResolvedValueOnce({
-				stdout: `[1]\n${JSON.stringify({ vulnerability: [] })}\n${JSON.stringify({ vulnerability: { id: 42 } })}\n`,
+				stdout: `[1]\n${JSON.stringify({ finding: [] })}\n${JSON.stringify({ finding: { osv: 42 } })}\n${JSON.stringify({ finding: { osv: "GO-2", trace: [{ module: "example.com/dep" }] } })}\n`,
 				stderr: "",
 				exitCode: 1,
 			});
 
 		await expect(runPipAudit("/repo", 1000)).resolves.toEqual([]);
 		await expect(runCargoAudit("/repo", 1000)).resolves.toEqual([]);
-		await expect(runGovulncheck("/repo", 1000)).resolves.toEqual([]);
+		const malformed = await runGovulncheck("/repo", 1000);
+		expect(malformed.map((diagnostic) => diagnostic.rule)).toEqual([
+			"security/dependency-audit-skipped",
+		]);
 	});
 });

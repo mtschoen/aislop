@@ -185,10 +185,13 @@ Which identifier each audit source provides:
 | `dotnet list package --vulnerable` | GHSA id, taken from the advisory url | none |
 | `pip-audit` | the vulnerability id (`PYSEC-...` or `GHSA-...`) | the reported aliases (CVE, GHSA) |
 | `cargo audit` | `RUSTSEC-...` | the reported aliases (CVE, GHSA) |
+| `govulncheck` | the Go vulnerability id (`GO-YYYY-NNNN`) | the aliases of the OSV message (CVE, GHSA) |
 
 An advisory the audit source reports without any identifier is listed as
-`unidentified` and can never be accepted. Go (`govulncheck`) findings carry no
-advisory identifiers, so they cannot be accepted this way.
+`unidentified` and can never be accepted. Go (`govulncheck`) reports only
+advisories whose vulnerable symbol your code calls, one finding per vulnerable
+module, so a `package` on an entry names the Go module (for example
+`github.com/golang-jwt/jwt/v4`) and accepting one module never covers another.
 
 With `ci.baseline` set, accepted and stale advisory findings are not counted as
 new findings and do not change the exit code.

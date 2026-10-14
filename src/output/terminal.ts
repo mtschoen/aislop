@@ -225,15 +225,19 @@ export const printEngineStatus = (result: EngineResult): void => {
 	} else {
 		const errors = result.diagnostics.filter((d) => d.severity === "error").length;
 		const warnings = result.diagnostics.filter((d) => d.severity === "warning").length;
+		const infos = result.diagnostics.length - errors - warnings;
 		const parts: string[] = [];
 		if (errors > 0) parts.push(`${errors} error${errors === 1 ? "" : "s"}`);
 		if (warnings > 0) parts.push(`${warnings} warning${warnings === 1 ? "" : "s"}`);
-		const statusText = `${parts.join(", ")}, ${elapsed}`;
+		if (infos > 0) parts.push(`${infos} info`);
+		const statusText = [...parts, elapsed].join(", ");
 
 		if (errors > 0) {
 			log.error(`${label}: done (${statusText})`);
-		} else {
+		} else if (warnings > 0) {
 			log.warn(`${label}: done (${statusText})`);
+		} else {
+			log.info(`${label}: done (${statusText})`);
 		}
 	}
 };
