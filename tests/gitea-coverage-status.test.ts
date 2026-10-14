@@ -277,4 +277,139 @@ describe("Gitea coverage status", () => {
 			expect(stdout).toBe("");
 		},
 	);
+
+	it.skipIf(process.platform === "win32").each([
+		{
+			name: "exact node banner on exit 0 produces baked true",
+			version: "24.18.0",
+			banner: "v24.18.0",
+			exitCode: 0,
+			expectedState: "true",
+			expectedExit: 0,
+		},
+		{
+			name: "node command returning nonzero fails probe",
+			version: "24.18.0",
+			banner: "v24.18.0",
+			exitCode: 1,
+			expectedState: "false",
+			expectedExit: 0,
+		},
+		{
+			name: "node version prefix collision fails probe",
+			version: "24.18.0",
+			banner: "v24.18.00",
+			exitCode: 0,
+			expectedState: "false",
+			expectedExit: 0,
+		},
+		{
+			name: "missing image.env falls back to false",
+			version: null,
+			banner: null,
+			exitCode: 0,
+			expectedState: "false",
+			expectedExit: 0,
+		},
+		{
+			name: "unsupported or removed tool mode exits 2",
+			version: "24.18.0",
+			banner: "v24.18.0",
+			exitCode: 0,
+			expectedState: null,
+			expectedExit: 2,
+			tool: "python",
+		},
+		{
+			name: "directory GITHUB_PATH publication failure reports false",
+			version: "24.18.0",
+			banner: "v24.18.0",
+			exitCode: 0,
+			expectedState: "false",
+			expectedExit: 0,
+			githubPathType: "directory",
+		},
+		{
+			name: "absent parent GITHUB_PATH publication failure reports false",
+			version: "24.18.0",
+			banner: "v24.18.0",
+			exitCode: 0,
+			expectedState: "false",
+			expectedExit: 0,
+			githubPathType: "missing-parent",
+		},
+	])(
+		"probes baked toolchain: $name",
+		({
+			version,
+			banner,
+			exitCode,
+			expectedState,
+			expectedExit,
+			tool = "node",
+			githubPathType = "file",
+		}) => {
+			const temporaryDirectory = fs.mkdtempSync(
+				path.join(os.tmpdir(), "aislop-baked-toolchain-"),
+			);
+			const githubOutputPath = path.join(temporaryDirectory, "github-output");
+			let githubPath = path.join(temporaryDirectory, "github-path");
+			fs.writeFileSync(githubOutputPath, "");
+			if (githubPathType === "directory") {
+				fs.mkdirSync(githubPath);
+			} else if (githubPathType === "missing-parent") {
+				githubPath = path.join(
+					temporaryDirectory,
+					"missing-parent-directory",
+					"github-path",
+				);
+			} else {
+				fs.writeFileSync(githubPath, "");
+			}
+
+			try {
+				let imageEnvPath = path.join(temporaryDirectory, "nonexistent.env");
+				if (version !== null) {
+					imageEnvPath = path.join(temporaryDirectory, "image.env");
+					fs.writeFileSync(imageEnvPath, `FLEET_NODE_VERSION="${version}"\n`, "utf8");
+				}
+
+				const helperPath = path.resolve("ci/baked-toolchain.sh");
+				const script = [
+					banner !== null
+						? `function /opt/fleet/node-${version}/bin/node { printf '%s\\n' "${banner}"; return ${exitCode}; }`
+						: "",
+					`source "${helperPath}" "${tool}"`,
+				].join("\n");
+
+				const result = spawnSync("/bin/bash", ["-c", script], {
+					env: {
+						...process.env,
+						FLEET_IMAGE_ENV: imageEnvPath,
+						GITHUB_OUTPUT: githubOutputPath,
+						GITHUB_PATH: githubPath,
+					},
+					encoding: "utf8",
+				});
+
+				expect(result.status).toBe(expectedExit);
+				if (expectedState !== null) {
+					const outputContent = fs.readFileSync(githubOutputPath, "utf8");
+					expect(outputContent).toContain(`${tool}=${expectedState}`);
+					expect(result.stdout).toContain(`baked ${tool}: ${expectedState}`);
+
+					if (expectedState === "true") {
+						const pathContent = fs.readFileSync(githubPath, "utf8");
+						expect(pathContent).toContain(`/opt/fleet/node-${version}/bin`);
+					} else if (fs.existsSync(githubPath) && fs.statSync(githubPath).isFile()) {
+						const pathContent = fs.readFileSync(githubPath, "utf8");
+						expect(pathContent).not.toContain(`/opt/fleet/node-${version}/bin`);
+					}
+				}
+			} finally {
+				fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+			}
+		},
+	);
 });
+

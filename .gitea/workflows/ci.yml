@@ -87,7 +87,13 @@ jobs:
 
       - uses: pnpm/action-setup@v5
 
+      - name: Detect toolchain baked into the runner image
+        id: baked
+        shell: bash
+        run: bash ci/baked-toolchain.sh node
+
       - uses: actions/setup-node@v6
+        if: steps.baked.outputs.node != 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -219,7 +225,13 @@ jobs:
 
       - uses: pnpm/action-setup@v5
 
+      - name: Detect toolchain baked into the runner image
+        id: baked
+        shell: bash
+        run: bash ci/baked-toolchain.sh node
+
       - uses: actions/setup-node@v6
+        if: steps.baked.outputs.node != 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -341,7 +353,13 @@ jobs:
 
       - uses: pnpm/action-setup@v5
 
+      - name: Detect toolchain baked into the runner image
+        id: baked
+        shell: bash
+        run: bash ci/baked-toolchain.sh node
+
       - uses: actions/setup-node@v6
+        if: steps.baked.outputs.node != 'true'
         with:
           node-version: 22
           cache: pnpm
