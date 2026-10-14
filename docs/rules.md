@@ -688,8 +688,25 @@ Finds secrets, risky constructs, and vulnerable dependencies.
 | `security/unsafe-c-call` | Memory-unsafe C string functions (`gets`, `strcpy`, `strcat`, `sprintf`) |
 | `security/vulnerable-dependency` | npm/pip/cargo/go dependency audit |
 | `security/dependency-audit-skipped` | Dependency audit could not run because tooling or lockfile context was missing |
+| `security/dependency-audit-policy` | Cargo audit exited 1 with policy warnings but no vulnerability findings; the completed report denied configured dependency policy |
 | `security/accepted-advisory` | Vulnerable dependency whose every advisory is listed in `security.acceptedAdvisories`; shown at info severity and costs no score (see [configuration](configuration.md#accepted-advisories)) |
 | `security/stale-accepted-advisory` | A `security.acceptedAdvisories` entry that matches nothing in the current dependency audit; shown at info severity and costs no score |
+
+Python reports containing `skip_reason` and malformed nested pip, Cargo, or NuGet
+reports are incomplete: readable vulnerability findings remain visible next to the
+audit-skipped warning, and unmatched advisory acceptances are not marked stale.
+NuGet report problems also make the audit incomplete, including exit-zero warnings
+about sources without vulnerability data. Omitted empty NuGet framework/package
+collections are valid. Cargo discovery checks PATH and Cargo's home bin directory
+without executing Cargo. If neither finds cargo-audit, it asks Cargo for its
+subcommands only for enabled, in-scope dependency audits in a project with a Rust
+manifest. Source-engine language selection does not restrict manifest-based audits.
+
+The Cargo policy rule reports the warning set as an error only when exit 1 has no
+vulnerability findings. JSON does not identify which warnings were denied, so the
+rule does not guess individual denial status or reinterpret `.cargo/audit.toml`.
+Exit-zero informational warnings do not trigger it. A report with vulnerabilities
+already carries error findings; its warnings alone do not prove a policy denial.
 
 ## Architecture (opt-in)
 

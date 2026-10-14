@@ -237,13 +237,24 @@ describe("external ecosystem audit payloads", () => {
 	it("parses valid pip, Cargo, and govuln results", async () => {
 		runSubprocess
 			.mockResolvedValueOnce({
-				stdout: JSON.stringify({ dependencies: [{ name: "requests", vulns: [{}] }] }),
+				stdout: JSON.stringify({
+					dependencies: [{ name: "requests", version: "2.0.0", vulns: [{ id: "PYSEC-1" }] }],
+				}),
 				stderr: "",
 				exitCode: 1,
 			})
 			.mockResolvedValueOnce({
 				stdout: JSON.stringify({
-					vulnerabilities: { list: [{ advisory: { id: "RUSTSEC-1", title: "unsafe" } }] },
+					vulnerabilities: {
+						found: true,
+						count: 1,
+						list: [
+							{
+								advisory: { id: "RUSTSEC-1", title: "unsafe" },
+								package: { name: "a-crate", version: "1.0.0" },
+							},
+						],
+					},
 				}),
 				stderr: "",
 				exitCode: 1,
@@ -289,8 +300,11 @@ describe("external ecosystem audit payloads", () => {
 				exitCode: 1,
 			});
 
-		await expect(runPipAudit("/repo", 1000)).resolves.toEqual([]);
-		await expect(runCargoAudit("/repo", 1000)).resolves.toEqual([]);
+		const skippedRules = ["security/dependency-audit-skipped"];
+		const pipRules = (await runPipAudit("/repo", 1000)).map((diagnostic) => diagnostic.rule);
+		const cargoRules = (await runCargoAudit("/repo", 1000)).map((diagnostic) => diagnostic.rule);
+		expect(pipRules).toEqual(skippedRules);
+		expect(cargoRules).toEqual(skippedRules);
 		const malformed = await runGovulncheck("/repo", 1000);
 		expect(malformed.map((diagnostic) => diagnostic.rule)).toEqual([
 			"security/dependency-audit-skipped",

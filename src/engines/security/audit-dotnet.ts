@@ -6,10 +6,12 @@ import {
 	advisoryIdFromUrl,
 	incompleteAudit,
 	SEVERITY_RANK,
+	skippedAuditDiagnostic,
 	toDependencyAdvisory,
 	toSeverity,
+	warnWhenIncomplete,
 } from "./audit-shared.js";
-import { isRecord, readRecordArray, readString } from "./audit-value.js";
+import { isRecord, isRecordArray, readRecordArray, readString } from "./audit-value.js";
 
 // `dotnet list package --vulnerable --include-transitive --format json` emits the
 // schema projects -> frameworks -> {topLevelPackages, transitivePackages} -> packages,
@@ -172,18 +174,53 @@ export const parseDotnetAudit = (output: string, rootDirectory: string): Diagnos
 const isDotnetReport = (text: string): boolean => {
 	try {
 		const parsed: unknown = JSON.parse(text);
-		return isRecord(parsed) && Array.isArray(parsed.projects);
+		if (!isRecord(parsed) || !isRecordArray(parsed.projects)) return false;
+		// NuGet aggregates project problems at the report root. Warning-level
+		// problems can mean missing vulnerability data even with exit zero.
+		if (
+			parsed.problems !== undefined &&
+			(!isRecordArray(parsed.problems) || parsed.problems.length > 0)
+		)
+			return false;
+		return parsed.projects.every(
+			(project) =>
+				Boolean(readString(project, "path")) &&
+				(project.frameworks === undefined ||
+					(isRecordArray(project.frameworks) &&
+						project.frameworks.every(
+							(framework) =>
+								Boolean(readString(framework, "framework")) &&
+								["topLevelPackages", "transitivePackages"].every((key) => {
+									const packages = framework[key];
+									return (
+										packages === undefined ||
+										(isRecordArray(packages) &&
+											packages.every(
+												(pkg) =>
+													Boolean(readString(pkg, "id")) &&
+													isRecordArray(pkg.vulnerabilities) &&
+													pkg.vulnerabilities.every(
+														(vulnerability) =>
+															Boolean(readString(vulnerability, "advisoryurl")) &&
+															Boolean(readString(vulnerability, "severity")),
+													),
+											))
+									);
+								}),
+						))),
+		);
 	} catch {
 		return false;
 	}
 };
 
-// The listing exits zero whether or not a package is vulnerable, so a non-zero exit
-// or output that is not the JSON report is a failed run.
-export const inspectDotnetAudit = async (
-	rootDir: string,
-	timeout: number,
-): Promise<AuditOutcome> => {
+const DOTNET_AUDIT_SKIPPED = skippedAuditDiagnostic(
+	"*.csproj",
+	"dotnet list package",
+	"dotnet list package printed no report, failed, timed out or printed something that is not its JSON report, so NuGet vulnerabilities may be missing. Re-run `dotnet list package --vulnerable --include-transitive --format json` and check its output.",
+);
+
+const auditDotnet = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
 	try {
 		const result = await runSubprocess(
 			"dotnet",
@@ -206,3 +243,9 @@ export const inspectDotnetAudit = async (
 		return incompleteAudit();
 	}
 };
+
+// The listing exits zero whether or not a package is vulnerable, and with --format json
+// it always prints the report (a `projects` array, empty of packages when nothing is
+// vulnerable), so a non-zero exit or output that is not that report is a failed run.
+export const inspectDotnetAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> =>
+	warnWhenIncomplete(await auditDotnet(rootDir, timeout), DOTNET_AUDIT_SKIPPED);

@@ -17,6 +17,7 @@ export const createEngineContext = (
 ): EngineContext => ({
 	rootDirectory,
 	languages: projectInfo.languages,
+	dependencyAuditLanguages: options.dependencyAuditLanguages,
 	frameworks: projectInfo.frameworks,
 	// Fixers rewrite files, so the exclude list has to reach them: without it a
 	// whole-project tool such as dotnet format would reformat excluded code.
@@ -42,9 +43,6 @@ export const createEngineContext = (
 				projectFiles: options.scope.projectFiles,
 				dependencyAuditFiles: options.scope.dependencyAuditFiles,
 				dependencyAuditScope: options.scope.dependencyAuditScope,
-				// Scoped languages come from the selected files, so a manifest-only scope has
-				// none. Dependency work is about the project, not the selection.
-				dependencyAuditLanguages: options.dependencyAuditLanguages,
 			}
 		: {}),
 });

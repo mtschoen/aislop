@@ -10,6 +10,32 @@ export interface AuditOutcome {
 
 export const incompleteAudit = (): AuditOutcome => ({ diagnostics: [], completed: false });
 
+const SKIPPED_AUDIT_RULE = "security/dependency-audit-skipped";
+
+export const skippedAuditDiagnostic = (
+	filePath: string,
+	tool: string,
+	help: string,
+): Diagnostic => ({
+	filePath,
+	engine: "security",
+	rule: SKIPPED_AUDIT_RULE,
+	severity: "warning",
+	message: `Dependency audit did not complete (${tool})`,
+	help,
+	line: 0,
+	column: 0,
+	category: "Security",
+	fixable: false,
+});
+
+// An audit that did not complete must never read as a clean result, so it carries the
+// visible skipped-audit warning in front of whatever findings could still be read.
+export const warnWhenIncomplete = (outcome: AuditOutcome, skipped: Diagnostic): AuditOutcome =>
+	outcome.completed
+		? outcome
+		: { diagnostics: [skipped, ...outcome.diagnostics], completed: false };
+
 export const SEVERITY_RANK: Record<string, number> = {
 	critical: 4,
 	high: 3,

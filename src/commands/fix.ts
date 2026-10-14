@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 import { type AislopConfig, findConfigDir, RULES_FILE } from "../config/index.js";
 import { applyFileOverrides } from "../config/overrides.js";
 import { runEngines } from "../engines/orchestrator.js";
+import { shouldRunDependencyAudit } from "../engines/security/audit.js";
 import type { Diagnostic, EngineConfig, EngineResult } from "../engines/types.js";
 import { calculateScore } from "../scoring/index.js";
 import { withCommandLifecycle } from "../telemetry/index.js";
@@ -12,7 +13,11 @@ import { renderHeader } from "../ui/header.js";
 import { LiveRail } from "../ui/live-rail.js";
 import { log, renderHintLine } from "../ui/logger.js";
 import { theme as defaultTheme, style } from "../ui/theme.js";
-import { detectSourceLanguages, discoverProject } from "../utils/discover.js";
+import {
+	detectManifestLanguages,
+	detectSourceLanguages,
+	discoverProject,
+} from "../utils/discover.js";
 import { resetGitIgnoreSnapshots } from "../utils/git-ignore.js";
 import { readAislopIgnorePatterns } from "../utils/source-files.js";
 import { APP_VERSION } from "../version.js";
@@ -39,7 +44,7 @@ import {
 	runOneFixStep,
 	statusFor,
 } from "./fix-steps.js";
-import { collectScanFileScope } from "./scan-file-scope.js";
+import { collectScanFileScope, type ScanFileScope } from "./scan-file-scope.js";
 import { buildScanRender } from "./scan.js";
 
 export { buildFixRender } from "./fix-render.js";
@@ -139,7 +144,13 @@ export const fixCommand = async (
 		mode: { kind: "full" },
 		rootDirectory: resolvedDir,
 	});
+	const scope = collectFixFileScope(resolvedDir, excludePatterns, config.include, options);
 	const discoveredProject = await discoverProject(resolvedDir, excludePatterns, {
+		audit:
+			!options.safe &&
+			config.security.audit &&
+			config.engines.security !== false &&
+			shouldRunDependencyAudit({ rootDirectory: resolvedDir, ...(scope ?? scanScope) }),
 		includePatterns: config.include,
 		sourceFiles: scanScope.files,
 	});
@@ -157,7 +168,7 @@ export const fixCommand = async (
 			fileCount: projectInfo.sourceFileCount,
 			properties: options.dryRun ? { dry_run: true } : undefined,
 		},
-		() => runFixBody(resolvedDir, config, options, projectInfo),
+		() => runFixBody(resolvedDir, config, options, projectInfo, scope),
 	);
 };
 
@@ -208,6 +219,7 @@ const runFixBody = async (
 	config: AislopConfig,
 	options: FixOptions,
 	projectInfo: Awaited<ReturnType<typeof discoverProject>>,
+	scope: ScanFileScope | null,
 ) => {
 	const startTime = performance.now();
 	const showHeader = options.showHeader !== false;
@@ -226,8 +238,6 @@ const runFixBody = async (
 	}
 
 	const safe = Boolean(options.safe);
-	const excludePatterns = [...config.exclude, ...readAislopIgnorePatterns(resolvedDir)];
-	const scope = collectFixFileScope(resolvedDir, excludePatterns, config.include, options);
 	const scopedProjectInfo = scope
 		? {
 				...projectInfo,
@@ -237,7 +247,7 @@ const runFixBody = async (
 	const context = createEngineContext(resolvedDir, scopedProjectInfo, config, {
 		safe,
 		scope: scope ?? undefined,
-		dependencyAuditLanguages: projectInfo.languages,
+		dependencyAuditLanguages: detectManifestLanguages(resolvedDir),
 	});
 	if (scope) {
 		process.stdout.write(
@@ -308,7 +318,7 @@ const runFixBody = async (
 		rules: config.rules,
 		imports: config.imports,
 		quality: config.quality,
-		security: config.security,
+		security: safe ? { ...config.security, audit: false } : config.security,
 		lint: config.lint,
 		aiSlop: config.aiSlop,
 		architectureRulesPath: config.engines.architecture ? rulesPath : undefined,
@@ -319,6 +329,7 @@ const runFixBody = async (
 		{
 			rootDirectory: resolvedDir,
 			languages: scopedProjectInfo.languages,
+			dependencyAuditLanguages: context.dependencyAuditLanguages,
 			frameworks: projectInfo.frameworks,
 			excludePatterns: context.excludePatterns,
 			installedTools: context.installedTools,

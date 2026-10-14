@@ -1,7 +1,7 @@
 import { detectInvocation } from "../../ui/invocation.js";
 import { runSubprocess } from "../../utils/subprocess.js";
 import type { Diagnostic } from "../types.js";
-import { type AuditOutcome, toDependencyAdvisory } from "./audit-shared.js";
+import { type AuditOutcome, skippedAuditDiagnostic, toDependencyAdvisory } from "./audit-shared.js";
 import { isRecord, readRecordArray, readString } from "./audit-value.js";
 
 // `govulncheck -json` prints a stream of JSON values, each an object with exactly one
@@ -214,18 +214,8 @@ const RERUN_ADVICE = "Re-run `govulncheck -json ./...` and check its output.";
 const UNPARSED_HELP = `govulncheck printed output that could not be fully parsed, so Go vulnerabilities may be missing. ${RERUN_ADVICE}`;
 const FAILED_RUN_HELP = `govulncheck printed no report, failed, or timed out, so Go vulnerabilities may be missing. ${RERUN_ADVICE}`;
 
-const skippedDiagnostic = (help: string): Diagnostic => ({
-	filePath: "go.mod",
-	engine: "security",
-	rule: "security/dependency-audit-skipped",
-	severity: "warning",
-	message: "Dependency audit did not complete (govulncheck)",
-	help,
-	line: 0,
-	column: 0,
-	category: "Security",
-	fixable: false,
-});
+const skippedDiagnostic = (help: string): Diagnostic =>
+	skippedAuditDiagnostic("go.mod", "govulncheck", help);
 
 const unparsedDiagnostic = (): Diagnostic => skippedDiagnostic(UNPARSED_HELP);
 const failedRunDiagnostic = (): Diagnostic => skippedDiagnostic(FAILED_RUN_HELP);

@@ -207,10 +207,12 @@ describe("advisory identifiers are carried from the audit data to the diagnostic
 			respondWith(
 				JSON.stringify({
 					vulnerabilities: {
+						found: true,
+						count: 1,
 						list: [
 							{
 								advisory: { id: "RUSTSEC-2020-0071", aliases: ["CVE-2020-26235"], title: "t" },
-								package: { name: "time" },
+								package: { name: "time", version: "0.1.0" },
 							},
 						],
 					},
@@ -520,7 +522,7 @@ describe("stale entries are only reported for audit sources that completed", () 
 		rootDirectory: directory,
 		languages: [language],
 		frameworks: [],
-		installedTools: { "pip-audit": true, govulncheck: true, dotnet: true },
+		installedTools: { "pip-audit": true, "cargo-audit": true, govulncheck: true, dotnet: true },
 		config: {
 			quality: { maxFunctionLoc: 80, maxFileLoc: 400, maxNesting: 5, maxParams: 6 },
 			security: {
@@ -550,7 +552,10 @@ describe("stale entries are only reported for audit sources that completed", () 
 			runSubprocess.mockResolvedValue({ stdout: "error: no network", stderr: "", exitCode: 2 }),
 	};
 	const sources = [
-		{ language: "rust", cleanReport: JSON.stringify({ vulnerabilities: { list: [] } }) },
+		{
+			language: "rust",
+			cleanReport: JSON.stringify({ vulnerabilities: { found: false, count: 0, list: [] } }),
+		},
 		{ language: "csharp", cleanReport: JSON.stringify({ version: 1, projects: [] }) },
 		{ language: "python", cleanReport: JSON.stringify({ dependencies: [] }) },
 	] as const;
@@ -655,6 +660,7 @@ describe("a failed audit run never counts as completed", () => {
 		languages: EngineContext["languages"],
 		installedTools: EngineContext["installedTools"] = {
 			"pip-audit": true,
+			"cargo-audit": true,
 			govulncheck: true,
 			dotnet: true,
 		},
@@ -727,11 +733,19 @@ describe("a failed audit run never counts as completed", () => {
 			"rust",
 			{
 				vulnerabilities: {
-					list: [{ advisory: { id: "RUSTSEC-2020-0001" }, package: { name: "time" } }],
+					found: true,
+					count: 1,
+					list: [
+						{ advisory: { id: "RUSTSEC-2020-0001" }, package: { name: "time", version: "0.1.0" } },
+					],
 				},
 			},
 		],
-		["pip-audit", "python", { dependencies: [{ name: "jinja2", vulns: [{ id: "PYSEC-1" }] }] }],
+		[
+			"pip-audit",
+			"python",
+			{ dependencies: [{ name: "jinja2", version: "2.0", vulns: [{ id: "PYSEC-1" }] }] },
+		],
 	] as const)(
 		"%s: exit 1 with vulnerabilities found still counts as completed",
 		async (_name, language, payload) => {

@@ -71,6 +71,9 @@ export const CORE_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"security/dependency-audit-skipped": advisory(
 		"An unavailable audit is visibility loss, not evidence of a vulnerability.",
 	),
+	"security/dependency-audit-policy": strict(
+		"A completed dependency audit denied the project's configured policy.",
+	),
 	"security/accepted-advisory": reportOnly(
 		"The project reviewed and accepted every advisory behind this finding; it stays visible at no cost.",
 	),

@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { detectSourceLanguages, discoverProject } from "../src/utils/discover.js";
+import * as subprocess from "../src/utils/subprocess.js";
+import * as tooling from "../src/utils/tooling.js";
 
 // Helpers to create fake project directories
 const createFile = (dir: string, filename: string, content = "") => {
@@ -24,6 +26,8 @@ describe("discoverProject", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
@@ -86,11 +90,25 @@ describe("discoverProject", () => {
 		expect(info.languages).toContain("go");
 	});
 
-	it("detects rust when Cargo.toml is present", async () => {
-		createFile(tmpDir, "Cargo.toml", '[package]\nname = "app"');
-		const info = await discoverProject(tmpDir);
-		expect(info.languages).toContain("rust");
-	});
+	it.each([
+		{ name: "manifest only", sourceFiles: [], languages: ["rust"] },
+		{ name: "F4-4 JavaScript source scope", sourceFiles: ["app.js"], languages: ["javascript"] },
+	])(
+		"detects Cargo audit independently of source languages: $name",
+		async ({ sourceFiles, languages }) => {
+			createFile(tmpDir, "Cargo.toml", '[package]\nname = "app"');
+			vi.stubEnv("CARGO_HOME", tmpDir);
+			vi.spyOn(tooling, "isToolAvailable").mockImplementation(async (tool) => tool === "cargo");
+			vi.spyOn(subprocess, "runSubprocess").mockResolvedValue({
+				stdout: "    audit    Check dependencies\n",
+				stderr: "",
+				exitCode: 0,
+			});
+			const info = await discoverProject(tmpDir, [], { audit: true, sourceFiles });
+			expect(info.languages).toEqual(languages);
+			expect(info.installedTools["cargo-audit"]).toBe(true);
+		},
+	);
 
 	it("detects ruby when Gemfile is present", async () => {
 		createFile(tmpDir, "Gemfile", "source 'https://rubygems.org'");

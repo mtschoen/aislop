@@ -2,6 +2,7 @@ import path from "node:path";
 import {
 	detectFrameworks,
 	detectLanguages,
+	detectManifestLanguages,
 	type Framework,
 	type Language,
 	readPackageJson,
@@ -31,8 +32,10 @@ export interface ProjectInfo {
 }
 
 interface DiscoveryInputs {
+	readonly audit?: boolean;
 	readonly includePatterns?: string[];
 	readonly installedTools?: Record<string, boolean>;
+	readonly languages?: readonly Language[];
 	readonly projectFiles?: string[];
 	readonly sourceFiles?: string[];
 }
@@ -53,12 +56,20 @@ export const discoverProject = async (
 		includePatterns: inputs.includePatterns ?? [],
 		...(inputs.projectFiles ? { projectFiles: inputs.projectFiles } : {}),
 	});
-	const installedTools = inputs.installedTools ?? (await checkInstalledTools(resolvedDir));
+	const languages = inputs.languages
+		? [...inputs.languages]
+		: detectLanguages(resolvedDir, sourceFiles);
+	const installedTools =
+		inputs.installedTools ??
+		(await checkInstalledTools(resolvedDir, {
+			languages: detectManifestLanguages(resolvedDir),
+			audit: inputs.audit,
+		}));
 	const packageJson = readPackageJson(path.join(resolvedDir, "package.json"));
 	return {
 		rootDirectory: resolvedDir,
 		projectName: packageJson?.name ?? path.basename(resolvedDir),
-		languages: detectLanguages(resolvedDir, sourceFiles),
+		languages,
 		frameworks: detectFrameworks(resolvedDir),
 		sourceFileCount: sourceFiles.length,
 		coverage,

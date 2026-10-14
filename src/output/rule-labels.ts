@@ -85,6 +85,7 @@ const RULE_LABELS: Record<string, string> = {
 	"security/hardcoded-secret": "Possible hardcoded secret",
 	"security/vulnerable-dependency": "Vulnerable dependency",
 	"security/dependency-audit-skipped": "Dependency audit skipped",
+	"security/dependency-audit-policy": "Dependency audit policy denied",
 	"security/accepted-advisory": "Accepted advisory",
 	"security/stale-accepted-advisory": "Stale accepted advisory",
 	"security/eval": "eval() usage",
@@ -191,6 +192,8 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"security/hardcoded-secret": "Secret-looking token is embedded in source.",
 	"security/vulnerable-dependency": "Dependency audit reported a known vulnerability.",
 	"security/dependency-audit-skipped": "Audit could not run because inputs/tools are missing.",
+	"security/dependency-audit-policy":
+		"Cargo completed its audit and denied dependency policy warnings.",
 	"security/accepted-advisory":
 		"Vulnerable dependency whose every advisory is accepted in security.acceptedAdvisories.",
 	"security/stale-accepted-advisory":

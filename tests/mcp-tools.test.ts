@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as subprocess from "../src/utils/subprocess.js";
+import * as tooling from "../src/utils/tooling.js";
 import {
 	handleAislopBaseline,
 	handleAislopFix,
@@ -32,10 +34,40 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
 	fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("aislop_scan tool", () => {
+	it.each([
+		{ name: "F4-2 fallback available", audit: true, security: true, exitCode: 0, calls: 2 },
+		{ name: "F4-2 fallback failed", audit: true, security: true, exitCode: 1, calls: 1 },
+		{ name: "audit disabled", audit: false, security: true, exitCode: 0, calls: 0 },
+		{ name: "security disabled", audit: true, security: false, exitCode: 0, calls: 0 },
+	])("honors Rust discovery configuration: $name", async ({ audit, security, exitCode, calls }) => {
+		writeFile("Cargo.toml", '[package]\nname = "example"\n');
+		writeFile(
+			".aislop/config.yml",
+			`version: 1\nengines:\n  format: false\n  lint: false\n  code-quality: false\n  ai-slop: false\n  architecture: false\n  security: ${security}\nsecurity:\n  audit: ${audit}\n`,
+		);
+		vi.stubEnv("CARGO_HOME", tmpDir);
+		vi.spyOn(tooling, "isToolAvailable").mockImplementation(async (tool) => tool === "cargo");
+		const run = vi
+			.spyOn(subprocess, "runSubprocess")
+			.mockImplementation(async (_command, arguments_) => ({
+				stdout: arguments_.includes("--list")
+					? "    audit    Check dependencies\n"
+					: "invalid audit report",
+				stderr: "",
+				exitCode,
+			}));
+		const result = await withCwd(tmpDir, () => handleAislopScan({ path: "." }));
+		expect(run).toHaveBeenCalledTimes(calls);
+		expect(
+			result.findings.some((finding) => finding.rule === "security/dependency-audit-skipped"),
+		).toBe(audit && security);
+	});
 	it("returns score + counts + findings for an empty project", async () => {
 		writeFile("package.json", JSON.stringify({ name: "tiny" }));
 		writeFile("src/index.ts", `export const x = 1\n`);
@@ -86,10 +118,7 @@ describe("aislop_scan tool", () => {
 				"      - /home/mcp-review-target",
 			].join("\n"),
 		);
-		writeFile(
-			"src/launch.ts",
-			'const tool = "/home/mcp-review-target/project/tool";\n',
-		);
+		writeFile("src/launch.ts", 'const tool = "/home/mcp-review-target/project/tool";\n');
 
 		const result = await withCwd(tmpDir, () => handleAislopScan({ path: "." }));
 

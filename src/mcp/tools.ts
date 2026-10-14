@@ -8,7 +8,7 @@ import type { Diagnostic, EngineContext, EngineName } from "../engines/types.js"
 import { readBaseline } from "../hooks/quality-gate/baseline.js";
 import { assessDiagnostic, summarizeFindingAssessments } from "../output/finding-assessment.js";
 import { calculateScore } from "../scoring/index.js";
-import { discoverProject } from "../utils/discover.js";
+import { detectManifestLanguages, discoverProject } from "../utils/discover.js";
 import { toPosix } from "../utils/paths.js";
 import { siteUrl } from "../ui/site-url.js";
 
@@ -39,6 +39,7 @@ const buildEngineContext = (
 	return {
 		rootDirectory,
 		languages: project.languages,
+		dependencyAuditLanguages: detectManifestLanguages(rootDirectory),
 		frameworks: project.frameworks,
 		installedTools: project.installedTools,
 		config: {
@@ -94,8 +95,10 @@ const summariseDiagnostics = (diagnostics: Diagnostic[], rootDirectory: string) 
 };
 
 const runScan = async (cwd: string) => {
-	const project = await discoverProject(cwd);
 	const config = loadConfig(cwd);
+	const project = await discoverProject(cwd, [], {
+		audit: config.security.audit && config.engines.security !== false,
+	});
 	const context = buildEngineContext(project.rootDirectory, project, config);
 	const enabled = enabledEnginesFromConfig(config);
 	const results = await runEngines(context, enabled);

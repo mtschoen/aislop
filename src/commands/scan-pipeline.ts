@@ -1,5 +1,6 @@
 import path from "node:path";
 import { type AislopConfig, findConfigDir, RULES_FILE } from "../config/index.js";
+import { shouldRunDependencyAudit } from "../engines/security/audit.js";
 import type { EngineConfig, EngineResult } from "../engines/types.js";
 import { applyRuleSeverities } from "../scoring/rule-severity.js";
 import {
@@ -39,6 +40,10 @@ export const prepareScan = async (
 		rootDirectory: resolvedDir,
 	});
 	const discoveredProject = await discoverProject(resolvedDir, excludePatterns, {
+		audit:
+			config.security.audit &&
+			config.engines.security !== false &&
+			shouldRunDependencyAudit({ rootDirectory: resolvedDir, ...scanScope }),
 		includePatterns: config.include,
 		sourceFiles: scanScope.files,
 	});

@@ -150,6 +150,7 @@ export const doctorCommand = async (
 		rootDirectory: resolvedDir,
 	});
 	const discoveredProject = await discoverProject(resolvedDir, excludePatterns, {
+		audit: config.security.audit && config.engines.security !== false,
 		includePatterns: config.include,
 		sourceFiles: scanScope.files,
 	});

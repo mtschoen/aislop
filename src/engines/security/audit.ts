@@ -17,7 +17,7 @@ import {
 	parseBunAudit,
 	parseJsAudit,
 } from "./audit-js-parser.js";
-import { type AuditOutcome, exitedAsAuditTool } from "./audit-shared.js";
+import { type AuditOutcome, exitedAsAuditTool, skippedAuditDiagnostic } from "./audit-shared.js";
 import { isJsonRecord } from "./audit-value.js";
 import { readRuntimeDependencies } from "./runtime-dependencies.js";
 
@@ -29,7 +29,12 @@ const toRelativePath = (rootDirectory: string, filePath: string): string => {
 	return path.relative(rootDirectory, absolute).split(path.sep).join("/");
 };
 
-export const shouldRunDependencyAudit = (context: EngineContext): boolean => {
+export const shouldRunDependencyAudit = (
+	context: Pick<
+		EngineContext,
+		"rootDirectory" | "dependencyAuditScope" | "dependencyAuditFiles" | "files"
+	>,
+): boolean => {
 	if (context.dependencyAuditScope === "full") return true;
 	const scopedFiles = context.dependencyAuditFiles ?? context.files;
 	if (!scopedFiles) return true;
@@ -64,6 +69,12 @@ const countRelevantEcosystems = (auditLanguages: readonly string[]): number =>
 		auditLanguages.includes("rust"),
 		auditLanguages.includes("csharp"),
 	].filter(Boolean).length;
+
+const CARGO_DISCOVERY_SKIPPED = skippedAuditDiagnostic(
+	"Cargo.toml",
+	"cargo audit",
+	"Cargo subcommand discovery failed, timed out or printed no listing, so Rust vulnerabilities may be missing. Re-run `cargo --color never --list` and check its output.",
+);
 
 export const runDependencyAudit = async (context: EngineContext): Promise<Diagnostic[]> => {
 	if (!shouldRunDependencyAudit(context)) return [];
@@ -104,9 +115,15 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 		promises.push(inspectGovulncheck(context.rootDirectory, timeout));
 	}
 
-	// cargo audit
-	if (auditLanguages.includes("rust")) {
+	// cargo audit. A machine without the cargo-audit subcommand has nothing to run, like
+	// the tools above, so that is not reported as an audit that failed.
+	if (auditLanguages.includes("rust") && context.installedTools["cargo-audit"]) {
 		promises.push(inspectCargoAudit(context.rootDirectory, timeout));
+	} else if (
+		auditLanguages.includes("rust") &&
+		context.installedTools["cargo-audit-discovery-failed"]
+	) {
+		diagnostics.push(CARGO_DISCOVERY_SKIPPED);
 	}
 
 	// dotnet list package --vulnerable (NuGet). Keyed to the manifest-aware

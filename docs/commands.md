@@ -91,7 +91,7 @@ Use `--changes --base origin/<target>` to gate a pull request on only the files 
 |---|---|
 | `-d, --verbose` | Show detailed fix progress |
 | `-f, --force` | Run aggressive fixes: dependency audit, framework alignment, unused file removal |
-| `--safe` | Only apply reversible fixes |
+| `--safe` | Only apply reversible fixes; skip dependency audits during verification |
 | `--dry-run` | Print planned fix steps, eligible findings, and skipped steps without writing files |
 | `--changes` | Only fix changed files (defaults to diffing `HEAD`) |
 | `--base <ref>` | Diff base for `--changes`, e.g. `origin/main` (default `HEAD`) |
