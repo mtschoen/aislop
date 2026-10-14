@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { formatConfigValue } from "./format-value.js";
+import { recoverFromIssues, type ValidationIssue, valueAtPath } from "./recovery.js";
 
 const DEFAULT_WEIGHTS: Record<string, number> = {
 	format: 0.3,
@@ -112,10 +113,9 @@ const acceptedAdvisoryProblem = (entry: unknown): string | undefined => {
 };
 
 // The whole entry is checked in one step, ahead of the field schema, and reports at
-// most one issue on the entry itself. The loader's recovery removes the value at an
-// issue's path: a field-level issue would remove only the field and keep the entry,
-// an issue on a missing key cannot be removed at all (which costs the whole
-// configuration), and two issues on one entry would remove two list items.
+// most one issue on the entry itself. An invalid accepted advisory (such as a missing
+// required key or an invalid date) is ignored as a unit with a single diagnostic on
+// the entry rather than stripping individual fields or leaving a partial entry behind.
 const AcceptedAdvisorySchema = z.preprocess(
 	(entry, context) => {
 		const problem = acceptedAdvisoryProblem(entry);
@@ -307,20 +307,6 @@ const mergeScoringWeightDefaults = (configuration: AislopConfig): AislopConfig =
 	},
 });
 
-interface ValidationIssue {
-	readonly message: string;
-	readonly path: PropertyKey[];
-}
-
-const valueAtPath = (input: unknown, issuePath: readonly PropertyKey[]): unknown => {
-	let value = input;
-	for (const segment of issuePath) {
-		if (!value || typeof value !== "object") return undefined;
-		value = (value as Record<PropertyKey, unknown>)[segment];
-	}
-	return value;
-};
-
 const reportValidationIssues = (input: unknown, issues: readonly ValidationIssue[]): void => {
 	for (const issue of issues) {
 		const fieldPath = issue.path.join(".") || "(root)";
@@ -329,59 +315,6 @@ const reportValidationIssues = (input: unknown, issues: readonly ValidationIssue
 			`  ⚠ Invalid aislop configuration field ${fieldPath} = ${rejectedValue}: ${issue.message}\n`,
 		);
 	}
-};
-
-interface RemovalResult {
-	readonly input: unknown;
-	readonly removed: boolean;
-}
-
-const removeValueAtPath = (input: unknown, issuePath: readonly PropertyKey[]): RemovalResult => {
-	const [segment, ...remainingPath] = issuePath;
-	if (segment === undefined || !input || typeof input !== "object") {
-		return { input, removed: false };
-	}
-
-	if (Array.isArray(input)) {
-		if (typeof segment !== "number" || segment < 0 || segment >= input.length) {
-			return { input, removed: false };
-		}
-		const copy = [...input];
-		if (remainingPath.length === 0) {
-			copy.splice(segment, 1);
-			return { input: copy, removed: true };
-		}
-		const childResult = removeValueAtPath(copy[segment], remainingPath);
-		if (!childResult.removed) return { input, removed: false };
-		copy[segment] = childResult.input;
-		return { input: copy, removed: true };
-	}
-
-	const record = input as Record<PropertyKey, unknown>;
-	if (!Object.hasOwn(record, segment)) return { input, removed: false };
-	const copy = { ...record };
-	if (remainingPath.length === 0) {
-		delete copy[segment];
-		return { input: copy, removed: true };
-	}
-	const childResult = removeValueAtPath(copy[segment], remainingPath);
-	if (!childResult.removed) return { input, removed: false };
-	copy[segment] = childResult.input;
-	return { input: copy, removed: true };
-};
-
-const orderPathsForRemoval = (left: ValidationIssue, right: ValidationIssue): number => {
-	const leftParent = left.path.slice(0, -1);
-	const rightParent = right.path.slice(0, -1);
-	const sameParent =
-		leftParent.length === rightParent.length &&
-		leftParent.every((segment, index) => segment === rightParent[index]);
-	const leftLast = left.path.at(-1);
-	const rightLast = right.path.at(-1);
-	if (sameParent && typeof leftLast === "number" && typeof rightLast === "number") {
-		return rightLast - leftLast;
-	}
-	return right.path.length - left.path.length;
 };
 
 export const parseConfig = (raw: unknown): AislopConfig => {
@@ -398,13 +331,9 @@ export const parseConfig = (raw: unknown): AislopConfig => {
 			return defaults;
 		}
 
-		let removedAny = false;
-		for (const issue of [...result.error.issues].sort(orderPathsForRemoval)) {
-			const removal = removeValueAtPath(input, issue.path);
-			input = removal.input;
-			removedAny ||= removal.removed;
-		}
-		if (!removedAny) {
+		const recovery = recoverFromIssues(input, result.error.issues);
+		input = recovery.input;
+		if (!recovery.removedAny) {
 			process.stderr.write("  ⚠ Using default configuration.\n");
 			return defaults;
 		}

@@ -91,6 +91,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify config schema
+        run: |
+          pnpm gen:schema
+          git diff --exit-code schema/aislop.config.schema.json
+
       - name: aislop ci
         run: node dist/cli.js ci .
 

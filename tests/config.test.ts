@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 import { CONFIG_DIR, CONFIG_FILE, findConfigDir, loadConfig } from "../src/config/index.js";
+import { recoverFromIssues } from "../src/config/recovery.js";
 import { parseConfig } from "../src/config/schema.js";
 
 const withStderr = (run: () => void): string => {
@@ -233,6 +234,92 @@ describe("parseConfig", () => {
 		expect(cfg.lint.cpp.jbSeverityFloor).toBe("WARNING");
 		expect(cfg.lint.cpp.jbExcludeTypes).toEqual([]);
 		expect(cfg.lint.cpp.jbProjects).toBeUndefined();
+	});
+});
+
+// ─── parseConfig: entries missing a required key ──────────────────────────────
+
+describe("parseConfig recovery of entries that cannot be repaired", () => {
+	it("drops only an override missing its required files key and keeps every other setting", () => {
+		let result: ReturnType<typeof parseConfig> | undefined;
+		const stderr = withStderr(() => {
+			result = parseConfig({
+				engines: { format: false },
+				quality: { maxFunctionLoc: 5 },
+				overrides: [{ engines: { lint: false } }],
+			});
+		});
+
+		expect(result?.engines.format).toBe(false);
+		expect(result?.quality.maxFunctionLoc).toBe(5);
+		expect(result?.overrides).toEqual([]);
+		expect(stderr).toContain("overrides.0.files");
+		expect(stderr).toContain("overrides.0");
+		expect(stderr).not.toContain("Using default configuration");
+	});
+
+	it.each([
+		{ id: "issue-89-missing-files", middle: { quality: { maxFunctionLoc: 20 } } },
+		{ id: "issue-89-undefined-entry", middle: undefined },
+	])(
+		"keeps the valid overrides on either side of one that cannot be parsed ($id)",
+		({ middle }) => {
+			let result: ReturnType<typeof parseConfig> | undefined;
+			withStderr(() => {
+				result = parseConfig({
+					overrides: [
+						{ files: ["a/**"], quality: { maxFunctionLoc: 10 } },
+						middle,
+						{ files: ["c/**"], quality: { maxFunctionLoc: 30 } },
+					],
+				});
+			});
+
+			expect(result?.overrides.map((override) => override.files)).toEqual([["a/**"], ["c/**"]]);
+		},
+	);
+
+	it("drops an override whose files list is emptied by invalid patterns, not the whole file", () => {
+		let result: ReturnType<typeof parseConfig> | undefined;
+		const stderr = withStderr(() => {
+			result = parseConfig({
+				quality: { maxFunctionLoc: 5 },
+				overrides: [{ files: [""] }, { files: ["kept/**"] }],
+			});
+		});
+
+		expect(result?.quality.maxFunctionLoc).toBe(5);
+		expect(result?.overrides.map((override) => override.files)).toEqual([["kept/**"]]);
+		expect(stderr).not.toContain("Using default configuration");
+	});
+});
+
+describe("recoverFromIssues", () => {
+	it("removes an array element once when several issues point at the same entry", () => {
+		const issues = [
+			{ message: "first problem", path: ["exclude", 1] },
+			{ message: "second problem", path: ["exclude", 1] },
+		];
+
+		const recovery = recoverFromIssues({ exclude: ["a", "b", "c"] }, issues);
+
+		expect(recovery.input).toEqual({ exclude: ["a", "c"] });
+	});
+
+	it("removes a list entry once when two of its keys are missing", () => {
+		const issues = [
+			{ message: "files missing", path: ["overrides", 0, "files"] },
+			{ message: "other missing", path: ["overrides", 0, "other"] },
+		];
+		const input = { overrides: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+
+		const stderr = withStderr(() => {
+			expect(recoverFromIssues(input, issues).input).toEqual({
+				overrides: [{ id: 2 }, { id: 3 }],
+			});
+		});
+
+		expect(stderr).toContain("overrides.0");
 	});
 });
 

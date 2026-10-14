@@ -1,12 +1,33 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod/v4";
-import { AislopConfigSchema } from "../src/config/schema.ts";
+
+// Node's type stripping loads .ts files but does not map a ".js" import
+// specifier to its ".ts" source, which the bundler-style imports in src/ rely
+// on. Resolve a relative ".js" specifier to the ".ts" file when only that exists.
+registerHooks({
+	resolve(specifier, context, nextResolve) {
+		if (specifier.startsWith(".") && specifier.endsWith(".js") && context.parentURL) {
+			const typeScriptUrl = new URL(specifier.replace(/\.js$/, ".ts"), context.parentURL);
+			const javaScriptUrl = new URL(specifier, context.parentURL);
+			if (existsSync(fileURLToPath(typeScriptUrl)) && !existsSync(fileURLToPath(javaScriptUrl))) {
+				return nextResolve(typeScriptUrl.href, context);
+			}
+		}
+		return nextResolve(specifier, context);
+	},
+});
+
+const { AislopConfigSchema } = await import("../src/config/schema.ts");
 
 const here = dirname(fileURLToPath(import.meta.url));
-const outPath = resolve(here, "..", "schema", "aislop.config.schema.json");
+// An optional first argument overrides the output path (tests write elsewhere).
+const outPath = process.argv[2]
+	? resolve(process.argv[2])
+	: resolve(here, "..", "schema", "aislop.config.schema.json");
 
 // Strip `required`/`additionalProperties:false` so partial user configs (every
 // key has a default) validate, and allow the loader-handled `extends` key.
