@@ -235,6 +235,99 @@ jobs:
           pnpm gen:schema
           git diff --exit-code schema/aislop.config.schema.json
 
+      - name: Provision lint tools from runner tool store
+        run: |
+          EXPECTED_RUFF_VERSION="$(node scripts/read-tool-pin.mjs ruff)"
+          EXPECTED_GOLANGCI_VERSION="$(node scripts/read-tool-pin.mjs golangci-lint)"
+
+          ruff_version_matches() {
+            [[ "$1" =~ ^ruff[[:space:]]+([^[:space:]]+) ]] &&
+              [[ "${BASH_REMATCH[1]}" == "$EXPECTED_RUFF_VERSION" ]]
+          }
+
+          golangci_version_matches() {
+            [[ "$1" =~ ^golangci-lint[[:space:]]+has[[:space:]]+version[[:space:]]+([^[:space:]]+) ]] &&
+              [[ "${BASH_REMATCH[1]}" == "$EXPECTED_GOLANGCI_VERSION" ]]
+          }
+
+          mkdir -p tools/bin
+          # Gitea jobs must not download tools from the public internet.
+          # Resolve ruff and golangci-lint from runner-baked paths or the
+          # mounted tool store (/opt/hostedtoolcache) matching pinned versions.
+
+          resolved_ruff=""
+          if command -v ruff >/dev/null 2>&1; then
+            if current_ver="$(ruff --version 2>&1)" && ruff_version_matches "$current_ver"; then
+              resolved_ruff="$(command -v ruff)"
+            fi
+          fi
+
+          if [ -z "$resolved_ruff" ]; then
+            for candidate in \
+              /opt/hostedtoolcache/node/*/x64/lib/node_modules/aislop/tools/bin/ruff \
+              /opt/hostedtoolcache/Python/*/x64/bin/ruff \
+              /opt/fleet/python-*/bin/ruff \
+              /usr/local/bin/ruff \
+              /usr/bin/ruff; do
+              if [ -x "$candidate" ]; then
+                if ver="$("$candidate" --version 2>&1)" && ruff_version_matches "$ver"; then
+                  resolved_ruff="$candidate"
+                  break
+                fi
+              fi
+            done
+          fi
+
+          if [ -n "$resolved_ruff" ]; then
+            echo "Provisioning ruff from $resolved_ruff"
+            ln -sf "$resolved_ruff" tools/bin/ruff
+          fi
+
+          resolved_golangci=""
+          if command -v golangci-lint >/dev/null 2>&1; then
+            if current_ver="$(golangci-lint version 2>&1)" && golangci_version_matches "$current_ver"; then
+              resolved_golangci="$(command -v golangci-lint)"
+            fi
+          fi
+
+          if [ -z "$resolved_golangci" ]; then
+            for candidate in \
+              /opt/hostedtoolcache/node/*/x64/lib/node_modules/aislop/tools/bin/golangci-lint \
+              /usr/local/bin/golangci-lint \
+              /usr/bin/golangci-lint; do
+              if [ -x "$candidate" ]; then
+                if ver="$("$candidate" version 2>&1)" && golangci_version_matches "$ver"; then
+                  resolved_golangci="$candidate"
+                  break
+                fi
+              fi
+            done
+          fi
+
+          if [ -n "$resolved_golangci" ]; then
+            echo "Provisioning golangci-lint from $resolved_golangci"
+            ln -sf "$resolved_golangci" tools/bin/golangci-lint
+          fi
+
+          if [ -d "$PWD/tools/bin" ]; then
+            echo "$PWD/tools/bin" >> "$GITHUB_PATH"
+            export PATH="$PWD/tools/bin:$PATH"
+          fi
+
+          # Verify Ruff is available and matches the pinned version
+          if ! ruff_ver="$(ruff --version 2>&1)" || ! ruff_version_matches "$ruff_ver"; then
+            echo "Error: ruff version command failed or '$ruff_ver' does not match pinned version '$EXPECTED_RUFF_VERSION'" >&2
+            exit 1
+          fi
+          echo "Resolved ruff version: $ruff_ver"
+
+          # Verify golangci-lint is available and matches the pinned version
+          if ! golangci_ver="$(golangci-lint version 2>&1)" || ! golangci_version_matches "$golangci_ver"; then
+            echo "Error: golangci-lint version command failed or '$golangci_ver' does not match pinned version '$EXPECTED_GOLANGCI_VERSION'" >&2
+            exit 1
+          fi
+          echo "Resolved golangci-lint version: $golangci_ver"
+
       - name: aislop ci
         run: node dist/cli.js ci .
 

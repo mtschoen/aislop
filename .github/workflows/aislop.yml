@@ -27,6 +27,9 @@ jobs:
       - name: Build local CLI
         run: pnpm build
 
+      - name: Install pinned ruff and golangci-lint
+        run: node scripts/install-tools.mjs
+
       - run: node dist/cli.js scan .
 
   action-smoke:
@@ -94,5 +97,8 @@ jobs:
 
       - name: Build local CLI
         run: pnpm build
+
+      - name: Install pinned ruff and golangci-lint
+        run: node scripts/install-tools.mjs
 
       - run: node dist/cli.js ci .

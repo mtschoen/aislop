@@ -96,6 +96,9 @@ jobs:
           pnpm gen:schema
           git diff --exit-code schema/aislop.config.schema.json
 
+      - name: Install pinned ruff and golangci-lint
+        run: node scripts/install-tools.mjs
+
       - name: aislop ci
         run: node dist/cli.js ci .
 

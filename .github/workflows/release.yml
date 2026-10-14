@@ -128,6 +128,9 @@ jobs:
       - name: Test
         run: pnpm vitest run
 
+      - name: Install pinned ruff and golangci-lint
+        run: node scripts/install-tools.mjs
+
       - name: Self-scan
         run: node dist/cli.js scan . --json
         env:

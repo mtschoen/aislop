@@ -96,6 +96,14 @@ describe("package release security", () => {
 			packages: "write",
 		});
 		expect(workflow.jobs["move-major-tag"].permissions).toEqual({ contents: "read" });
+
+		const installToolsIndex = npmJob.steps.findIndex(
+			(step) => step.name === "Install pinned ruff and golangci-lint",
+		);
+		const selfScanIndex = npmJob.steps.findIndex((step) => step.name === "Self-scan");
+		expect(installToolsIndex).toBeGreaterThan(-1);
+		expect(selfScanIndex).toBeGreaterThan(installToolsIndex);
+		expect(npmJob.steps[installToolsIndex].run).toBe("node scripts/install-tools.mjs");
 	});
 
 	it("resolves an existing GitHub release before executing its code", () => {
