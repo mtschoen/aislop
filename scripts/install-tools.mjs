@@ -54,8 +54,8 @@ const TOOL_DEFINITIONS = [
 	{
 		name: "ruff",
 		repo: "astral-sh/ruff",
-		version: "0.15.4",
-		tag: "0.15.4",
+		version: "0.17.1",
+		tag: "0.17.1",
 		binaryName: "ruff",
 		assets: {
 			"darwin-arm64": ["ruff-aarch64-apple-darwin.tar.gz"],
@@ -66,12 +66,12 @@ const TOOL_DEFINITIONS = [
 			"win32-x64": ["ruff-x86_64-pc-windows-msvc.zip"],
 		},
 		sha256: {
-			"darwin-arm64": "2d63cc9fd12c9cc3b524563bbeb50470cf3f68f3194002228a417a53a2a56164",
-			"darwin-x64": "f40e16784c867b60850fbe96a2cccd123589c90d6db71ad8ade62efdeabccc84",
-			"linux-arm64": "7e436cedadb1bac0166448b05c0b5d69bb1d7879b0b26696bfc198ebdffb7b2f",
-			"linux-x64": "6e24501f753416bc84456383ccf62239889ab9fec8318549db9bee791612bd85",
-			"win32-arm64": "7de874b0d667fe04c2cd15629c19baff6dfff55e1fd99dfb14cb9850b09e7a20",
-			"win32-x64": "ca4db783ce3a1b942e67aa4002ca9f3c6ff1b150a85cb4ca1345c4299ad12a0f",
+			"darwin-arm64": "1c8e6e36538eaa0b996378a20c226403c4ca6369ac24884751b024d3a9530b86",
+			"darwin-x64": "88ee16f88dba9d440e06375f46898ec85baf578042ad086764d5a33558bb6e17",
+			"linux-arm64": "d3ead1f0ed779e777a034ccd9286be6bd9bd3cdaba732ff9797f8288a283e9e2",
+			"linux-x64": "a293ac937715ae6fb6b64da86761598379e6149f40fbc00fde9ba8a2a562ac65",
+			"win32-arm64": "2f8ba07c7b2b8d1f011056968360e99e9ac7f0815e2d02eaab958255e110b1df",
+			"win32-x64": "a841fb7e59680508b9394bfea32e369b3907cc6620a491c65d8d1f479498db82",
 		},
 	},
 	{
