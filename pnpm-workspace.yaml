@@ -1,3 +1,12 @@
+# pnpm 12 replaced the onlyBuiltDependencies list with the allowBuilds
+# map; without an explicit true entry here pnpm 12 ignores a dependency's
+# build script and fails install with ERR_PNPM_IGNORED_BUILDS (esbuild).
+# onlyBuiltDependencies stays for anyone still installing with pnpm 10.
+allowBuilds:
+  '@biomejs/biome': true
+  esbuild: true
+  oxlint: true
+
 onlyBuiltDependencies:
   - '@biomejs/biome'
   - esbuild
