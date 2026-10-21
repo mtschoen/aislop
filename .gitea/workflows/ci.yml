@@ -66,8 +66,16 @@ concurrency:
 # unloaded (tsdown builds, multi-spawn CLI tests) can pass 30 s while the
 # other legs share the box. The CLI flag overrides the config value without
 # touching upstream's file; raise or lower it here, never in vitest.config.ts.
+#
+# When the Linux runner runs with CI egress enforcement, act_runner injects
+# NODE_USE_ENV_PROXY=1 into every job container. On Node 22, Undici's
+# EnvHttpProxyAgent is experimental, causing every node invocation to write
+# an experimental warning to stderr (which breaks tests asserting on stderr
+# output). Suppress only that warning while preserving the runner-provided
+# proxy routing for Node requests.
 env:
   VITEST_TEST_TIMEOUT_MS: "90000"
+  NODE_OPTIONS: "--disable-warning=UNDICI-EHPA"
 
 permissions:
   contents: read
@@ -118,6 +126,8 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [22, 24]
+    env:
+      NODE_OPTIONS: "--disable-warning=UNDICI-EHPA"
     steps:
       - uses: actions/checkout@v4
 
@@ -364,22 +374,20 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install roslynator CLI
-        run: dotnet tool update -g roslynator.dotnet.cli --version 0.12.0 --allow-downgrade
+      # The .NET SDK and roslynator come from the fleet Linux image (schoen-lab#4135).
+      - name: Print baked .NET SDK and roslynator versions
+        run: |
+          dotnet --version
+          roslynator --version
 
       - name: Build
         run: pnpm build
 
       - name: Scan sample C# project and assert dotnet diagnostics appear
         run: |
-          export PATH="$PATH:$HOME/.dotnet/tools"
           node dist/cli.js scan tests/fixtures/dotnet/sample-project --json > scan.json || true
           cat scan.json
           grep -q '"dotnet/' scan.json
