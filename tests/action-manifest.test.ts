@@ -24,6 +24,7 @@ type Workflow = {
 		{
 			strategy?: {
 				matrix?: {
+					"node-version"?: unknown[];
 					include?: Array<{ case?: unknown }>;
 				};
 			};
@@ -71,10 +72,21 @@ describe("GitHub action manifest", () => {
 		expect(latestStep?.uses).toBe("./");
 		expect(latestStep?.with?.version).toBe("latest");
 		expect(latestStep?.with?.format).toBe("human");
-		expect(latestStep?.with?.["node-version"]).toBe("22");
+		expect(latestStep?.with?.["node-version"]).toBe("22.23.3");
 
 		const pinnedStep = steps.find((step) => step.name === "Pinned current JSON");
 		expect(pinnedStep?.uses).toBe("./");
 		expect(pinnedStep?.with?.version).toBe("0.11.0");
+	});
+
+	it("PR-112 F1-6: compatibility checks retain major-version identities", () => {
+		const workflow = YAML.parse(
+			fs.readFileSync(path.join(rootDir, ".github/workflows/ci.yml"), "utf-8"),
+		) as Workflow;
+		expect(workflow.jobs?.check?.strategy?.matrix?.["node-version"]).toEqual([22, 24]);
+		expect(workflow.jobs?.["test-matrix"]?.strategy?.matrix?.["node-version"]).toEqual([
+			"22.23.3",
+			24,
+		]);
 	});
 });
