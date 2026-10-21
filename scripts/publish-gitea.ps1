@@ -37,7 +37,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $repoRoot
 
 $scopedName = '@schoen/aislop'
-$registry   = if ($env:AISLOP_GITEA_REGISTRY) { $env:AISLOP_GITEA_REGISTRY } else { 'https://gitea.llamabox.sticktoitive.net/api/packages/schoen/npm/' }
+$registry   = if ($env:AISLOP_GITEA_REGISTRY) { $env:AISLOP_GITEA_REGISTRY } else { 'https://gitea.fleet.sticktoitive.net/api/packages/schoen/npm/' }
 $tokenPath  = Join-Path $HOME '.gitea-token'
 $token      = if ($env:GITEA_TOKEN) { $env:GITEA_TOKEN } else { (Get-Content $tokenPath -Raw).Trim() }
 $caPath     = if ($env:AISLOP_GITEA_CA) { $env:AISLOP_GITEA_CA } else { 'Y:\.local\share\mkcert\rootCA.pem' }
