@@ -2,7 +2,7 @@ import path from "node:path";
 import picomatch from "picomatch";
 import type { Diagnostic } from "../engines/types.js";
 import { createGlobMatcher } from "./globs.js";
-import { toPosix } from "./paths.js";
+import { projectRelativePosix } from "./paths.js";
 
 // picomatch compiles every pattern it is handed, so an unbounded user entry is
 // wasted work; oversized entries are dropped instead of expanded.
@@ -57,9 +57,11 @@ export const filterExcludedDiagnostics = (
 	const normalized = normalizeExcludePatterns(excludePatterns);
 	if (normalized.length === 0) return diagnostics;
 	return diagnostics.filter((diagnostic) => {
-		const relativePath = path.isAbsolute(diagnostic.filePath)
-			? toPosix(path.relative(rootDirectory, diagnostic.filePath))
-			: toPosix(diagnostic.filePath);
+		// Build-backed reports can retain ./ or parent segments in relative paths.
+		// Match their lexical destination, not the analyzer's spelling of that path.
+		const relativePath = path.posix.normalize(
+			projectRelativePosix(rootDirectory, diagnostic.filePath.replace(/\\/g, "/")),
+		);
 		return !isPathExcluded(relativePath, normalized);
 	});
 };

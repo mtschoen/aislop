@@ -129,6 +129,28 @@ describe("filterExcludedDiagnostics", () => {
 		expect(kept).toHaveLength(0);
 	});
 
+	it.each([
+		"./external/VendorLib/File.cs",
+		"src/../external/VendorLib/File.cs",
+		"external\\VendorLib\\File.cs",
+		".\\external\\VendorLib\\File.cs",
+	])("matches normalized diagnostic path %s", (filePath) => {
+		expect(
+			filterExcludedDiagnostics([diagnostic(filePath)], root, ["external/VendorLib/**"]),
+		).toEqual([]);
+	});
+
+	it.each([
+		"external/VendorLib/../../src/Own.cs",
+		"../external/VendorLib/Outside.cs",
+		"external/VendorLibExtras/Own.cs",
+	])("keeps a path whose normalized destination is not excluded: %s", (filePath) => {
+		const finding = diagnostic(filePath);
+		expect(filterExcludedDiagnostics([finding], root, ["external/VendorLib/**"])).toEqual([
+			finding,
+		]);
+	});
+
 	it("drops diagnostics under a bare dot-prefixed exclude entry", () => {
 		const diagnostics = [
 			diagnostic(".claude/spikes/App.cs"),

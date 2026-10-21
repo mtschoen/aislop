@@ -35,6 +35,7 @@ export const runEngines = async (
 
 			try {
 				const result = await engine.run(context);
+				const findingsBeforeExclusion = result.diagnostics.length;
 				// Honor the user exclude list uniformly: the build-backed C# engines
 				// scan whole projects/solutions and cannot filter their own
 				// output, so drop excluded-path diagnostics here before they are
@@ -44,6 +45,12 @@ export const runEngines = async (
 					context.rootDirectory,
 					context.excludePatterns,
 				);
+				const excludedCount = findingsBeforeExclusion - result.diagnostics.length;
+				if (excludedCount > 0) {
+					process.stderr.write(
+						`aislop: Suppressed ${excludedCount} finding(s) under excluded paths (${engine.name})\n`,
+					);
+				}
 				result.elapsed = performance.now() - start;
 				result.diagnostics = applyFileOverrides(result.diagnostics, context);
 				onComplete?.(result);

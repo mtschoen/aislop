@@ -58,6 +58,18 @@ When a field has an invalid value, aislop reports its path and value, drops only
 keeps the rest of the configuration in effect. Invalid YAML and non-mapping document roots cannot
 be recovered field by field, so they use the full default configuration.
 
+## Excluded paths
+
+`exclude` entries and `.aislopignore` patterns are relative to the scan root. Build-backed
+analyzers such as jb may inspect whole solutions, so their returned findings are filtered
+again before scoring. Diagnostic paths are normalized to root-relative forward-slash paths,
+including lexical `.` and `..` segments, before glob matching. For example,
+`exclude: [external/MFTLib/**]` also matches `./external/MFTLib/File.cs` and
+`App/../external/MFTLib/File.cs`. This does not resolve filesystem symlinks.
+
+When the diagnostic filter removes findings, stderr reports the suppressed count per
+engine. JSON and SARIF stdout remain machine-readable and contain only retained findings.
+
 ## Ordered per-file overrides
 
 Use one `.aislop/config.yml` and one scan for different file policies:
