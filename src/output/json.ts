@@ -1,5 +1,5 @@
 import type { ScanBaselineSummary } from "../commands/scan-baseline.js";
-import type { EngineFailure, EngineResult } from "../engines/types.js";
+import type { AnalyzerExecution, EngineFailure, EngineResult } from "../engines/types.js";
 import type { ScoreResult } from "../scoring/index.js";
 import type { Coverage } from "../utils/discover.js";
 import { APP_VERSION } from "../version.js";
@@ -27,6 +27,7 @@ interface JsonOutput {
 			elapsed: number;
 			failed?: true;
 			failures?: EngineFailure[];
+			executions?: AnalyzerExecution[];
 			skipReason?: string;
 			missingTools?: string[];
 		}
@@ -63,13 +64,14 @@ export const buildJsonOutput = (
 			elapsed: result.elapsed,
 			...(result.failed ? { failed: true as const } : {}),
 			...(result.failures?.length ? { failures: result.failures } : {}),
+			...(result.executions?.length ? { executions: result.executions } : {}),
 			...(result.skipped && result.skipReason ? { skipReason: result.skipReason } : {}),
 			...(result.missingTools?.length ? { missingTools: result.missingTools } : {}),
 		};
 	}
 
 	return {
-		schemaVersion: "1",
+		schemaVersion: "2",
 		cliVersion: APP_VERSION,
 		version: APP_VERSION,
 		score: coverage.scoreable ? scoreResult.score : null,

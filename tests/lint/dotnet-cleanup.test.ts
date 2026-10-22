@@ -61,7 +61,7 @@ describe("runDotnetLint report cleanup", () => {
 				});
 			}
 			try {
-				expect(await runDotnetLint(context)).toEqual({
+				expect(await runDotnetLint(context)).toMatchObject({
 					diagnostics: [],
 					failures: [{ tool: "roslynator", target: "App.csproj", reason: "roslynator failed" }],
 				});

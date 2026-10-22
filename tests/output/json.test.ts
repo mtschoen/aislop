@@ -35,7 +35,7 @@ describe("json output", () => {
 	it("includes schemaVersion and cliVersion", () => {
 		const results: EngineResult[] = [];
 		const out = buildJsonOutput(results, { score: 100, label: "Excellent" }, 0, 10, scoreable);
-		expect(out.schemaVersion).toBe("1");
+		expect(out.schemaVersion).toBe("2");
 		expect(typeof out.cliVersion).toBe("string");
 		expect(out.cliVersion.length).toBeGreaterThan(0);
 	});

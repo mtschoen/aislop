@@ -1,6 +1,7 @@
 import { findCompileCommandsDir } from "../cpp-targets.js";
 import { findMissingTools, type ToolRequirement, withMissingTools } from "../missing-tools.js";
 import type {
+	AnalyzerExecution,
 	AnalyzerRunResult,
 	Diagnostic,
 	Engine,
@@ -10,6 +11,11 @@ import type {
 } from "../types.js";
 import { runClangTidy } from "./clang-tidy.js";
 import { resolveCppLintConfig, runCppcheck } from "./cppcheck.js";
+import {
+	createCsharpProjectInventory,
+	notSelectedExecution,
+	notSelectedReason,
+} from "./csharp-execution.js";
 import { runDotnetLint } from "./dotnet.js";
 import { runExpoDoctor } from "./expo-doctor.js";
 import { runGenericLinter } from "./generic.js";
@@ -114,8 +120,10 @@ export const lintEngine: Engine = {
 	async run(context: EngineContext): Promise<EngineResult> {
 		const diagnostics: Diagnostic[] = [];
 		const failures: EngineFailure[] = [];
+		const executions: AnalyzerExecution[] = [];
 		const collectAnalyzerResult = (result: AnalyzerRunResult): Diagnostic[] => {
 			failures.push(...result.failures);
+			executions.push(...(result.executions ?? []));
 			return result.diagnostics;
 		};
 		const { languages, installedTools } = context;
@@ -152,14 +160,19 @@ export const lintEngine: Engine = {
 
 		const cpp = resolveCppLintConfig(context);
 		const csharp = resolveCsharpLintConfig(context);
+		const csharpInventory = languages.includes("csharp")
+			? createCsharpProjectInventory(context)
+			: undefined;
 		const wantJbCsharp =
 			languages.includes("csharp") && csharp.projectEvaluation && csharp.jb && installedTools.jb;
 		const wantJbCpp = languages.includes("cpp") && cpp.jb && installedTools.jb;
 		const jbPromise: Promise<Diagnostic[]> =
 			wantJbCsharp || wantJbCpp
-				? runJbLint(context, { includeCsharp: wantJbCsharp, includeCpp: wantJbCpp }).then(
-						collectAnalyzerResult,
-					)
+				? runJbLint(
+						context,
+						{ includeCsharp: wantJbCsharp, includeCpp: wantJbCpp },
+						csharpInventory,
+					).then(collectAnalyzerResult)
 				: Promise.resolve([]);
 
 		if (languages.includes("cpp")) {
@@ -175,7 +188,7 @@ export const lintEngine: Engine = {
 		if (languages.includes("csharp")) {
 			const csharpPasses: Promise<Diagnostic[]>[] = [];
 			if (csharp.projectEvaluation && csharp.roslynator && installedTools.roslynator) {
-				csharpPasses.push(runDotnetLint(context).then(collectAnalyzerResult));
+				csharpPasses.push(runDotnetLint(context, csharpInventory).then(collectAnalyzerResult));
 			}
 			if (wantJbCsharp)
 				csharpPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C# Lint")));
@@ -187,6 +200,13 @@ export const lintEngine: Engine = {
 		// skipped (mirroring `doctor`) rather than returning an empty result, which the
 		// scan summary would otherwise launder into a misleading "done (0 issues)".
 		const missingTools = findMissingTools(context, LINT_TOOL_REQUIREMENTS);
+		const notSelected: AnalyzerExecution[] = [];
+		if (languages.includes("csharp")) {
+			for (const tool of ["jb inspectcode", "roslynator"] as const) {
+				const reason = notSelectedReason(tool, csharp, installedTools);
+				if (reason) notSelected.push(notSelectedExecution(context, tool, reason, csharpInventory));
+			}
+		}
 		if (promises.length === 0) {
 			return withMissingTools(
 				{
@@ -195,6 +215,7 @@ export const lintEngine: Engine = {
 					elapsed: 0,
 					skipped: true,
 					skipReason: "no linter for the detected languages",
+					...(notSelected.length > 0 ? { executions: notSelected } : {}),
 				},
 				missingTools,
 			);
@@ -214,6 +235,9 @@ export const lintEngine: Engine = {
 				elapsed: 0,
 				skipped: false,
 				...(failures.length > 0 ? { failures, failed: true } : {}),
+				...(executions.length + notSelected.length > 0
+					? { executions: [...executions, ...notSelected] }
+					: {}),
 			},
 			missingTools,
 		);

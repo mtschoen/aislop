@@ -6,6 +6,7 @@ import { runSubprocess, truncateFailureDetail } from "../../utils/subprocess.js"
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
 import { findJbTargets, projectsSkippedNotice } from "../dotnet-targets.js";
 import type {
+	AnalyzerExecution,
 	AnalyzerRunResult,
 	Diagnostic,
 	EngineContext,
@@ -13,7 +14,17 @@ import type {
 	Severity,
 } from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
+import {
+	buildExecution,
+	type CsharpProjectInventory,
+	createCsharpProjectInventory,
+	isSolutionTarget,
+	resolveReportedProject,
+	toRelative,
+} from "./csharp-execution.js";
 import { decodeEntities, xmlAttribute } from "./xml-entities.js";
+
+const JB_TOOL: AnalyzerExecution["tool"] = "jb inspectcode";
 
 export type JbSeverity = "ERROR" | "WARNING" | "SUGGESTION" | "HINT";
 
@@ -132,6 +143,19 @@ export const resolveCsharpLintConfig = (context: EngineContext): CsharpLintConfi
 // than report a misleading subset. See reference_jb_inspectcode_cache.
 const reportLooksComplete = (xml: string): boolean => /<Project\b/.test(xml);
 
+const reportedProjectNames = (xml: string): string[] => {
+	const names: string[] = [];
+	for (const match of xml.matchAll(/<Project\b[^>]*>/g)) {
+		const name = attribute(match[0], "Name");
+		if (name) names.push(name);
+	}
+	return names;
+};
+
+interface JbTargetResult extends AnalyzerRunResult {
+	reportedProjects: string[];
+}
+
 // Pick the lower of two severity floors so the inspectcode pre-filter lets both
 // languages' issues through; parseJbXml re-applies each language's floor authoritatively.
 const minSeverityFloor = (a: JbSeverity, b: JbSeverity): JbSeverity =>
@@ -147,7 +171,7 @@ const analyzeJbTarget = async (
 	includeCsharp: boolean,
 	includeCpp: boolean,
 	target: string,
-): Promise<AnalyzerRunResult> => {
+): Promise<JbTargetResult> => {
 	// Fresh caches every run: jb's result cache survives config edits and a cold
 	// cache yields partial reports. Removed in the finally block.
 	let cachesHome: string | undefined;
@@ -185,14 +209,19 @@ const analyzeJbTarget = async (
 		}
 		const xml = fs.readFileSync(outputPath, "utf-8");
 		if (!reportLooksComplete(xml)) throw new Error("incomplete report: no Project element");
-		return { diagnostics: parseJbXml(xml, context.rootDirectory, parseOptions), failures: [] };
+		return {
+			diagnostics: parseJbXml(xml, context.rootDirectory, parseOptions),
+			failures: [],
+			reportedProjects: reportedProjectNames(xml),
+		};
 	} catch (error) {
 		return {
 			diagnostics: [],
+			reportedProjects: [],
 			failures: includeCsharp
 				? [
 						{
-							tool: "jb inspectcode",
+							tool: JB_TOOL,
 							target: projectRelativePosix(context.rootDirectory, target),
 							reason: error instanceof Error ? error.message : String(error),
 						},
@@ -223,14 +252,38 @@ export const buildJbProjectScope = (
 export const runJbLint = async (
 	context: EngineContext,
 	options: { includeCsharp: boolean; includeCpp: boolean },
+	inventory?: CsharpProjectInventory,
 ): Promise<AnalyzerRunResult> => {
-	const selection = findJbTargets(context);
+	const csharpInventory = inventory ?? createCsharpProjectInventory(context);
+	const selection = findJbTargets(context, csharpInventory);
 	// Only the C# side owns the notice: a C++-only inspection has no stake in
 	// skipped .csproj projects (and would misattribute them to C++ lint).
 	const notice = options.includeCsharp
 		? projectsSkippedNotice(selection, context.rootDirectory)
 		: [];
-	if (selection.targets.length === 0) return { diagnostics: notice, failures: [] };
+	if (selection.targets.length === 0) {
+		return {
+			diagnostics: notice,
+			failures: [],
+			executions: options.includeCsharp
+				? [
+						{
+							...buildExecution(context, {
+								tool: JB_TOOL,
+								failureReasons: [],
+								targets: [],
+								analyzedProjects: [],
+								elapsed: 0,
+								inventory: csharpInventory,
+							}),
+							status: "not-selected",
+							reason: "no solution or restored project targets",
+						},
+					]
+				: [],
+		};
+	}
+	const startedAt = Date.now();
 	const csharp = resolveCsharpLintConfig(context);
 	const cpp = resolveCppLintConfig(context);
 	const jbBinary = resolveToolBinary("jb"); // not bundled -> resolves to "jb" on PATH
@@ -257,6 +310,7 @@ export const runJbLint = async (
 
 	const diagnostics: Diagnostic[] = [];
 	const failures: EngineFailure[] = [];
+	const analyzedProjects: string[] = [];
 	for (const target of selection.targets) {
 		const result = await analyzeJbTarget(
 			context,
@@ -271,6 +325,28 @@ export const runJbLint = async (
 		);
 		diagnostics.push(...result.diagnostics);
 		failures.push(...result.failures);
+		if (result.failures.length === 0) {
+			if (isSolutionTarget(target)) {
+				for (const name of result.reportedProjects) {
+					const resolved = resolveReportedProject(csharpInventory, target, name);
+					if (resolved) analyzedProjects.push(resolved);
+				}
+			} else if (result.reportedProjects.length > 0) {
+				analyzedProjects.push(toRelative(context, target));
+			}
+		}
 	}
-	return { diagnostics: [...diagnostics, ...notice], failures };
+	const executions = options.includeCsharp
+		? [
+				buildExecution(context, {
+					tool: JB_TOOL,
+					failureReasons: failures.map((failure) => `${failure.target}: ${failure.reason}`),
+					targets: selection.targets.map((target) => toRelative(context, target)),
+					analyzedProjects,
+					elapsed: Date.now() - startedAt,
+					inventory: csharpInventory,
+				}),
+			]
+		: [];
+	return { diagnostics: [...diagnostics, ...notice], failures, executions };
 };

@@ -5,13 +5,26 @@ import { projectRelativePosix } from "../../utils/paths.js";
 import { runSubprocess, truncateFailureDetail } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
 import {
-	findCsprojFiles,
 	findDotnetTargets,
 	hasRestoreEvidence,
 	MAXIMUM_PROJECT_TARGETS,
 	projectsSkippedNotice,
 } from "../dotnet-targets.js";
-import type { AnalyzerRunResult, Diagnostic, EngineContext, EngineFailure } from "../types.js";
+import type {
+	AnalyzerExecution,
+	AnalyzerRunResult,
+	Diagnostic,
+	EngineContext,
+	EngineFailure,
+} from "../types.js";
+import {
+	buildExecution,
+	type CsharpProjectInventory,
+	createCsharpProjectInventory,
+	getSolutionIndex,
+	isSolutionTarget,
+	toRelative,
+} from "./csharp-execution.js";
 import { decodeEntities } from "./xml-entities.js";
 
 // Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
@@ -134,24 +147,66 @@ const analyzeTarget = async (
 	}
 };
 
-const isSolutionTarget = (target: string): boolean => target.toLowerCase().endsWith(".sln");
+const ROSLYNATOR_TOOL: AnalyzerExecution["tool"] = "roslynator";
 
-export const runDotnetLint = async (context: EngineContext): Promise<AnalyzerRunResult> => {
-	const selection = findDotnetTargets(context);
+export const runDotnetLint = async (
+	context: EngineContext,
+	inventory?: CsharpProjectInventory,
+): Promise<AnalyzerRunResult> => {
+	const csharpInventory = inventory ?? createCsharpProjectInventory(context);
+	const selection = findDotnetTargets(context, csharpInventory);
 	const notice = projectsSkippedNotice(selection, context.rootDirectory);
-	if (selection.targets.length === 0) return { diagnostics: notice, failures: [] };
-	const roslynator = resolveToolBinary("roslynator");
+	if (selection.targets.length === 0) {
+		return {
+			diagnostics: notice,
+			failures: [],
+			executions: [
+				{
+					...buildExecution(context, {
+						tool: ROSLYNATOR_TOOL,
+						failureReasons: [],
+						targets: [],
+						analyzedProjects: [],
+						elapsed: 0,
+						inventory: csharpInventory,
+					}),
+					status: "not-selected",
+					reason: "no solution or restored project targets",
+				},
+			],
+		};
+	}
+	const startedAt = Date.now();
+	const attemptedTargets: string[] = [];
+	const analyzedProjects: string[] = [];
+	const roslynator = resolveToolBinary(ROSLYNATOR_TOOL);
 	// Bundled analyzers extend coverage to projects that don't reference them;
 	// when none are bundled, roslynator still runs the project's own analyzers.
 	const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
 	const diagnostics: Diagnostic[] = [];
 	const failures: EngineFailure[] = [];
 	for (const target of selection.targets) {
+		attemptedTargets.push(toRelative(context, target));
 		const result = await analyzeTarget(context, roslynator, analyzerAssemblies, target);
 		diagnostics.push(...result.diagnostics);
-		if (!result.failed) continue;
+		if (!result.failed) {
+			if (isSolutionTarget(target)) {
+				const solution = getSolutionIndex(csharpInventory, target);
+				const memberProjects = solution.csharpProjects
+					.map((project) => project.relativePath)
+					.filter((project) =>
+						csharpInventory.visibleProjectsSet
+							? csharpInventory.visibleProjectsSet.has(project)
+							: csharpInventory.visibleProjects.includes(project),
+					);
+				analyzedProjects.push(...memberProjects);
+			} else {
+				analyzedProjects.push(toRelative(context, target));
+			}
+			continue;
+		}
 		const failure: EngineFailure = {
-			tool: "roslynator",
+			tool: ROSLYNATOR_TOOL,
 			target: projectRelativePosix(context.rootDirectory, target),
 			reason: result.reason,
 		};
@@ -159,9 +214,11 @@ export const runDotnetLint = async (context: EngineContext): Promise<AnalyzerRun
 			failures.push(failure);
 			continue;
 		}
-		const projects = findCsprojFiles(context.rootDirectory, context.excludePatterns);
+		const projects = csharpInventory.visibleProjects;
 		const fallbackTargets = projects
-			.filter((project) => hasRestoreEvidence(project, context.rootDirectory))
+			.filter((project) =>
+				hasRestoreEvidence(path.resolve(context.rootDirectory, project), context.rootDirectory),
+			)
 			.slice(0, MAXIMUM_PROJECT_TARGETS);
 		if (fallbackTargets.length === 0) {
 			failures.push(failure);
@@ -177,16 +234,32 @@ export const runDotnetLint = async (context: EngineContext): Promise<AnalyzerRun
 			`aislop: roslynator analyze failed for the solution (${failure.reason}); falling back to per-project analyze for ${fallbackTargets.length} restored project(s)`,
 		);
 		for (const project of fallbackTargets) {
-			const projectResult = await analyzeTarget(context, roslynator, analyzerAssemblies, project);
+			const projectAbsolute = path.resolve(context.rootDirectory, project);
+			attemptedTargets.push(toRelative(context, projectAbsolute));
+			const projectResult = await analyzeTarget(
+				context,
+				roslynator,
+				analyzerAssemblies,
+				projectAbsolute,
+			);
 			diagnostics.push(...projectResult.diagnostics);
+			if (!projectResult.failed) analyzedProjects.push(toRelative(context, projectAbsolute));
 			if (projectResult.failed) {
 				failures.push({
-					tool: "roslynator",
-					target: projectRelativePosix(context.rootDirectory, project),
+					tool: ROSLYNATOR_TOOL,
+					target: projectRelativePosix(context.rootDirectory, projectAbsolute),
 					reason: projectResult.reason,
 				});
 			}
 		}
 	}
-	return { diagnostics: [...diagnostics, ...notice], failures };
+	const execution = buildExecution(context, {
+		tool: ROSLYNATOR_TOOL,
+		failureReasons: failures.map((failure) => `${failure.target}: ${failure.reason}`),
+		targets: attemptedTargets,
+		analyzedProjects,
+		elapsed: Date.now() - startedAt,
+		inventory: csharpInventory,
+	});
+	return { diagnostics: [...diagnostics, ...notice], failures, executions: [execution] };
 };

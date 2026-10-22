@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Diagnostic, EngineResult, Severity } from "../engines/types.js";
+import type { AnalyzerExecution, Diagnostic, EngineResult, Severity } from "../engines/types.js";
 import { APP_VERSION } from "../version.js";
 
 const SARIF_VERSION = "2.1.0";
@@ -49,6 +49,7 @@ interface SarifLog {
 				level: "error";
 				message: { text: string };
 			}>;
+			properties?: { analyzerExecutions: AnalyzerExecution[] };
 		}>;
 	}>;
 }
@@ -80,6 +81,7 @@ const buildRules = (diagnostics: Diagnostic[]): SarifReportingDescriptor[] => {
 
 export const buildSarifLog = (results: EngineResult[]): SarifLog => {
 	const failures = results.flatMap((result) => result.failures ?? []);
+	const executions = results.flatMap((result) => result.executions ?? []);
 	const diagnostics = results.flatMap((r) => r.diagnostics);
 	const rules = buildRules(diagnostics);
 	const ruleIndex = new Map(rules.map((rule, index) => [rule.id, index]));
@@ -114,17 +116,20 @@ export const buildSarifLog = (results: EngineResult[]): SarifLog => {
 					},
 				},
 				results: sarifResults,
-				...(failures.length > 0
+				...(failures.length > 0 || executions.length > 0
 					? {
 							invocations: [
 								{
-									executionSuccessful: false,
+									executionSuccessful: failures.length === 0,
 									toolExecutionNotifications: failures.map((failure) => ({
 										level: "error" as const,
 										message: {
 											text: `${failure.tool} not-run for ${failure.target}: ${failure.reason}`,
 										},
 									})),
+									...(executions.length > 0
+										? { properties: { analyzerExecutions: executions } }
+										: {}),
 								},
 							],
 						}

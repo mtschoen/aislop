@@ -129,7 +129,7 @@ describe("runJbLint gating", () => {
 	it("returns no findings or failures when there is no .sln/.csproj target", async () => {
 		expect(
 			await runJbLint(ctx("/nonexistent-xyz"), { includeCsharp: true, includeCpp: false }),
-		).toEqual({ diagnostics: [], failures: [] });
+		).toMatchObject({ diagnostics: [], failures: [] });
 	});
 });
 
@@ -220,62 +220,67 @@ describe("runJbLint target failures", () => {
 	});
 	afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-	it.each(["missing", "incomplete", "unreadable", "throw", "timeout", "setup-error", "cleanup-error"])(
-		"records C# %s failure",
-		async (mode) => {
-			const originalMkdtempSync = fs.mkdtempSync;
-			const originalRmSync = fs.rmSync;
-			let errorSpy: ReturnType<typeof vi.spyOn> | undefined;
+	it.each([
+		"missing",
+		"incomplete",
+		"unreadable",
+		"throw",
+		"timeout",
+		"setup-error",
+		"cleanup-error",
+	])("records C# %s failure", async (mode) => {
+		const originalMkdtempSync = fs.mkdtempSync;
+		const originalRmSync = fs.rmSync;
+		let errorSpy: ReturnType<typeof vi.spyOn> | undefined;
 
-			if (mode === "setup-error") {
-				vi.spyOn(fs, "mkdtempSync").mockImplementation((prefix) => {
-					if (typeof prefix === "string" && prefix.includes("aislop-jb-")) {
-						throw new Error("ENOSPC: no space left on device, mkdtemp");
-					}
-					return originalMkdtempSync(prefix);
-				});
-			}
-			if (mode === "cleanup-error") {
-				errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-				vi.spyOn(fs, "rmSync").mockImplementation((targetPath, options) => {
-					if (typeof targetPath === "string" && targetPath.includes("aislop-jb-")) {
-						throw new Error("EPERM: operation not permitted, rm");
-					}
-					return originalRmSync(targetPath, options);
-				});
-			}
-
-			try {
-				runSubprocessMock.mockImplementation(async (_command: string, arguments_: string[]) => {
-					if (mode === "throw" || mode === "cleanup-error") throw new Error("jb crashed");
-					if (mode === "timeout") throw new Error("Command timed out after 600000ms: jb");
-					const output = arguments_.find((value) => value.startsWith("--output="));
-					if (!output) throw new Error("missing output argument");
-					const report = output.slice("--output=".length);
-					if (mode === "unreadable") fs.mkdirSync(report);
-					if (mode === "incomplete") fs.writeFileSync(report, "<Report><Issues /></Report>");
-					return { stdout: "", stderr: "", exitCode: 0 };
-				});
-				expect(await runJbLint(ctx(root), { includeCsharp: true, includeCpp: false })).toEqual({
-					diagnostics: [],
-					failures: [
-						expect.objectContaining({
-							tool: "jb inspectcode",
-							target: "App.sln",
-							reason: expect.any(String),
-						}),
-					],
-				});
-				if (mode === "cleanup-error") {
-					expect(errorSpy).toHaveBeenCalledWith(
-						expect.stringContaining("failed to clean up cache directory"),
-					);
+		if (mode === "setup-error") {
+			vi.spyOn(fs, "mkdtempSync").mockImplementation((prefix) => {
+				if (typeof prefix === "string" && prefix.includes("aislop-jb-")) {
+					throw new Error("ENOSPC: no space left on device, mkdtemp");
 				}
-			} finally {
-				vi.restoreAllMocks();
+				return originalMkdtempSync(prefix);
+			});
+		}
+		if (mode === "cleanup-error") {
+			errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+			vi.spyOn(fs, "rmSync").mockImplementation((targetPath, options) => {
+				if (typeof targetPath === "string" && targetPath.includes("aislop-jb-")) {
+					throw new Error("EPERM: operation not permitted, rm");
+				}
+				return originalRmSync(targetPath, options);
+			});
+		}
+
+		try {
+			runSubprocessMock.mockImplementation(async (_command: string, arguments_: string[]) => {
+				if (mode === "throw" || mode === "cleanup-error") throw new Error("jb crashed");
+				if (mode === "timeout") throw new Error("Command timed out after 600000ms: jb");
+				const output = arguments_.find((value) => value.startsWith("--output="));
+				if (!output) throw new Error("missing output argument");
+				const report = output.slice("--output=".length);
+				if (mode === "unreadable") fs.mkdirSync(report);
+				if (mode === "incomplete") fs.writeFileSync(report, "<Report><Issues /></Report>");
+				return { stdout: "", stderr: "", exitCode: 0 };
+			});
+			expect(await runJbLint(ctx(root), { includeCsharp: true, includeCpp: false })).toMatchObject({
+				diagnostics: [],
+				failures: [
+					expect.objectContaining({
+						tool: "jb inspectcode",
+						target: "App.sln",
+						reason: expect.any(String),
+					}),
+				],
+			});
+			if (mode === "cleanup-error") {
+				expect(errorSpy).toHaveBeenCalledWith(
+					expect.stringContaining("failed to clean up cache directory"),
+				);
 			}
-		},
-	);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
 
 	it("bounds the tool output copied into a missing-report failure", async () => {
 		runSubprocessMock.mockResolvedValue({ stdout: "", stderr: "y".repeat(4000), exitCode: 2 });
@@ -287,7 +292,7 @@ describe("runJbLint target failures", () => {
 
 	it("keeps C++-only failure policy unchanged", async () => {
 		runSubprocessMock.mockRejectedValue(new Error("jb crashed"));
-		expect(await runJbLint(ctx(root), { includeCsharp: false, includeCpp: true })).toEqual({
+		expect(await runJbLint(ctx(root), { includeCsharp: false, includeCpp: true })).toMatchObject({
 			diagnostics: [],
 			failures: [],
 		});
@@ -303,7 +308,7 @@ describe("runJbLint target failures", () => {
 			);
 			return { stdout: "", stderr: "", exitCode: 1 };
 		});
-		expect(await runJbLint(ctx(root), { includeCsharp: true, includeCpp: false })).toEqual({
+		expect(await runJbLint(ctx(root), { includeCsharp: true, includeCpp: false })).toMatchObject({
 			diagnostics: [],
 			failures: [],
 		});
@@ -358,4 +363,3 @@ describe("runJbLint inspectcode CLI options", () => {
 		expect(args).not.toContain("--swea");
 	});
 });
-

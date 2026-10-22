@@ -26,7 +26,7 @@ const dropExcludedProjects = (
 };
 
 // Recursively collect every .csproj under `root`, skipping the directories above.
-const collectCsprojFiles = (root: string): string[] => {
+export const collectCsprojFiles = (root: string): string[] => {
 	const results: string[] = [];
 	const walk = (directory: string): void => {
 		let entries: fs.Dirent[];
@@ -109,11 +109,19 @@ const selectRestoredProjects = (
 	};
 };
 
+interface TargetInventory {
+	allProjects: string[];
+	visibleProjects: string[];
+	excludedProjects: string[];
+	hasGitIgnoredProjects?: boolean;
+}
+
 const findSolutionOrProjects = (
 	root: string,
 	solutionExtensions: string[],
 	excludePatterns?: string[],
 	solutionMayEvaluateExcludedProjects = false,
+	inventory?: TargetInventory,
 ): DotnetTargetSelection => {
 	let entries: string[];
 	try {
@@ -132,14 +140,30 @@ const findSolutionOrProjects = (
 			break;
 		}
 	}
-	const allProjects = collectCsprojFiles(root);
-	const nonIgnoredProjects = dropGitIgnoredPaths(root, allProjects);
-	const visibleProjects = dropExcludedProjects(root, nonIgnoredProjects, excludePatterns);
-	const noProjectsGitIgnored = nonIgnoredProjects.length === allProjects.length;
+	const noProjectsGitIgnored = inventory ? !inventory.hasGitIgnoredProjects : undefined;
 	const userExcludesSatisfied =
-		solutionMayEvaluateExcludedProjects || visibleProjects.length === nonIgnoredProjects.length;
+		solutionMayEvaluateExcludedProjects ||
+		(inventory ? inventory.excludedProjects.length === 0 : undefined);
 
-	if (solution && noProjectsGitIgnored && userExcludesSatisfied) {
+	if (solution && noProjectsGitIgnored === true && userExcludesSatisfied === true) {
+		return {
+			...emptySelection(),
+			targets: [solution],
+		};
+	}
+
+	const nonIgnoredProjects = inventory
+		? inventory.allProjects.map((project) => path.resolve(root, project))
+		: dropGitIgnoredPaths(root, collectCsprojFiles(root));
+	const visibleProjects = inventory
+		? inventory.visibleProjects.map((project) => path.resolve(root, project))
+		: dropExcludedProjects(root, nonIgnoredProjects, excludePatterns);
+
+	if (
+		solution &&
+		(noProjectsGitIgnored ?? nonIgnoredProjects.length === collectCsprojFiles(root).length) &&
+		(userExcludesSatisfied ?? visibleProjects.length === nonIgnoredProjects.length)
+	) {
 		return {
 			...emptySelection(),
 			targets: [solution],
@@ -156,8 +180,15 @@ const findSolutionOrProjects = (
 // the root.
 export const findDotnetTargets = (
 	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
+	inventory?: TargetInventory,
 ): DotnetTargetSelection =>
-	findSolutionOrProjects(context.rootDirectory, [".sln"], context.excludePatterns);
+	findSolutionOrProjects(
+		context.rootDirectory,
+		[".sln"],
+		context.excludePatterns,
+		false,
+		inventory,
+	);
 
 // Targets for the jb (ReSharper CLT) lint pass. Unlike roslynator, jb inspectcode
 // loads a .slnx solution natively, so prefer a single solution target - .sln
@@ -171,8 +202,15 @@ export const findDotnetTargets = (
 // solution-wide usage, and reports paths relative to each project directory.
 export const findJbTargets = (
 	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
+	inventory?: TargetInventory,
 ): DotnetTargetSelection =>
-	findSolutionOrProjects(context.rootDirectory, [".sln", ".slnx"], context.excludePatterns, true);
+	findSolutionOrProjects(
+		context.rootDirectory,
+		[".sln", ".slnx"],
+		context.excludePatterns,
+		true,
+		inventory,
+	);
 
 // One advisory notice per lint pass - never one per project - telling the user
 // which build-backed C# work was skipped and how to include it. Mirrors

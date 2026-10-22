@@ -97,7 +97,7 @@ pipelines:
             - npx --yes aislop@latest ci --changes --base FETCH_HEAD
 ```
 
-Bitbucket's clone has only the source branch, so `git fetch origin <branch>` sets `FETCH_HEAD` without creating `origin/<branch>` — diff against `FETCH_HEAD` directly.
+Bitbucket's clone has only the source branch, so `git fetch origin <branch>` sets `FETCH_HEAD` without creating `origin/<branch>` - diff against `FETCH_HEAD` directly.
 
 ## Pre-commit hook
 
@@ -171,7 +171,7 @@ Both `aislop ci` and `aislop scan --json` emit structured JSON for parsing in CI
 
 ```json
 {
-  "schemaVersion": "1",
+  "schemaVersion": "2",
   "cliVersion": "<version>",
   "score": 87,
   "label": "Healthy",
@@ -196,3 +196,39 @@ An engine that crashed during the scan also carries `"failed": true`. A `skipped
 ```
 
 An engine skipped only because the scan has no files it applies to has no `missingTools`.
+
+### C# pass execution record
+
+`schemaVersion` 2 adds `engines.lint.executions` whenever the scan detects C#. It holds one record for the JetBrains pass (`jb inspectcode`) and one for the Roslynator pass, produced for successful runs as well as failed and unselected ones, so a clean zero is distinguishable from a pass that never ran:
+
+```json
+"lint": {
+  "issues": 0, "skipped": false, "elapsed": 9120,
+  "executions": [
+    {
+      "tool": "jb inspectcode",
+      "status": "ran",
+      "targets": ["App.sln"],
+      "analyzedProjects": ["One/One.csproj", "Two/Two.csproj"],
+      "excludedProjects": ["Vendor/Vendor.csproj"],
+      "elapsed": 8841
+    },
+    {
+      "tool": "roslynator",
+      "status": "not-selected",
+      "reason": "projectEvaluation disabled",
+      "targets": [],
+      "analyzedProjects": [],
+      "excludedProjects": ["Vendor/Vendor.csproj"],
+      "elapsed": 0
+    }
+  ]
+}
+```
+
+- `status` is `ran`, `failed` (the pass started and at least one target did not complete; `reason` joins the failure reasons and the same failures appear in `failures`), or `not-selected` (`reason` is `projectEvaluation disabled`, `<tool> disabled in lint.csharp config`, `<tool> tool missing`, or `no solution or restored project targets`).
+- `targets` are the repository-relative solution or project files handed to the tool. jb inspects the solution even when a user exclude names one of its projects (the excluded project's findings are filtered out afterwards); Roslynator falls back to per-project targets when a project is excluded.
+- `analyzedProjects` are repository-relative `.csproj` paths. For jb they come from the `<Project>` elements of the report resolved to project files through the target solution's project mapping or invocation target; for Roslynator they are the successfully analyzed project targets, or the solution's member projects when a solution target succeeded. A project removed by a user exclude is listed only in `excludedProjects`, never in `analyzedProjects`.
+- `elapsed` is milliseconds.
+
+A consumer can fail closed by checking `status === "ran"` for each tool and that its expected project set is a subset of `analyzedProjects`. The same records appear in SARIF as `runs[0].invocations[0].properties.analyzerExecutions`.

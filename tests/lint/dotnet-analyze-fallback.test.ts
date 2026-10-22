@@ -158,7 +158,11 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 		// Simulates roslynator crashing while loading the .sln (e.g. the SDK 10
 		// MissingFieldException): it exits non-zero and never writes the report
 		// XML. With no restored .csproj on disk there is nothing to fall back to.
-		runSubprocess.mockResolvedValueOnce({ stdout: "", stderr: "boom: MissingFieldException", exitCode: 1 });
+		runSubprocess.mockResolvedValueOnce({
+			stdout: "",
+			stderr: "boom: MissingFieldException",
+			exitCode: 1,
+		});
 		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const { diagnostics, failures } = await runDotnetLint(csharpContext(root));
@@ -192,8 +196,11 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 			});
 		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const { diagnostics, failures } = await runDotnetLint(csharpContext(root));
+		const { diagnostics, failures, executions } = await runDotnetLint(csharpContext(root));
 		expect(failures).toEqual([]);
+		expect(executions?.[0]?.targets).toEqual(["App.sln", "Proj/Proj.csproj"]);
+		expect(executions?.[0]?.analyzedProjects).toEqual(["Proj/Proj.csproj"]);
+		expect(executions?.[0]?.status).toBe("ran");
 
 		expect(runSubprocess).toHaveBeenCalledTimes(2);
 		const secondCallArgs = runSubprocess.mock.calls[1][1] as string[];
@@ -224,9 +231,7 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 
 	it("skips per-project fallback when solution-level analyze times out", async () => {
 		writeRestoredProject(root, "Proj");
-		runSubprocess.mockRejectedValueOnce(
-			new Error("Command timed out after 180000ms: roslynator"),
-		);
+		runSubprocess.mockRejectedValueOnce(new Error("Command timed out after 180000ms: roslynator"));
 		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const { diagnostics, failures } = await runDotnetLint(csharpContext(root));

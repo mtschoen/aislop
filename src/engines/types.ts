@@ -43,9 +43,32 @@ export interface EngineFailure {
 	reason: string;
 }
 
+type AnalyzerExecutionStatus = "ran" | "failed" | "not-selected";
+
+/**
+ * Machine-readable record of one C# build-backed pass (jb inspectcode or
+ * roslynator). Produced for successful runs and for passes that never ran, so a
+ * consumer can tell a clean zero from a skipped or failed pass.
+ */
+export interface AnalyzerExecution {
+	tool: "jb inspectcode" | "roslynator";
+	status: AnalyzerExecutionStatus;
+	/** Why the pass failed or was not selected; absent for status "ran". */
+	reason?: string;
+	/** Repository-relative targets handed to the tool. */
+	targets: string[];
+	/** Repository-relative project paths the tool analyzed. */
+	analyzedProjects: string[];
+	/** Repository-relative project paths dropped by a user exclude; never analyzed. */
+	excludedProjects: string[];
+	/** Wall-clock milliseconds the pass took (0 when not selected). */
+	elapsed: number;
+}
+
 export interface AnalyzerRunResult {
 	diagnostics: Diagnostic[];
 	failures: EngineFailure[];
+	executions?: AnalyzerExecution[];
 }
 
 export interface EngineResult {
@@ -57,6 +80,7 @@ export interface EngineResult {
 	missingTools?: string[];
 	failed?: boolean;
 	failures?: EngineFailure[];
+	executions?: AnalyzerExecution[];
 }
 
 export interface EngineContext {
