@@ -72,6 +72,8 @@ beforeEach(() => {
 	vi.stubEnv("XDG_STATE_HOME", stateHome);
 	vi.stubEnv("CI", "");
 	vi.stubEnv("GITHUB_ACTIONS", "");
+	vi.stubEnv("DO_NOT_TRACK", "");
+	vi.stubEnv("AISLOP_NO_TELEMETRY", "");
 	vi.stubEnv("AISLOP_TELEMETRY_DRY_RUN", "1");
 	vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
