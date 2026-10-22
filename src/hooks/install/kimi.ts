@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "smol-toml";
-import { AISLOP_MD_BODY } from "../assets.js";
+import { renderAislopMdBody } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
 import {
@@ -15,16 +15,12 @@ import {
 
 const LEGACY_BEGIN_MARKER = "# aislop:begin kimi-hook v1";
 const LEGACY_END_MARKER = "# aislop:end kimi-hook v1";
-const EDIT_SECTION_HEADING = "## On every edit\n\n";
-const NEXT_SECTION_HEADING = "\n\n## Severity ladder";
-const editInstructionsBegin =
-	AISLOP_MD_BODY.indexOf(EDIT_SECTION_HEADING) + EDIT_SECTION_HEADING.length;
-const editInstructionsEnd = AISLOP_MD_BODY.indexOf(NEXT_SECTION_HEADING, editInstructionsBegin);
-const KIMI_RULES_BODY =
-	`${AISLOP_MD_BODY.slice(0, editInstructionsBegin)}Kimi Code uses these instructions without a runtime callback. After editing files, run \`aislop scan\` and act on its findings in the same turn.${AISLOP_MD_BODY.slice(editInstructionsEnd)}`.replace(
-		/^- The findings payload includes .*$/m,
-		"- Treat the terminal output from `aislop scan` as the plan for the turn.",
-	);
+const KIMI_RULES_BODY = renderAislopMdBody(
+	"Kimi Code uses these instructions without a runtime callback. After editing files, run `aislop scan` and act on its findings in the same turn.",
+).replace(
+	/^- The findings payload includes .*$/m,
+	"- Treat the terminal output from `aislop scan` as the plan for the turn.",
+);
 const RULES_HASH = sentinelHash(KIMI_RULES_BODY);
 const RULES_BEGIN_MARKER_PATTERN = /<!--\s*aislop:begin\s+v1\s+hash=([^\s>]+)\s*-->/;
 const RULES_END_MARKER = "<!-- aislop:end v1 -->";

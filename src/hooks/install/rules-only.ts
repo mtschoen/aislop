@@ -1,4 +1,4 @@
-import { AISLOP_MD_BODY } from "../assets.js";
+import { type HookRegistration, renderAislopMdBody } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
 import {
@@ -20,12 +20,14 @@ export const installRulesOnly = (
 	opts: HookInstallOpts,
 	paths: RulesOnlyPaths,
 	summary: string,
+	hook?: HookRegistration,
 ): HookInstallResult => {
 	const result = emptyResult();
 
 	const existing = readIfExists(paths.rules);
-	const hash = sentinelHash(AISLOP_MD_BODY);
-	const next = upsertMarkdownFence(existing, AISLOP_MD_BODY, hash).nextContent;
+	const body = renderAislopMdBody(hook);
+	const hash = sentinelHash(body);
+	const next = upsertMarkdownFence(existing, body, hash).nextContent;
 	applyContent(result, opts, paths.rules, next, summary);
 
 	if (paths.host && paths.marker) {

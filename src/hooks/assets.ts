@@ -1,10 +1,29 @@
-export const AISLOP_MD_BODY = `# aislop - agent instructions
+export interface HookRegistration {
+	event: string;
+	matcher?: string;
+	receiver: string;
+}
+
+const NO_HOOK_EDIT_SECTION =
+	"This harness has no edit hook. After every edit, run `aislop scan --changes` yourself and act on the findings it reports the same turn.";
+
+const describeHook = (hook: HookRegistration): string => {
+	const trigger = hook.matcher
+		? `A \`${hook.event}\` hook (matcher \`${hook.matcher}\`) runs \`${hook.receiver}\` after every matching file edit.`
+		: `A \`${hook.event}\` hook runs \`${hook.receiver}\` after every file edit.`;
+	return `${trigger} It scans the touched files and returns findings as JSON shaped like \`AislopFeedback\` (schema \`aislop.hook.v2\` - score, baseline, delta, regressed, counts, findings, newSinceBaseline, suggestedActions). Act on them the same turn; the \`suggestedActions\` field tells you exactly what to run next.`;
+};
+
+/** editSection: a HookRegistration, or the literal paragraph for a harness with no edit hook. */
+export const renderAislopMdBody = (
+	editSection: HookRegistration | string = NO_HOOK_EDIT_SECTION,
+): string => `# aislop - agent instructions
 
 [aislop](https://github.com/scanaislop/aislop) is your guardrail for shipping clean, maintainable, production-grade code. It catches the patterns AI coding tools leave behind: dead imports, redundant code, duplicate logic, unsafe any-typed casts, narrative comments, swallowed errors, hidden fallbacks, oversized functions, risky security constructs - and grades the project out of 100 so regressions are visible. Treat its findings as blocking, not advisory: the goal is code a human maintainer would happily inherit.
 
 ## On every edit
 
-A PostToolUse hook runs \`aislop hook claude\` after every Edit, Write, or MultiEdit. It scans the touched files and returns findings as JSON \`additionalContext\` shaped like \`AislopFeedback\` (schema \`aislop.hook.v2\` - score, baseline, delta, regressed, counts, findings, newSinceBaseline, suggestedActions). Act on them the same turn; the \`suggestedActions\` field tells you exactly what to run next.
+${typeof editSection === "string" ? editSection : describeHook(editSection)}
 
 ## Severity ladder
 

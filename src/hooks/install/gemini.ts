@@ -1,5 +1,5 @@
 import path from "node:path";
-import { AISLOP_MD_BODY } from "../assets.js";
+import { type HookRegistration, renderAislopMdBody } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { AISLOP_SENTINEL_KEY, type EventHookOperation, patchJsonHooks } from "../io/json-patch.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
@@ -28,18 +28,24 @@ export const resolveGeminiPaths = (opts: HookInstallOpts): GeminiPaths => {
 	};
 };
 
+const GEMINI_HOOK: HookRegistration = {
+	event: "AfterTool",
+	matcher: "write_file|replace",
+	receiver: "aislop hook gemini",
+};
+
 const buildHookGroup = () => {
 	const hashBody = JSON.stringify({
-		command: "aislop hook gemini",
-		matcher: "write_file|replace",
+		command: GEMINI_HOOK.receiver,
+		matcher: GEMINI_HOOK.matcher,
 	});
 	return {
-		matcher: "write_file|replace",
+		matcher: GEMINI_HOOK.matcher,
 		hooks: [
 			{
 				name: "aislop",
 				type: "command",
-				command: "aislop hook gemini",
+				command: GEMINI_HOOK.receiver,
 				timeout: 5000,
 				[AISLOP_SENTINEL_KEY]: {
 					v: 1,
@@ -53,7 +59,7 @@ const buildHookGroup = () => {
 
 const renderSettings = (existingRaw: string | null, target: string): string => {
 	const operations: EventHookOperation[] = [
-		{ event: "AfterTool", action: "upsert", group: buildHookGroup() },
+		{ event: GEMINI_HOOK.event, action: "upsert", group: buildHookGroup() },
 	];
 	return patchJsonHooks(existingRaw, { target, operations })!;
 };
@@ -66,8 +72,9 @@ export const installGemini = (opts: HookInstallOpts): HookInstallResult => {
 	applyContent(result, opts, paths.settings, next, "register AfterTool hook");
 
 	const existingMd = readIfExists(paths.aislopMd);
-	const hash = sentinelHash(AISLOP_MD_BODY);
-	const fenced = upsertMarkdownFence(existingMd, AISLOP_MD_BODY, hash).nextContent;
+	const body = renderAislopMdBody(GEMINI_HOOK);
+	const hash = sentinelHash(body);
+	const fenced = upsertMarkdownFence(existingMd, body, hash).nextContent;
 	applyContent(result, opts, paths.aislopMd, fenced, "write AISLOP.md rules");
 
 	const existingGeminiMd = readIfExists(paths.geminiMd) ?? "";

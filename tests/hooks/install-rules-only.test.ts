@@ -34,7 +34,14 @@ describe("installCodex", () => {
 		const result = installCodex(opts);
 		const paths = resolveCodexPaths(opts);
 		expect(result.wrote).toContain(paths.hooks);
-		expect(fs.readFileSync(paths.rules, "utf-8")).toContain("<!-- aislop:begin");
+		const rules = fs.readFileSync(paths.rules, "utf-8");
+		expect(rules).toContain("<!-- aislop:begin");
+		expect(rules).toContain("`PostToolUse`");
+		expect(rules).toContain("`apply_patch`");
+		expect(rules).toContain("`aislop hook codex`");
+		expect(rules).not.toContain("`aislop scan --changes`");
+		expect(rules).not.toContain("aislop hook claude");
+		expect(rules).not.toContain("MultiEdit");
 
 		const hooks = JSON.parse(fs.readFileSync(paths.hooks, "utf-8"));
 		expect(hooks.hooks.PostToolUse).toHaveLength(1);
@@ -55,6 +62,13 @@ describe("installCodex", () => {
 		expect(paths.hooks).toBe(path.join(cwd, ".codex", "hooks.json"));
 		expect(fs.existsSync(paths.rules)).toBe(true);
 		expect(fs.existsSync(paths.hooks)).toBe(true);
+		const rules = fs.readFileSync(paths.rules, "utf-8");
+		expect(rules).toContain("`PostToolUse`");
+		expect(rules).toContain("`apply_patch`");
+		expect(rules).toContain("`aislop hook codex`");
+		expect(rules).not.toContain("`aislop scan --changes`");
+		expect(rules).not.toContain("aislop hook claude");
+		expect(rules).not.toContain("MultiEdit");
 	});
 
 	it("uses CODEX_HOME for global hooks and rules", () => {
@@ -148,7 +162,13 @@ describe("installCodex", () => {
 describe("P3 project-only installers", () => {
 	it("Windsurf writes .windsurfrules in project scope", () => {
 		installWindsurf({ home, cwd, scope: "project" });
-		expect(fs.existsSync(path.join(cwd, ".windsurfrules"))).toBe(true);
+		const rulesPath = path.join(cwd, ".windsurfrules");
+		expect(fs.existsSync(rulesPath)).toBe(true);
+		const body = fs.readFileSync(rulesPath, "utf-8");
+		expect(body).toContain("`aislop scan --changes`");
+		expect(body).not.toContain("PostToolUse");
+		expect(body).not.toContain("aislop hook claude");
+		expect(body).not.toContain("MultiEdit");
 	});
 
 	it("Windsurf refuses global scope", () => {

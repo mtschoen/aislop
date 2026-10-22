@@ -201,3 +201,16 @@ describe("uninstallCursor", () => {
 		expect(rawAfterUninstall).toBe(commentedEmpty);
 	});
 });
+
+describe("installCursor rules file", () => {
+	it("names the Cursor event and receiver and not Claude's", () => {
+		const opts = { home, cwd, scope: "project" as const };
+		installCursor(opts);
+		const body = fs.readFileSync(resolveCursorPaths(opts).rules, "utf-8");
+		expect(body).toContain("`afterFileEdit`");
+		expect(body).toContain("`aislop hook cursor`");
+		expect(body).not.toContain("PostToolUse");
+		expect(body).not.toContain("aislop hook claude");
+		expect(body).not.toContain("MultiEdit");
+	});
+});

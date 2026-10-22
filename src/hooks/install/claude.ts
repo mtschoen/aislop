@@ -1,6 +1,6 @@
 // aislop-ignore-file duplicate-block -- buildHookGroup, buildStopHookGroup, and buildFileChangedHookGroup each assemble a Claude Code settings.json hook entry for a different lifecycle event (PostToolUse, Stop, FileChanged) with its own matcher and command string, so the near-identical object shape is one block per hook type rather than a copy-paste table
 import path from "node:path";
-import { AISLOP_MD_BODY } from "../assets.js";
+import { type HookRegistration, renderAislopMdBody } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { AISLOP_SENTINEL_KEY, type EventHookOperation, patchJsonHooks } from "../io/json-patch.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
@@ -29,17 +29,23 @@ export const resolveClaudePaths = (opts: HookInstallOpts): ClaudePaths => {
 	};
 };
 
+const CLAUDE_HOOK: HookRegistration = {
+	event: "PostToolUse",
+	matcher: "Edit|Write|MultiEdit",
+	receiver: "aislop hook claude",
+};
+
 const buildHookGroup = () => {
 	const hashBody = JSON.stringify({
-		command: "aislop hook claude",
-		matcher: "Edit|Write|MultiEdit",
+		command: CLAUDE_HOOK.receiver,
+		matcher: CLAUDE_HOOK.matcher,
 	});
 	return {
-		matcher: "Edit|Write|MultiEdit",
+		matcher: CLAUDE_HOOK.matcher,
 		hooks: [
 			{
 				type: "command",
-				command: "aislop hook claude",
+				command: CLAUDE_HOOK.receiver,
 				[AISLOP_SENTINEL_KEY]: {
 					v: 1,
 					managed: true,
@@ -102,7 +108,7 @@ const renderSettings = (
 	target: string,
 ): string => {
 	const operations: EventHookOperation[] = [
-		{ event: "PostToolUse", action: ACTION_UPSERT, group: buildHookGroup() },
+		{ event: CLAUDE_HOOK.event, action: ACTION_UPSERT, group: buildHookGroup() },
 		{ event: "FileChanged", action: ACTION_UPSERT, group: buildFileChangedHookGroup() },
 		qualityGate
 			? { event: "Stop", action: ACTION_UPSERT, group: buildStopHookGroup() }
@@ -128,9 +134,10 @@ export const installClaude = (opts: HookInstallOpts): HookInstallResult => {
 		"register PostToolUse + FileChanged hooks",
 	);
 
-	const mdHash = sentinelHash(AISLOP_MD_BODY);
+	const mdBody = renderAislopMdBody(CLAUDE_HOOK);
+	const mdHash = sentinelHash(mdBody);
 	const existingMd = readIfExists(paths.aislopMd);
-	const fenced = upsertMarkdownFence(existingMd, AISLOP_MD_BODY, mdHash);
+	const fenced = upsertMarkdownFence(existingMd, mdBody, mdHash);
 	applyContent(result, opts, paths.aislopMd, fenced.nextContent, "write AISLOP.md rules");
 
 	const existingClaudeMd = readIfExists(paths.claudeMd) ?? "";

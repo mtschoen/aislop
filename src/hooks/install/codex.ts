@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { HookRegistration } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { installRulesOnly, uninstallRulesOnly } from "./rules-only.js";
 import {
@@ -15,15 +16,19 @@ import {
 	patchJsonHooks,
 } from "../io/json-patch.js";
 
-const CODEX_HOOK_COMMAND = "aislop hook codex";
+const CODEX_HOOK: HookRegistration = {
+	event: "PostToolUse",
+	matcher: "apply_patch",
+	receiver: "aislop hook codex",
+};
 const CODEX_MANAGED_STATUS = "Running aislop [managed:v1]";
 
 const CODEX_HOOK_GROUP = {
-	matcher: "apply_patch",
+	matcher: CODEX_HOOK.matcher,
 	hooks: [
 		{
 			type: "command",
-			command: CODEX_HOOK_COMMAND,
+			command: CODEX_HOOK.receiver,
 			timeout: 15,
 			statusMessage: CODEX_MANAGED_STATUS,
 		},
@@ -49,7 +54,7 @@ const isManagedHookCommand = (handler: unknown): boolean => {
 	const command = handler as Record<string, unknown>;
 	return (
 		command.type === "command" &&
-		command.command === CODEX_HOOK_COMMAND &&
+		command.command === CODEX_HOOK.receiver &&
 		command.timeout === 15 &&
 		command.statusMessage === CODEX_MANAGED_STATUS
 	);
@@ -69,7 +74,7 @@ export const hasManagedCodexHook = (raw: string | null): boolean => {
 		if (typeof config.hooks !== "object" || config.hooks === null || Array.isArray(config.hooks)) {
 			return false;
 		}
-		const postToolUse = (config.hooks as Record<string, unknown>).PostToolUse;
+		const postToolUse = (config.hooks as Record<string, unknown>)[CODEX_HOOK.event];
 		return Array.isArray(postToolUse) && postToolUse.some(isManagedHookGroup);
 	} catch {
 		return false;
@@ -78,7 +83,7 @@ export const hasManagedCodexHook = (raw: string | null): boolean => {
 
 const renderHooks = (raw: string | null, target: string): string => {
 	const operations: EventHookOperation[] = [
-		{ event: "PostToolUse", action: "upsert", group: CODEX_HOOK_GROUP },
+		{ event: CODEX_HOOK.event, action: "upsert", group: CODEX_HOOK_GROUP },
 	];
 	return patchJsonHooks(raw, {
 		target,
@@ -90,7 +95,7 @@ const renderHooks = (raw: string | null, target: string): string => {
 export const installCodex = (opts: HookInstallOpts): HookInstallResult => {
 	const paths = resolveCodexPaths(opts);
 	const hooksContent = renderHooks(readIfExists(paths.hooks), paths.hooks);
-	const result = installRulesOnly(opts, paths, "write AGENTS.md rules for Codex");
+	const result = installRulesOnly(opts, paths, "write AGENTS.md rules for Codex", CODEX_HOOK);
 	applyContent(result, opts, paths.hooks, hooksContent, "register Codex PostToolUse hook");
 	return result;
 };
@@ -104,7 +109,7 @@ export const uninstallCodex = (opts: Omit<HookInstallOpts, "qualityGate">): Hook
 		return result;
 	}
 
-	const operations: EventHookOperation[] = [{ event: "PostToolUse", action: "remove" }];
+	const operations: EventHookOperation[] = [{ event: CODEX_HOOK.event, action: "remove" }];
 	const next = patchJsonHooks(raw, {
 		target: paths.hooks,
 		isManagedCommand: isManagedHookCommand,

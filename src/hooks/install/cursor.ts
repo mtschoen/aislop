@@ -1,5 +1,5 @@
 import path from "node:path";
-import { AISLOP_MD_BODY } from "../assets.js";
+import { type HookRegistration, renderAislopMdBody } from "../assets.js";
 import { readIfExists } from "../io/atomic-write.js";
 import { AISLOP_SENTINEL_KEY, type EventHookOperation, patchJsonHooks } from "../io/json-patch.js";
 import { sentinelHash, upsertMarkdownFence } from "../io/sentinel.js";
@@ -27,10 +27,15 @@ export const resolveCursorPaths = (opts: HookInstallOpts): CursorPaths => {
 	};
 };
 
+const CURSOR_HOOK: HookRegistration = {
+	event: "afterFileEdit",
+	receiver: "aislop hook cursor",
+};
+
 const buildHookEntry = () => {
-	const hashBody = JSON.stringify({ command: "aislop hook cursor", timeout: 5000 });
+	const hashBody = JSON.stringify({ command: CURSOR_HOOK.receiver, timeout: 5000 });
 	return {
-		command: "aislop hook cursor",
+		command: CURSOR_HOOK.receiver,
 		type: "command",
 		timeout: 5000,
 		[AISLOP_SENTINEL_KEY]: {
@@ -43,7 +48,7 @@ const buildHookEntry = () => {
 
 const renderHooksJson = (existingRaw: string | null, target: string): string => {
 	const operations: EventHookOperation[] = [
-		{ event: "afterFileEdit", action: "upsert", entry: buildHookEntry() },
+		{ event: CURSOR_HOOK.event, action: "upsert", entry: buildHookEntry() },
 	];
 	return patchJsonHooks(existingRaw, {
 		target,
@@ -61,8 +66,9 @@ export const installCursor = (opts: HookInstallOpts): HookInstallResult => {
 
 	if (opts.scope === "project") {
 		const existingRules = readIfExists(paths.rules);
-		const hash = sentinelHash(AISLOP_MD_BODY);
-		const rules = upsertMarkdownFence(existingRules, AISLOP_MD_BODY, hash).nextContent;
+		const body = renderAislopMdBody(CURSOR_HOOK);
+		const hash = sentinelHash(body);
+		const rules = upsertMarkdownFence(existingRules, body, hash).nextContent;
 		applyContent(result, opts, paths.rules, rules, "write .cursor/rules/aislop.mdc");
 	}
 

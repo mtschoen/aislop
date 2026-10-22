@@ -220,3 +220,17 @@ describe("installGemini", () => {
 		expect(rawAfterUninstall).toBe(commentedEmpty);
 	});
 });
+
+describe("installGemini AISLOP.md", () => {
+	it("names the Gemini event, matcher and receiver and not Claude's", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		installGemini(opts);
+		const body = fs.readFileSync(resolveGeminiPaths(opts).aislopMd, "utf-8");
+		expect(body).toContain("`AfterTool`");
+		expect(body).toContain("`write_file|replace`");
+		expect(body).toContain("`aislop hook gemini`");
+		expect(body).not.toContain("PostToolUse");
+		expect(body).not.toContain("aislop hook claude");
+		expect(body).not.toContain("MultiEdit");
+	});
+});

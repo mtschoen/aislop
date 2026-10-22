@@ -570,3 +570,14 @@ describe("uninstallClaude", () => {
 		expect(parsed.statusLine).toBe("keep me");
 	});
 });
+
+describe("installClaude AISLOP.md", () => {
+	it("names the Claude event, matcher and receiver", () => {
+		const opts = { home, cwd, scope: "global" as const };
+		installClaude(opts);
+		const body = fs.readFileSync(resolveClaudePaths(opts).aislopMd, "utf-8");
+		expect(body).toContain("`PostToolUse`");
+		expect(body).toContain("`Edit|Write|MultiEdit`");
+		expect(body).toContain("`aislop hook claude`");
+	});
+});
