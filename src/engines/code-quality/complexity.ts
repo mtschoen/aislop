@@ -69,7 +69,7 @@ const checkFileDiagnostics = (
 			engine: "code-quality",
 			rule: "complexity/file-too-large",
 			severity: "warning",
-			message: `File too large (limit: ${configuredMax}, flagged above ${triggerAt} lines)`,
+			message: `File too large (flagged above ${triggerAt} lines; limit ${configuredMax} plus 10% tolerance)`,
 			help: fileTooLargeHelp(ext),
 			line: 0,
 			column: 0,

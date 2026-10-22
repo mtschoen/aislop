@@ -118,7 +118,7 @@ describe("checkComplexity — file too large", () => {
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
 		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
 		expect(fileDiags).toHaveLength(1);
-		expect(fileDiags[0].message).toContain("limit: 15");
+		expect(fileDiags[0].message).toContain("limit 15 plus");
 	});
 
 	it("applies a 10% buffer over maxFileLoc to .ts files (no JSX multiplier)", async () => {
@@ -141,7 +141,7 @@ describe("checkComplexity — file too large", () => {
 		const fileDiags = diagnostics.filter((d) => d.rule === "complexity/file-too-large");
 		expect(fileDiags).toHaveLength(1);
 		expect(fileDiags[0].filePath).toContain("big.cpp");
-		expect(fileDiags[0].message).toContain("limit: 25");
+		expect(fileDiags[0].message).toContain("limit 25 plus");
 	});
 
 	it("points oversized C++ files at the component-as-translation-unit pattern", async () => {
@@ -1333,7 +1333,18 @@ describe("checkComplexity: size messages", () => {
 		const filePath = writeFile("big.ts", makeLines(15, "const x = 1;"));
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
 		const finding = diagnostics.find((d) => d.rule === "complexity/file-too-large");
-		expect(finding?.message).toBe("File too large (limit: 10, flagged above 11 lines)");
+		expect(finding?.message).toBe("File too large (flagged above 11 lines; limit 10 plus 10% tolerance)");
+	});
+
+	it("fires exactly above the line count the message states", async () => {
+		const flagged = writeFile("flagged.ts", makeLines(15, "const x = 1;"));
+		const diagnostics = await checkComplexity(makeContext([flagged], { maxFileLoc: 10 }));
+		const stated = Number(/flagged above (\d+) lines/.exec(diagnostics[0]?.message ?? "")?.[1]);
+		const atStated = writeFile("at-stated.ts", makeLines(stated, "const x = 1;"));
+		const pastStated = writeFile("past-stated.ts", makeLines(stated + 1, "const x = 1;"));
+		const result = await checkComplexity(makeContext([atStated, pastStated], { maxFileLoc: 10 }));
+		const tooLarge = result.filter((d) => d.rule === "complexity/file-too-large");
+		expect(tooLarge.map((d) => path.basename(d.filePath))).toEqual(["past-stated.ts"]);
 	});
 
 	it("states the line count that triggers a function-too-long finding", async () => {

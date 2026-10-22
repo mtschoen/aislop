@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
-import { CONFIG_DIR, CONFIG_FILE, findConfigDir, loadConfig } from "../src/config/index.js";
+import {
+	CONFIG_DIR,
+	CONFIG_FILE,
+	findConfigDir,
+	loadConfig,
+	resetConfigWarnings,
+} from "../src/config/index.js";
 import { recoverFromIssues } from "../src/config/recovery.js";
 import { parseConfig } from "../src/config/schema.js";
 
@@ -22,6 +28,10 @@ const withStderr = (run: () => void): string => {
 	}
 	return chunks.join("");
 };
+
+beforeEach(() => {
+	resetConfigWarnings();
+});
 
 // ─── parseConfig ──────────────────────────────────────────────────────────────
 
@@ -632,5 +642,44 @@ describe("loadConfig", () => {
 		expect(result.ci.failBelow).toBe(80);
 		expect(result.ci.format).toBe("json");
 		expect(result.quality.maxFunctionLoc).toBe(45);
+	});
+
+	it("re-evaluates extended configuration when a parent is repaired in the same process", () => {
+		execFileSync("git", ["init"], { cwd: tmpDir, stdio: "ignore" });
+		const aislopDir = path.join(tmpDir, CONFIG_DIR);
+		fs.mkdirSync(aislopDir, { recursive: true });
+		const parentPath = path.join(tmpDir, "base.yml");
+		fs.writeFileSync(parentPath, "quality:\n  maxFileLoc: broken\n", "utf-8");
+		fs.writeFileSync(
+			path.join(aislopDir, CONFIG_FILE),
+			"extends: ../base.yml\nci:\n  format: json\n",
+			"utf-8",
+		);
+
+		const initial = loadConfig(tmpDir);
+		expect(initial.quality.maxFileLoc).toBe(DEFAULT_CONFIG.quality.maxFileLoc);
+
+		fs.writeFileSync(parentPath, "quality:\n  maxFileLoc: 123\n", "utf-8");
+		const repaired = loadConfig(tmpDir);
+		expect(repaired.quality.maxFileLoc).toBe(123);
+	});
+
+	it("loads extended configuration when a previously missing parent is created in the same process", () => {
+		execFileSync("git", ["init"], { cwd: tmpDir, stdio: "ignore" });
+		const aislopDir = path.join(tmpDir, CONFIG_DIR);
+		fs.mkdirSync(aislopDir, { recursive: true });
+		const parentPath = path.join(tmpDir, "base.yml");
+		fs.writeFileSync(
+			path.join(aislopDir, CONFIG_FILE),
+			"extends: ../base.yml\nci:\n  format: json\n",
+			"utf-8",
+		);
+
+		const initial = loadConfig(tmpDir);
+		expect(initial).toEqual(DEFAULT_CONFIG);
+
+		fs.writeFileSync(parentPath, "quality:\n  maxFileLoc: 123\n", "utf-8");
+		const created = loadConfig(tmpDir);
+		expect(created.quality.maxFileLoc).toBe(123);
 	});
 });

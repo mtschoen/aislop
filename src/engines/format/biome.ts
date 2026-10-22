@@ -70,25 +70,40 @@ export const runBiomeFormat = async (context: EngineContext): Promise<Diagnostic
 	if (!projectHasBiomeConfig(context.rootDirectory)) return [];
 	const args = ["format", "--reporter=json", ...targets];
 
-	try {
-		const result = await runBiome(args, context.rootDirectory, 60000);
-		const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-		if (!output) return [];
-
-		let diagnostics = parseBiomeJsonOutput(output, context.rootDirectory);
-
-		// Filter out decorator-related parse errors for projects using experimentalDecorators
-		if (projectUsesDecorators(context.rootDirectory)) {
-			diagnostics = diagnostics.filter((d) => {
-				const msg = d.message.toLowerCase();
-				return !msg.includes("decorator") && !msg.includes("parsing error");
-			});
-		}
-
-		return diagnostics;
-	} catch {
-		return [];
+	const result = await runBiome(args, context.rootDirectory, 60000);
+	const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+	if (!output) {
+		if (result.exitCode === 0) return [];
+		throw new Error(`biome format exited with code ${result.exitCode} and produced no output`);
 	}
+
+	if (result.exitCode !== 0 && result.exitCode !== 1) {
+		throw new Error(
+			`biome format exited with code ${result.exitCode} without parseable diagnostics: ${output.slice(0, 300)}`,
+		);
+	}
+
+	const { diagnostics: parsedDiagnostics, hasRecognizedReport } = parseBiomeJsonOutput(
+		output,
+		context.rootDirectory,
+	);
+	if (result.exitCode === 1 && (!hasRecognizedReport || parsedDiagnostics.length === 0)) {
+		throw new Error(
+			`biome format exited with code 1 without parseable diagnostics: ${output.slice(0, 300)}`,
+		);
+	}
+
+	let diagnostics = parsedDiagnostics;
+
+	// Filter out decorator-related parse errors for projects using experimentalDecorators
+	if (projectUsesDecorators(context.rootDirectory)) {
+		diagnostics = diagnostics.filter((d) => {
+			const msg = d.message.toLowerCase();
+			return !msg.includes("decorator") && !msg.includes("parsing error");
+		});
+	}
+
+	return diagnostics;
 };
 
 interface BiomeJsonDiagnostic {
@@ -107,8 +122,14 @@ interface BiomeJsonPayload {
 	diagnostics?: BiomeJsonDiagnostic[];
 }
 
-const parseBiomeJsonOutput = (output: string, rootDir: string): Diagnostic[] => {
+interface BiomeParseResult {
+	diagnostics: Diagnostic[];
+	hasRecognizedReport: boolean;
+}
+
+const parseBiomeJsonOutput = (output: string, rootDir: string): BiomeParseResult => {
 	const diagnostics: Diagnostic[] = [];
+	let hasRecognizedReport = false;
 	for (const line of output.split("\n")) {
 		const trimmed = line.trim();
 		if (!trimmed.startsWith("{")) continue;
@@ -120,6 +141,7 @@ const parseBiomeJsonOutput = (output: string, rootDir: string): Diagnostic[] => 
 			parsed = null;
 		}
 		if (!parsed || !Array.isArray(parsed.diagnostics)) continue;
+		hasRecognizedReport = true;
 
 		for (const entry of parsed.diagnostics) {
 			const rawPath = entry.location?.path;
@@ -145,7 +167,7 @@ const parseBiomeJsonOutput = (output: string, rootDir: string): Diagnostic[] => 
 			});
 		}
 	}
-	return diagnostics;
+	return { diagnostics, hasRecognizedReport };
 };
 
 export const fixBiomeFormat = async (context: EngineContext): Promise<void> => {

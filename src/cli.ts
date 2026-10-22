@@ -11,7 +11,7 @@ import { doctorCommand } from "./commands/doctor.js";
 import { fixCommand } from "./commands/fix.js";
 import { initCommand } from "./commands/init.js";
 import { interactiveCommand } from "./commands/interactive.js";
-import { loadConfig } from "./config/index.js";
+import { loadConfig, loadConfigWithStatus } from "./config/index.js";
 import {
 	ensureInstallId,
 	type FailedStage,
@@ -22,6 +22,7 @@ import {
 	track,
 	withCommandLifecycle,
 } from "./telemetry/index.js";
+import { renderError } from "./ui/error.js";
 import { renderRootHelp } from "./ui/home.js";
 import { log } from "./ui/logger.js";
 import { suggestClosest } from "./ui/suggest.js";
@@ -233,7 +234,19 @@ ciProgram.action(async (directory = DEFAULT_DIRECTORY, _flags, command) => {
 		sarif?: boolean;
 		format?: string;
 	};
-	const config = loadConfig(directory);
+	const { config, configPath, recoveries } = loadConfigWithStatus(directory);
+	if (recoveries.length > 0) {
+		process.stderr.write(
+			renderError({
+				message: "ci refuses to score a configuration that needed recovery",
+				cause: `${configPath}: ${recoveries.join("; ")}`,
+				hints: ["Fix the configuration so it loads without warnings, then rerun `aislop ci`."],
+			}),
+		);
+		await flushTelemetry();
+		process.exitCode = 1;
+		return;
+	}
 	const { exitCode } = await ciCommand(directory, config, {
 		changes: Boolean(flags.changes),
 		staged: Boolean(flags.staged),

@@ -89,18 +89,29 @@ export const formatEngine: Engine = {
 		}
 
 		const results = await Promise.allSettled(promises);
+		const failures: string[] = [];
 		for (const result of results) {
 			if (result.status === "fulfilled") {
 				diagnostics.push(...result.value);
+			} else {
+				failures.push(
+					result.reason instanceof Error ? result.reason.message : String(result.reason),
+				);
 			}
 		}
 
+		// A formatter that failed to run is reported as a failed engine (the same
+		// shape the orchestrator gives a throwing engine), not as zero findings.
+		const failure =
+			failures.length > 0
+				? { skipped: true, failed: true, skipReason: failures.join("; ") }
+				: { skipped: false };
 		return withMissingTools(
 			{
 				engine: "format",
 				diagnostics,
 				elapsed: 0,
-				skipped: false,
+				...failure,
 			},
 			missingTools,
 		);

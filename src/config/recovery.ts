@@ -1,5 +1,7 @@
 // Recovery from an invalid configuration: removes only the entries that fail validation.
 
+import { emitConfigWarning } from "./warnings.js";
+
 export interface ValidationIssue {
 	readonly message: string;
 	readonly path: PropertyKey[];
@@ -100,7 +102,7 @@ export const recoverFromIssues = (
 		const key = JSON.stringify(removalPath);
 		if (!targets.has(key)) targets.set(key, { message: issue.message, path: [...removalPath] });
 		if (removalPath.length !== issue.path.length) {
-			process.stderr.write(
+			emitConfigWarning(
 				`  ⚠ Ignoring aislop configuration entry ${removalPath.join(".")} because ${issue.path.join(".")} is missing.\n`,
 			);
 		}

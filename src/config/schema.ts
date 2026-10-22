@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { formatConfigValue } from "./format-value.js";
 import { recoverFromIssues, type ValidationIssue, valueAtPath } from "./recovery.js";
+import { emitConfigWarning } from "./warnings.js";
 
 const DEFAULT_WEIGHTS: Record<string, number> = {
 	format: 0.3,
@@ -307,17 +308,24 @@ const mergeScoringWeightDefaults = (configuration: AislopConfig): AislopConfig =
 	},
 });
 
-const reportValidationIssues = (input: unknown, issues: readonly ValidationIssue[]): void => {
+export type RecoveryReporter = (description: string) => void;
+
+const reportValidationIssues = (
+	input: unknown,
+	issues: readonly ValidationIssue[],
+	onRecovery?: RecoveryReporter,
+): void => {
 	for (const issue of issues) {
 		const fieldPath = issue.path.join(".") || "(root)";
 		const rejectedValue = formatConfigValue(valueAtPath(input, issue.path));
-		process.stderr.write(
+		onRecovery?.(`invalid field ${fieldPath}: ${issue.message}`);
+		emitConfigWarning(
 			`  ⚠ Invalid aislop configuration field ${fieldPath} = ${rejectedValue}: ${issue.message}\n`,
 		);
 	}
 };
 
-export const parseConfig = (raw: unknown): AislopConfig => {
+export const parseConfig = (raw: unknown, onRecovery?: RecoveryReporter): AislopConfig => {
 	if (!raw || typeof raw !== "object") return defaults;
 
 	let input: unknown = Array.isArray(raw) ? [...raw] : { ...(raw as Record<string, unknown>) };
@@ -325,16 +333,16 @@ export const parseConfig = (raw: unknown): AislopConfig => {
 		const result = AislopConfigSchema.safeParse(input);
 		if (result.success) return mergeScoringWeightDefaults(result.data);
 
-		reportValidationIssues(input, result.error.issues);
+		reportValidationIssues(input, result.error.issues, onRecovery);
 		if (result.error.issues.some((issue) => issue.path.length === 0)) {
-			process.stderr.write("  ⚠ Using default configuration.\n");
+			emitConfigWarning("  ⚠ Using default configuration.\n");
 			return defaults;
 		}
 
 		const recovery = recoverFromIssues(input, result.error.issues);
 		input = recovery.input;
 		if (!recovery.removedAny) {
-			process.stderr.write("  ⚠ Using default configuration.\n");
+			emitConfigWarning("  ⚠ Using default configuration.\n");
 			return defaults;
 		}
 	}
