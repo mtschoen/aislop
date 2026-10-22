@@ -47,6 +47,7 @@ describe("build script", () => {
 
 		// Build the real project config into a throwaway directory. --no-dts keeps it
 		// fast; the clean behavior under test still comes from tsdown.config.ts.
+		// aislop-ignore-next-line ai-slop/test-spawn-timeout-literal -- the real bundler build is the subject; the bound only stops a hung build
 		execFileSync(
 			process.execPath,
 			[resolveTsdownBin(), "--out-dir", outputDir, "--no-dts", "--silent"],

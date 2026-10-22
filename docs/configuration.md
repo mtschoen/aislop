@@ -30,6 +30,9 @@ security:
 aiSlop:
   hardcodedUserPath:
     bannedRoots: []
+  testSpawnTimeout:
+    wrapperNames: [run_captured, run_command, _run]
+    helperPaths: []
 
 scoring:
   weights:
@@ -234,6 +237,22 @@ fields remain in effect.
 File length counts every physical line, including blank and comment lines. `.tsx`, `.jsx`, and `.go` files get 1.5x `maxFileLoc`, Rust and C/C++ files 2.5x, and `.d.ts` and data-only files are skipped. Function length runs from the signature to the closing brace, minus lines inside multi-line template literals. Python counts only the logical body code (no signature, docstrings, comments, or blank lines). React components get 2x `maxFunctionLoc`, and Rust functions 1.5x.
 
 Both size rules allow 10% over the limit before reporting, so with the defaults a file is flagged above 440 lines and a function above 88. The finding message shows both numbers, for example `File too large (limit: 400, flagged above 440 lines)`.
+
+## Test spawn timeout wrappers
+
+`ai-slop/test-spawn-timeout-literal` flags a numeric literal `timeout` on a real subprocess in a
+Python or JavaScript/TypeScript test (see [docs/rules.md](rules.md)). Two settings tune it:
+
+```yaml
+aiSlop:
+  testSpawnTimeout:
+    wrapperNames: [run_captured, run_command, _run, run_tool]
+    helperPaths:
+      - tests/helpers/
+```
+
+`wrapperNames` lists Python callables treated as process spawns and replaces the default list.
+`helperPaths` lists path substrings; test files whose relative path contains one are skipped.
 
 ## Runtime-provided imports
 

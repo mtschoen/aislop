@@ -122,6 +122,10 @@ export interface EngineConfig {
 		hardcodedUserPath?: {
 			bannedRoots: string[];
 		};
+		testSpawnTimeout?: {
+			wrapperNames?: string[];
+			helperPaths?: string[];
+		};
 	};
 	lint: {
 		typecheck: boolean;

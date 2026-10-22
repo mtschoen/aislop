@@ -78,6 +78,7 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/hallucinated-import": "Import not in package.json",
 	"ai-slop/tautological-test": "Test assertion cannot fail",
 	"ai-slop/test-sleep": "Fixed sleep in a test",
+	"ai-slop/test-spawn-timeout-literal": "Literal timeout on a real process in a test",
 	"ai-slop/test-wall-clock-assertion": "Assertion on real elapsed time",
 	"ai-slop/em-dash": "Non-ASCII dash character",
 	"ai-slop/smart-punctuation": "Non-ASCII smart punctuation",
@@ -180,8 +181,11 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/rust-non-test-unwrap": "Production Rust uses unwrap instead of handling failure.",
 	"ai-slop/rust-todo-stub": "Rust todo!/unimplemented! leaves behavior unfinished.",
 	"ai-slop/hallucinated-import": "Import names a package not declared by the project.",
-	"ai-slop/tautological-test": "Test compares fixed literals and therefore cannot fail.",
+	"ai-slop/tautological-test":
+		"Test asserts a fixed true literal or compares equal fixed literals and therefore cannot fail.",
 	"ai-slop/test-sleep": "Test waits a fixed delay instead of polling or mocking the clock.",
+	"ai-slop/test-spawn-timeout-literal":
+		"Test bounds a real subprocess with a literal timeout, so machine load decides whether it passes.",
 	"ai-slop/test-wall-clock-assertion":
 		"Test assertion reads the real clock, so load decides whether it passes.",
 	"ai-slop/em-dash": "Em dash or another non-ASCII dash where a plain hyphen would do.",

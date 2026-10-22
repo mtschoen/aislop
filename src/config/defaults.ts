@@ -47,6 +47,10 @@ export const DEFAULT_CONFIG: AislopConfig = {
 		hardcodedUserPath: {
 			bannedRoots: [],
 		},
+		testSpawnTimeout: {
+			wrapperNames: ["run_captured", "run_command", "_run"],
+			helperPaths: [],
+		},
 	},
 	imports: {
 		provided: [],

@@ -260,6 +260,14 @@
 			"default": {
 				"hardcodedUserPath": {
 					"bannedRoots": []
+				},
+				"testSpawnTimeout": {
+					"wrapperNames": [
+						"run_captured",
+						"run_command",
+						"_run"
+					],
+					"helperPaths": []
 				}
 			},
 			"type": "object",
@@ -275,6 +283,39 @@
 							"type": "array",
 							"items": {
 								"type": "string"
+							}
+						}
+					}
+				},
+				"testSpawnTimeout": {
+					"default": {
+						"wrapperNames": [
+							"run_captured",
+							"run_command",
+							"_run"
+						],
+						"helperPaths": []
+					},
+					"type": "object",
+					"properties": {
+						"wrapperNames": {
+							"default": [
+								"run_captured",
+								"run_command",
+								"_run"
+							],
+							"type": "array",
+							"items": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"helperPaths": {
+							"default": [],
+							"type": "array",
+							"items": {
+								"type": "string",
+								"minLength": 1
 							}
 						}
 					}

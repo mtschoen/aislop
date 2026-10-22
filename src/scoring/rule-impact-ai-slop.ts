@@ -122,6 +122,9 @@ export const AI_SLOP_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 	"ai-slop/test-sleep": maintainability(
 		"Fixed test delays trade wall-clock time for a race that only shows up intermittently.",
 	),
+	"ai-slop/test-spawn-timeout-literal": maintainability(
+		"A literal kill bound on a real process makes a suite flaky under load without indicating a production defect.",
+	),
 	"ai-slop/test-wall-clock-assertion": maintainability(
 		"Clock-dependent assertions make a suite flaky under load without indicating a production defect.",
 	),

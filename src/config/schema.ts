@@ -171,8 +171,19 @@ const HardcodedUserPathSchema = z.object({
 	bannedRoots: z.array(BannedRootSchema).default(() => []),
 });
 
+export const DEFAULT_SPAWN_WRAPPER_NAMES = ["run_captured", "run_command", "_run"];
+
+const TestSpawnTimeoutSchema = z.object({
+	wrapperNames: z.array(z.string().min(1)).default(() => [...DEFAULT_SPAWN_WRAPPER_NAMES]),
+	helperPaths: z.array(z.string().min(1)).default(() => []),
+});
+
 const AiSlopConfigSchema = z.object({
 	hardcodedUserPath: HardcodedUserPathSchema.default(() => ({ bannedRoots: [] })),
+	testSpawnTimeout: TestSpawnTimeoutSchema.default(() => ({
+		wrapperNames: [...DEFAULT_SPAWN_WRAPPER_NAMES],
+		helperPaths: [],
+	})),
 });
 
 const ImportsSchema = z.object({
@@ -265,6 +276,7 @@ const AislopConfigSchema = z.object({
 	})),
 	aiSlop: AiSlopConfigSchema.default(() => ({
 		hardcodedUserPath: { bannedRoots: [] },
+		testSpawnTimeout: { wrapperNames: [...DEFAULT_SPAWN_WRAPPER_NAMES], helperPaths: [] },
 	})),
 	imports: ImportsSchema.default(() => ({
 		provided: [],

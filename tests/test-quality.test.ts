@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { aiSlopEngine } from "../src/engines/ai-slop/index.js";
 import type { EngineContext } from "../src/engines/types.js";
+import { applySuppressions } from "../src/utils/suppress.js";
 
 let tmpDir: string;
 
@@ -139,5 +140,112 @@ describe("tautological test assertions", () => {
 		const result = await aiSlopEngine.run(buildContext(["python"]));
 
 		expect(result.diagnostics.filter((d) => d.rule === "ai-slop/tautological-test")).toEqual([]);
+	});
+	it("flags the closed true-literal assertion spellings in Python, JavaScript, and C#", async () => {
+		writeFile(
+			"tests/test_pipeline.py",
+			[
+				"def test_pipeline(self):",
+				"    assert 1",
+				'    assert True, "excuse"',
+				"    self.assertTrue(True)",
+				'    self.assertTrue(True, "excuse")',
+			].join("\n"),
+		);
+		writeFile(
+			"src/value.test.ts",
+			[
+				"it('a', () => { assert.ok(true); });",
+				"it('b', () => { assert(true, 'excuse'); });",
+				"it('c', () => { expect(true).toBeTruthy(); });",
+			].join("\n"),
+		);
+		writeFile(
+			"tests/PipelineTests.cs",
+			[
+				"public class PipelineTests {",
+				'    [Fact] public void A() { Assert.True(true, "excuse"); }',
+				"    [Fact] public void B() { Assert.IsTrue(true); }",
+				"}",
+			].join("\n"),
+		);
+
+		const result = await aiSlopEngine.run(buildContext(["python", "typescript", "csharp"]));
+
+		expect(
+			result.diagnostics
+				.filter((d) => d.rule === "ai-slop/tautological-test")
+				.map((d) => `${d.filePath}:${d.line}`)
+				.sort(),
+		).toEqual([
+			"src/value.test.ts:1",
+			"src/value.test.ts:2",
+			"src/value.test.ts:3",
+			"tests/PipelineTests.cs:2",
+			"tests/PipelineTests.cs:3",
+			"tests/test_pipeline.py:2",
+			"tests/test_pipeline.py:3",
+			"tests/test_pipeline.py:4",
+			"tests/test_pipeline.py:5",
+		]);
+	});
+
+	it("does not flag assertions on values or examples quoted in strings and comments", async () => {
+		writeFile(
+			"tests/test_pipeline.py",
+			[
+				"def test_pipeline(self, value):",
+				"    assert value",
+				"    self.assertTrue(value)",
+				"    assert 1 == value",
+			].join("\n"),
+		);
+		writeFile(
+			"src/value.test.ts",
+			[
+				"it('a', () => { assert.ok(run()); });",
+				"it('b', () => { expect(run()).toBeTruthy(); });",
+				"it('c', () => { $assert(true); $assert.ok(true); $expect(true).toBeTruthy(); });",
+				"it('d', () => { \u00e9assert(true); \u00e9assert.ok(true); \u00e9expect(true).toBeTruthy(); });",
+				"it('e', () => { \u03b1assert(true); \u03b1assert.ok(true); \u03b1expect(true).toBeTruthy(); });",
+				"it('f', () => { a\u200cassert(true); a\u200dassert.ok(true); a\u200cexpect(true).toBeTruthy(); });",
+				String.raw`it('g', () => { \u0061assert(true); \u{61}assert.ok(true); \u{61}expect(true).toBeTruthy(); });`,
+				"// assert.ok(true)",
+				"const sample = 'expect(true).toBeTruthy()';",
+			].join("\n"),
+		);
+		writeFile(
+			"tests/PipelineTests.cs",
+			[
+				"public class PipelineTests {",
+				'    [Fact] public void A() { Assert.True(Run(), "true"); }',
+				"    // Assert.True(true);",
+				'    string sample = "Assert.True(true)";',
+				"}",
+			].join("\n"),
+		);
+
+		const result = await aiSlopEngine.run(buildContext(["python", "typescript", "csharp"]));
+
+		expect(result.diagnostics.filter((d) => d.rule === "ai-slop/tautological-test")).toEqual([]);
+	});
+
+	it("honours the inline suppression marker", async () => {
+		writeFile(
+			"tests/PipelineTests.cs",
+			[
+				"public class PipelineTests {",
+				"    // aislop-ignore-next-line ai-slop/tautological-test -- placeholder until the harness lands",
+				"    [Fact] public void A() { Assert.True(true); }",
+				"}",
+			].join("\n"),
+		);
+
+		const result = await aiSlopEngine.run(buildContext(["csharp"]));
+		const { results } = applySuppressions([result], tmpDir);
+
+		expect(results[0].diagnostics.filter((d) => d.rule === "ai-slop/tautological-test")).toEqual(
+			[],
+		);
 	});
 });

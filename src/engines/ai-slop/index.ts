@@ -22,6 +22,7 @@ import { detectUnknownDirectives } from "./suppression-directives.js";
 import { detectSystemdTimeouts } from "./systemd-timeout.js";
 import { detectTautologicalTests } from "./test-quality.js";
 import { detectTestSleeps } from "./test-sleep.js";
+import { detectTestSpawnTimeouts } from "./test-spawn-timeout.js";
 import { detectTestWallClockAssertions } from "./test-wall-clock.js";
 import { detectUnusedCss } from "./unused-css.js";
 import { detectUnusedImports } from "./unused-imports.js";
@@ -55,6 +56,7 @@ export const aiSlopEngine: Engine = {
 			detectUnusedCss(context),
 			detectTautologicalTests(context),
 			detectTestSleeps(context),
+			detectTestSpawnTimeouts(context),
 			detectTestWallClockAssertions(context),
 			detectNonAsciiPunctuation(context),
 			detectSystemdTimeouts(context),

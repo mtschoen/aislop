@@ -9,18 +9,32 @@ const JS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
 const EXPECT_NAME = "ex" + "pect";
 const ASSERT_NAME = "as" + "sert";
+const JS_IDENTIFIER_PREFIX = String.raw`(?<![\p{ID_Continue}$\u200C\u200D]|\\u\{[\da-fA-F]+\})`;
 const JS_LITERAL = String.raw`(?:true|false|null|undefined|-?\d+(?:\.\d+)?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')`;
 const JS_TAUTOLOGY_PATTERNS = [
 	new RegExp(
-		String.raw`\b${EXPECT_NAME}\s*\(\s*(${JS_LITERAL})\s*\)\s*\.\s*toBe\s*\(\s*(${JS_LITERAL})\s*\)`,
-		"g",
+		String.raw`${JS_IDENTIFIER_PREFIX}${EXPECT_NAME}\s*\(\s*(${JS_LITERAL})\s*\)\s*\.\s*toBe\s*\(\s*(${JS_LITERAL})\s*\)`,
+		"gu",
 	),
 	new RegExp(
-		String.raw`\b${ASSERT_NAME}\s*\.\s*(?:equal|strictEqual)\s*\(\s*(${JS_LITERAL})\s*,\s*(${JS_LITERAL})\s*\)`,
-		"g",
+		String.raw`${JS_IDENTIFIER_PREFIX}${ASSERT_NAME}\s*\.\s*(?:equal|strictEqual)\s*\(\s*(${JS_LITERAL})\s*,\s*(${JS_LITERAL})\s*\)`,
+		"gu",
 	),
 ];
-const PYTHON_TAUTOLOGY_RE = new RegExp(String.raw`^\s*${ASSERT_NAME}\s+True\s*$`);
+const TRUE_NAME = "tr" + "ue";
+const PYTHON_TAUTOLOGY_RES = [
+	new RegExp(String.raw`^\s*${ASSERT_NAME}\s+(?:True|1)\s*(?:,.*)?$`),
+	new RegExp(String.raw`^\s*self\s*\.\s*${ASSERT_NAME}True\s*\(\s*True\s*[,)]`),
+];
+const ASSERT_CALL_TRUE = String.raw`${ASSERT_NAME}(?:\s*\.\s*ok)?\s*\(\s*${TRUE_NAME}\s*[,)]`;
+const JS_TRUTHY_TAUTOLOGY_RE = new RegExp(
+	String.raw`${JS_IDENTIFIER_PREFIX}${EXPECT_NAME}\s*\(\s*${TRUE_NAME}\s*\)\s*\.\s*toBeTruthy\s*\(\s*\)|${JS_IDENTIFIER_PREFIX}${ASSERT_CALL_TRUE}`,
+	"u",
+);
+const CSHARP_TAUTOLOGY_RE = new RegExp(
+	String.raw`(?<![\p{ID_Continue}])As${"sert"}\s*\.\s*(?:True|IsTrue)\s*\(\s*${TRUE_NAME}\s*[,)]`,
+	"u",
+);
 
 type FixedLiteral = string | number | boolean | null | undefined;
 const SIMPLE_STRING_ESCAPES: Readonly<Record<string, string>> = {
@@ -98,8 +112,10 @@ const literalsAreEqual = (left: string, right: string): boolean => {
 };
 
 const isTautologicalLine = (line: string, fullyMaskedLine: string, extension: string): boolean => {
-	if (extension === ".py") return PYTHON_TAUTOLOGY_RE.test(fullyMaskedLine);
+	if (extension === ".py") return PYTHON_TAUTOLOGY_RES.some((re) => re.test(fullyMaskedLine));
+	if (extension === ".cs") return CSHARP_TAUTOLOGY_RE.test(fullyMaskedLine);
 	if (!JS_EXTENSIONS.has(extension)) return false;
+	if (JS_TRUTHY_TAUTOLOGY_RE.test(fullyMaskedLine)) return true;
 	return JS_TAUTOLOGY_PATTERNS.some((pattern) => {
 		pattern.lastIndex = 0;
 		let match = pattern.exec(line);

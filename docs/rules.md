@@ -236,8 +236,9 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/rust-non-test-unwrap` | warning | Rust `.unwrap()` in production code where errors should be handled or documented |
 | `ai-slop/rust-todo-stub` | warning | Rust `todo!()` stubs in production code |
 | `ai-slop/hallucinated-import` | error | JS/TS and Python imports without matching manifest declarations or recognized module evidence |
-| `ai-slop/tautological-test` | warning | JavaScript/TypeScript assertions comparing equal fixed literals, plus standalone Python `assert True` statements, which cannot fail |
+| `ai-slop/tautological-test` | warning | A single assertion that cannot fail: JavaScript/TypeScript `expect(true).toBe(true)`-style comparisons of equal fixed literals, `assert.ok(true)`, `expect(true).toBeTruthy()`; Python `assert True` or `assert 1` (optionally with a message) and `self.assertTrue(True)`; C# `Assert.True(true, ...)` and `Assert.IsTrue(true, ...)`. Judged per assertion, never from the rest of the test (see the bounds below the table) |
 | `ai-slop/test-sleep` | warning | A fixed-duration delay written directly inside a test file, outside any loop (see the bounds below the table) |
+| `ai-slop/test-spawn-timeout-literal` | warning | A numeric literal timeout bounding a real subprocess in a Python or JavaScript/TypeScript test file (see the bounds below the table) |
 | `ai-slop/test-wall-clock-assertion` | warning | A test assertion whose value comes from the real clock (see the bounds below the table) |
 | `ai-slop/csharp-not-implemented` | warning | C# `throw new NotImplementedException()` stubs the agent forgot to fill in |
 | `ai-slop/csharp-redundant-doc-comment` | warning | C# XML-doc `<summary>` that just restates the member (`Gets or sets the X`) without adding information |
@@ -299,6 +300,65 @@ Supported JS/TS properties have static identifier, string, or numeric names. Sup
 
 ```ts
 // aislop-ignore-next-line ai-slop/repeated-magic-literal -- per-state timeouts are independently tunable
+```
+
+### Vacuous assertions (`ai-slop/tautological-test`)
+
+Reported per assertion, one line at a time, on test files only. The spellings are a closed list;
+each is matched with string and comment interiors blanked, so an example quoted in a string or
+comment is ignored.
+
+| Language | Reported spellings |
+| --- | --- |
+| JavaScript/TypeScript | `expect(<literal>).toBe(<equal literal>)`, `assert.equal/strictEqual(<literal>, <equal literal>)`, `assert.ok(true)`, `assert(true)`, `expect(true).toBeTruthy()` |
+| Python | `assert True`, `assert 1` (either may carry `, <message>`), `self.assertTrue(True)` |
+| C# | `Assert.True(true, ...)`, `Assert.IsTrue(true, ...)` |
+
+**Deliberate non-detections.** The rule does not look at the rest of the test: a test whose only
+assertion is vacuous is not distinguished from one with other assertions, and "must not raise"
+smoke tests are not recognised. An assertion split across multiple lines is not reported.
+`assert x == x` and other identifier self-comparisons are not reported, and neither are Java, Go,
+or Ruby spellings.
+
+```python
+# aislop-ignore-next-line ai-slop/tautological-test -- placeholder until the harness lands
+assert True
+```
+
+### Literal timeouts on real processes (`ai-slop/test-spawn-timeout-literal`)
+
+Runs only over test files. A numeric kill bound on a real process is not an assertion, so the
+clock rules never see it, yet under a loaded runner a healthy child outlives it and the test goes
+red for a reason unrelated to the change.
+
+**What is reported.** A direct numeric literal (`10`, `1_000`, `2.5`, or a product such as
+`10 * 1000`) as the timeout of:
+
+| Language | Reported calls |
+| --- | --- |
+| Python | `subprocess.run/check_output/check_call/call(..., timeout=<number>)`; a call to a configured wrapper name carrying `timeout=<number>`; `communicate(timeout=<number>)` and `wait(<number>)` / `wait(timeout=<number>)` on a name the same file assigns from `Popen(...)` |
+| JavaScript/TypeScript | `execSync`, `spawnSync`, `execFileSync` with `{ timeout: <number> }`; `child_process.exec` / `execFile` (also `childProcess.`) with the same option |
+
+**Configuration.** `aiSlop.testSpawnTimeout.wrapperNames` (default `run_captured`,
+`run_command`, `_run`) names the Python wrappers treated as process spawns; setting it replaces
+the default list. `aiSlop.testSpawnTimeout.helperPaths` lists path substrings; a test file whose
+repository-relative path contains one is skipped, which is how a shared test-side helper that
+owns the bound stays quiet.
+
+**Deliberate non-detections.** A named constant (`timeout=BOUND`), an environment lookup with a
+literal default, `None`, and any expression that is not a plain number are not reported; neither is
+a JS/TS `timeout` property that a later spread or duplicate property in the same options object can
+replace. A method call on a receiver the file does not visibly assign as a bare name from
+`Popen(...)` at statement level is not reported, nor is a `timeout` argument on a non-process call
+such as an HTTP client. Other languages are not covered.
+
+**Fix, in order.** Run the logic in-process and delete the spawn; otherwise mark the test as
+integration tier and take the bound from one shared helper; for a test about timeout handling,
+fake the timeout outcome. A bound that is the subject of the test can be kept in place:
+
+```python
+# aislop-ignore-next-line ai-slop/test-spawn-timeout-literal -- the timeout is what is under test
+subprocess.run(["sleeper"], timeout=1)
 ```
 
 ### Test timing (`ai-slop/test-sleep`, `ai-slop/test-wall-clock-assertion`)
@@ -729,7 +789,7 @@ See [examples/architecture-rules.yml](../examples/architecture-rules.yml) for a 
 | TypeScript | Biome | oxlint | knip, complexity | All rules | All rules |
 | JavaScript | Biome | oxlint | knip, complexity | All rules | All rules |
 | Expo / React Native | Biome | oxlint + expo-doctor | knip, complexity | All rules | All rules |
-| Python | ruff | ruff | complexity | Imports, exceptions, comments, tautological tests (`assert True`) | Secrets, audit |
+| Python | ruff | ruff | complexity | Imports, exceptions, comments, tautological tests (`assert True`, `assert 1`) | Secrets, audit |
 | Go | gofmt | golangci-lint | complexity | Exceptions, comments | Secrets, audit |
 | Rust | cargo fmt | clippy | complexity | Comments | Secrets, audit |
 | Ruby | rubocop | rubocop | complexity | Exceptions, comments | Secrets |
