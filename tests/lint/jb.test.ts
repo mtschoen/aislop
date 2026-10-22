@@ -259,7 +259,7 @@ describe("runJbLint target failures", () => {
 				if (!output) throw new Error("missing output argument");
 				const report = output.slice("--output=".length);
 				if (mode === "unreadable") fs.mkdirSync(report);
-				if (mode === "incomplete") fs.writeFileSync(report, "<Report><Issues /></Report>");
+				if (mode === "incomplete") fs.writeFileSync(report, "<Report><IssueTypes />");
 				return { stdout: "", stderr: "", exitCode: 0 };
 			});
 			expect(await runJbLint(ctx(root), { includeCsharp: true, includeCpp: false })).toMatchObject({

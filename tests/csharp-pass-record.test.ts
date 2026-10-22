@@ -119,7 +119,7 @@ describe("C# pass execution record", () => {
 				].join("\n");
 			},
 			'<Report><Issues><Project Name="DisplayName"></Project><Project Name="Two"></Project><Project Name="App"></Project><Project Name="Collide"></Project></Issues></Report>',
-			["One/One.csproj", "Two/Two.csproj"],
+			["App.csproj", "Managed/Managed.csproj", "One/One.csproj", "Two/Two.csproj"],
 			["App.csproj", "Managed/Managed.csproj", "One/One.csproj", "Two/Two.csproj"],
 		],
 		[
@@ -144,7 +144,7 @@ describe("C# pass execution record", () => {
 				].join("\n");
 			},
 			'<Report><Issues><Project Name="One"></Project><Project Name="App"></Project></Issues></Report>',
-			["One/One.csproj"],
+			["A/Different.csproj", "B/App.csproj", "One/One.csproj"],
 			["A/Different.csproj", "B/App.csproj", "One/One.csproj"],
 		],
 		[
@@ -369,6 +369,99 @@ describe("C# pass execution record", () => {
 		},
 	);
 
+	describe("clean and scoped jb solution reports", () => {
+		const CLEAN_REPORT = "<Report><IssueTypes /><Issues /></Report>";
+		const runWithJb = async (jbOutput: string | null, exitCode: number | null = 0) => {
+			subprocess.mockImplementation(async (command: string, arguments_: string[]) => {
+				if (command === "jb") {
+					if (jbOutput !== null) fs.writeFileSync(outputFlag(arguments_), jbOutput);
+				} else {
+					fs.writeFileSync(outputFlag(arguments_), "<Roslynator />");
+				}
+				return { stdout: "", stderr: "", exitCode: command === "jb" ? exitCode : 0 };
+			});
+			return lintEngine.run(context);
+		};
+
+		it("records a clean solution report as ran with every solution member analyzed", async () => {
+			const result = await runWithJb(CLEAN_REPORT);
+			expect(result.failures ?? []).toEqual([]);
+			expect(toolRecord(result, "jb inspectcode")).toMatchObject({
+				status: "ran",
+				targets: ["App.sln"],
+				analyzedProjects: ["B/App.csproj", "One/One.csproj", "Two/Two.csproj"],
+			});
+			expect(toolRecord(result, "jb inspectcode")).not.toHaveProperty("reason");
+		});
+
+		it.each([
+			["no --project scope", undefined, true],
+			["a matching --project scope", "On?;Other*", true],
+			["a nonmatching --project scope", "Other*", false],
+		])("records a clean per-project report under %s", async (_label, jbProjects, credited) => {
+			fs.unlinkSync(path.join(root, "App.sln"));
+			context.config.lint.csharp = { ...context.config.lint.csharp, jbProjects };
+			const result = await runWithJb(CLEAN_REPORT);
+			const jb = toolRecord(result, "jb inspectcode");
+			expect(jb?.status).toBe("ran");
+			if (credited) {
+				expect(jb?.analyzedProjects).toEqual(expect.arrayContaining(["One/One.csproj"]));
+			} else {
+				expect(jb?.analyzedProjects).not.toContain("One/One.csproj");
+			}
+		});
+
+		it.each([
+			["T?o;Display*", ["One/One.csproj", "Two/Two.csproj"]],
+			["Nothing*", []],
+		])(
+			"records the intersection of the --project scope %s and the solution members",
+			async (jbProjects, analyzedProjects) => {
+				context.config.lint.csharp = { ...context.config.lint.csharp, jbProjects };
+				const result = await runWithJb(CLEAN_REPORT);
+				expect(toolRecord(result, "jb inspectcode")).toMatchObject({
+					status: "ran",
+					analyzedProjects,
+				});
+			},
+		);
+
+		it.each([
+			["a truncated report", "<Report><IssueTypes /><Iss"],
+			["garbage output", "not xml at all"],
+			["a report without an Issues section", "<Report><IssueTypes /></Report>"],
+			["a report cut off inside the Issues tag", "<Report><IssueTypes /><Issues"],
+			["a report without a closing Report tag", "<Report><IssueTypes /><Issues />"],
+			["a report with an unclosed Issues section", "<Report><IssueTypes /><Issues>"],
+			[
+				"a report whose Issues section never closes",
+				"<Report><IssueTypes /><Issues></Report>",
+			],
+			["a comment-only report", "<!-- <Report><Issues /></Report> -->"],
+			["a report hidden in a comment", "<!-- <Report><Issues -->"],
+		])("records %s as failed", async (_label, report) => {
+			const result = await runWithJb(report);
+			const jb = toolRecord(result, "jb inspectcode");
+			expect(jb?.status).toBe("failed");
+			expect(jb?.analyzedProjects).toEqual([]);
+			expect(result.failures).toContainEqual(expect.objectContaining({ tool: "jb inspectcode" }));
+		});
+
+		it.each([
+			["a missing report", 1, null],
+			["a clean report", 1, CLEAN_REPORT],
+			["a clean report", 4, CLEAN_REPORT],
+			["a clean report", null, CLEAN_REPORT],
+		])("records %s after exit code %s as failed", async (_label, exitCode, report) => {
+			const result = await runWithJb(report, exitCode);
+			expect(toolRecord(result, "jb inspectcode")).toMatchObject({
+				status: "failed",
+				analyzedProjects: [],
+			});
+			expect(result.failures).toContainEqual(expect.objectContaining({ tool: "jb inspectcode" }));
+		});
+	});
+
 	it("records a jb report that was never written as failed", async () => {
 		fs.unlinkSync(path.join(root, "App.sln"));
 		subprocess.mockImplementation(async (command: string, arguments_: string[]) => {
@@ -506,8 +599,9 @@ describe("C# pass execution record", () => {
 			const jb = toolRecord(result, "jb inspectcode");
 			expect(jb?.targets).toEqual(["App.sln"]);
 			expect(jb?.excludedProjects).toContain(expectedExcluded);
-			// Ambiguous report name "App" among solution members must NOT be credited
-			expect(jb?.analyzedProjects).not.toContain(expectedVisible);
+			// Membership comes from the solution index, so an ambiguous report name
+			// "App" cannot hide a visible member or credit an excluded one.
+			expect(jb?.analyzedProjects).toContain(expectedVisible);
 			expect(jb?.analyzedProjects).not.toContain(expectedExcluded);
 
 			const roslynator = toolRecord(result, "roslynator");

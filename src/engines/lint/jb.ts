@@ -18,8 +18,8 @@ import {
 	buildExecution,
 	type CsharpProjectInventory,
 	createCsharpProjectInventory,
+	getSolutionIndex,
 	isSolutionTarget,
-	resolveReportedProject,
 	toRelative,
 } from "./csharp-execution.js";
 import { decodeEntities, xmlAttribute } from "./xml-entities.js";
@@ -138,23 +138,44 @@ export const resolveCsharpLintConfig = (context: EngineContext): CsharpLintConfi
 	};
 };
 
-// A complete jb report names at least one <Project>. A report with none is the
-// partial-cache garbage case (cold cache, stale model), so we discard it rather
-// than report a misleading subset. See reference_jb_inspectcode_cache.
-const reportLooksComplete = (xml: string): boolean => /<Project\b/.test(xml);
+// XML comments carry no report structure; an unterminated one runs to the end.
+const stripXmlComments = (xml: string): string => xml.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
 
-const reportedProjectNames = (xml: string): string[] => {
-	const names: string[] = [];
-	for (const match of xml.matchAll(/<Project\b[^>]*>/g)) {
-		const name = attribute(match[0], "Name");
-		if (name) names.push(name);
-	}
-	return names;
+// jb omits <Project> elements from a report without findings, so a clean
+// solution writes a well-formed <Report> with an empty <Issues /> section.
+// Completeness is structural: an opened <Report> holding either a
+// self-closing <Issues /> or an <Issues> section closed by </Issues>, with
+// </Report> ending the document. A bounded shape check, not an XML parser. A
+// missing or truncated report (cold cache, killed process) fails it and is
+// discarded. See reference_jb_inspectcode_cache.
+const COMPLETE_REPORT_SHAPE =
+	/<Report\b(?:[^>]*[^/>])?>[\s\S]*?(?:<Issues\b[^>]*\/>|<Issues\b(?:[^>]*[^/>])?>[\s\S]*<\/Issues\s*>)[\s\S]*<\/Report\s*>\s*$/;
+
+const reportLooksComplete = (report: string): boolean => COMPLETE_REPORT_SHAPE.test(report);
+
+const reportHasProject = (report: string): boolean => /<Project\b/.test(report);
+
+const escapeRegExpCharacters = (text: string): string =>
+	text.replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`);
+
+// A jb wildcard: '*' matches any run, '?' any single character.
+const wildcardToRegExp = (pattern: string): RegExp =>
+	new RegExp(
+		`^${pattern
+			.split("*")
+			.map((part) => part.split("?").map(escapeRegExpCharacters).join("."))
+			.join(".*")}$`,
+		"i",
+	);
+
+// jb's --project is a ';'-separated list of project-name wildcards.
+const projectNameInScope = (name: string, projectScope: string | undefined): boolean => {
+	if (!projectScope) return true;
+	return projectScope
+		.split(";")
+		.filter((pattern) => pattern.length > 0)
+		.some((pattern) => wildcardToRegExp(pattern).test(name));
 };
-
-interface JbTargetResult extends AnalyzerRunResult {
-	reportedProjects: string[];
-}
 
 // Pick the lower of two severity floors so the inspectcode pre-filter lets both
 // languages' issues through; parseJbXml re-applies each language's floor authoritatively.
@@ -171,7 +192,7 @@ const analyzeJbTarget = async (
 	includeCsharp: boolean,
 	includeCpp: boolean,
 	target: string,
-): Promise<JbTargetResult> => {
+): Promise<AnalyzerRunResult> => {
 	// Fresh caches every run: jb's result cache survives config edits and a cold
 	// cache yields partial reports. Removed in the finally block.
 	let cachesHome: string | undefined;
@@ -208,16 +229,24 @@ const analyzeJbTarget = async (
 			);
 		}
 		const xml = fs.readFileSync(outputPath, "utf-8");
-		if (!reportLooksComplete(xml)) throw new Error("incomplete report: no Project element");
+		const report = stripXmlComments(xml);
+		if (!reportLooksComplete(report))
+			throw new Error("incomplete report: no closed Report and Issues elements");
+		// A report naming a finding-bearing project is accepted at any exit code
+		// (the nonzero diagnostic exit policy). A clean report proves nothing on
+		// its own, so it counts only after a successful exit.
+		if (!reportHasProject(report) && result.exitCode !== 0) {
+			throw new Error(
+				`clean report after unsuccessful exit (exit code ${result.exitCode}): ${truncateFailureDetail(result.stderr || result.stdout || "no output")}`,
+			);
+		}
 		return {
 			diagnostics: parseJbXml(xml, context.rootDirectory, parseOptions),
 			failures: [],
-			reportedProjects: reportedProjectNames(xml),
 		};
 	} catch (error) {
 		return {
 			diagnostics: [],
-			reportedProjects: [],
 			failures: includeCsharp
 				? [
 						{
@@ -327,11 +356,19 @@ export const runJbLint = async (
 		failures.push(...result.failures);
 		if (result.failures.length === 0) {
 			if (isSolutionTarget(target)) {
-				for (const name of result.reportedProjects) {
-					const resolved = resolveReportedProject(csharpInventory, target, name);
-					if (resolved) analyzedProjects.push(resolved);
+				// jb reports only finding-bearing projects, so a solution pass records
+				// the solution's declared members (restricted to the --project scope
+				// and to visible projects), as the roslynator pass does.
+				for (const project of getSolutionIndex(csharpInventory, target).csharpProjects) {
+					if (
+						csharpInventory.visibleProjectsSet.has(project.relativePath) &&
+						projectNameInScope(project.name, projectScope)
+					) {
+						analyzedProjects.push(project.relativePath);
+					}
 				}
-			} else if (result.reportedProjects.length > 0) {
+			} else if (projectNameInScope(path.basename(target, path.extname(target)), projectScope)) {
+				// jb names a project after its project file; --project scopes this run too.
 				analyzedProjects.push(toRelative(context, target));
 			}
 		}
