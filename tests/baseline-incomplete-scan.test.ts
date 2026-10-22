@@ -13,6 +13,8 @@ vi.mock("../src/commands/scan-pipeline.js", () => ({
 
 const { baselineWriteCommand } = await import("../src/commands/baseline.js");
 const { parseConfig } = await import("../src/config/schema.js");
+const { log } = await import("../src/ui/logger.js");
+const { fullyRanEngines } = await import("../src/commands/scan-baseline.js");
 
 let root: string;
 
@@ -65,6 +67,24 @@ describe("baseline write on an incomplete scan", () => {
 
 		expect((await write()).exitCode).toBe(1);
 		expect(fs.existsSync(baselineFile())).toBe(false);
+	});
+
+	it("names a failed lint engine in the refusal", async () => {
+		results.push(engineResult({ engine: "lint", failed: true }));
+
+		const refusal = vi.spyOn(log, "error").mockImplementation(() => {});
+		try {
+			await write();
+			expect(refusal).toHaveBeenCalledWith(expect.stringContaining("lint (failed)"));
+		} finally {
+			refusal.mockRestore();
+		}
+	});
+
+	it("excludes a failed lint engine from the fully ran engines", () => {
+		const failed = engineResult({ engine: "lint", failed: true });
+		const clean = engineResult({ engine: "format" });
+		expect([...fullyRanEngines([failed, clean])]).toEqual(["format"]);
 	});
 
 	it("writes when engines were skipped only because nothing applied", async () => {

@@ -321,7 +321,7 @@ Expose aislop as MCP tools for Claude Desktop, Cursor, Codex:
 ### CI
 
 ```bash
-aislop ci                  # JSON output, exits 1 if score < threshold
+aislop ci                  # JSON quality gate; see CI/CD docs for exit conditions
 aislop ci --changes --base origin/main  # gate only the files a PR changes
 aislop ci --human          # human-friendly CI output
 aislop ci --sarif          # SARIF output for code scanning
@@ -448,7 +448,7 @@ ci:
   failBelow: 70
 ```
 
-`aislop ci` exits 1 when score < threshold. Docs: [CI/CD](docs/ci.md)
+`aislop ci` exits 1 for a below-threshold score, failing findings, or unresolved C# analyzer target failures. Docs: [CI/CD](docs/ci.md)
 
 ---
 

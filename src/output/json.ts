@@ -1,5 +1,5 @@
 import type { ScanBaselineSummary } from "../commands/scan-baseline.js";
-import type { EngineResult } from "../engines/types.js";
+import type { EngineFailure, EngineResult } from "../engines/types.js";
 import type { ScoreResult } from "../scoring/index.js";
 import type { Coverage } from "../utils/discover.js";
 import { APP_VERSION } from "../version.js";
@@ -26,6 +26,7 @@ interface JsonOutput {
 			skipped: boolean;
 			elapsed: number;
 			failed?: true;
+			failures?: EngineFailure[];
 			skipReason?: string;
 			missingTools?: string[];
 		}
@@ -61,6 +62,7 @@ export const buildJsonOutput = (
 			skipped: result.skipped,
 			elapsed: result.elapsed,
 			...(result.failed ? { failed: true as const } : {}),
+			...(result.failures?.length ? { failures: result.failures } : {}),
 			...(result.skipped && result.skipReason ? { skipReason: result.skipReason } : {}),
 			...(result.missingTools?.length ? { missingTools: result.missingTools } : {}),
 		};

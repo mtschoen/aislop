@@ -29,26 +29,53 @@ describe("runDotnetLint report cleanup", () => {
 		fs.rmSync(rootDirectory, { recursive: true, force: true });
 	});
 
-	it("removes the temporary report directory when Roslynator fails", async () => {
-		let reportPath = "";
-		runSubprocess.mockImplementation(async (_command, args: string[]) => {
-			reportPath = args[args.indexOf("--output") + 1];
-			throw new Error("roslynator failed");
-		});
-		const context: EngineContext = {
-			rootDirectory,
-			languages: ["csharp"],
-			frameworks: [],
-			installedTools: { roslynator: true },
-			config: {
-				quality: DEFAULT_CONFIG.quality,
-				security: DEFAULT_CONFIG.security,
-				lint: DEFAULT_CONFIG.lint,
-			},
-		};
+	it.each(["clean", "cleanup-error"])(
+		"handles temporary report directory cleanup (%s)",
+		async (mode) => {
+			let reportPath = "";
+			runSubprocess.mockImplementation(async (_command, args: string[]) => {
+				reportPath = args[args.indexOf("--output") + 1];
+				throw new Error("roslynator failed");
+			});
+			const context: EngineContext = {
+				rootDirectory,
+				languages: ["csharp"],
+				frameworks: [],
+				installedTools: { roslynator: true },
+				config: {
+					quality: DEFAULT_CONFIG.quality,
+					security: DEFAULT_CONFIG.security,
+					lint: DEFAULT_CONFIG.lint,
+				},
+			};
 
-		expect(await runDotnetLint(context)).toEqual([]);
-		expect(reportPath).not.toBe("");
-		expect(fs.existsSync(path.dirname(reportPath))).toBe(false);
-	});
+			const originalRmSync = fs.rmSync;
+			let errorSpy: ReturnType<typeof vi.spyOn> | undefined;
+			if (mode === "cleanup-error") {
+				errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+				vi.spyOn(fs, "rmSync").mockImplementation((targetPath, options) => {
+					if (typeof targetPath === "string" && targetPath.includes("aislop-roslynator-")) {
+						throw new Error("EPERM: operation not permitted, rm");
+					}
+					return originalRmSync(targetPath, options);
+				});
+			}
+			try {
+				expect(await runDotnetLint(context)).toEqual({
+					diagnostics: [],
+					failures: [{ tool: "roslynator", target: "App.csproj", reason: "roslynator failed" }],
+				});
+				if (mode === "cleanup-error") {
+					expect(errorSpy).toHaveBeenCalledWith(
+						expect.stringContaining("failed to clean up temporary directory"),
+					);
+				} else {
+					expect(reportPath).not.toBe("");
+					expect(fs.existsSync(path.dirname(reportPath))).toBe(false);
+				}
+			} finally {
+				vi.restoreAllMocks();
+			}
+		},
+	);
 });

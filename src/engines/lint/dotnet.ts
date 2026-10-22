@@ -2,11 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { projectRelativePosix } from "../../utils/paths.js";
-import {
-	isMissingToolError,
-	runSubprocess,
-	warnSubprocessFailure,
-} from "../../utils/subprocess.js";
+import { runSubprocess, truncateFailureDetail } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
 import {
 	findCsprojFiles,
@@ -15,7 +11,7 @@ import {
 	MAXIMUM_PROJECT_TARGETS,
 	projectsSkippedNotice,
 } from "../dotnet-targets.js";
-import type { Diagnostic, EngineContext } from "../types.js";
+import type { AnalyzerRunResult, Diagnostic, EngineContext, EngineFailure } from "../types.js";
 import { decodeEntities } from "./xml-entities.js";
 
 // Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
@@ -89,14 +85,9 @@ export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnost
 
 const ANALYZE_TIMEOUT_MS = 180000;
 
-interface AnalyzeResult {
-	diagnostics: Diagnostic[];
-	// True when roslynator itself failed to produce a usable report for this
-	// target (crash, timeout, or a report file that was never written), as
-	// opposed to a clean run that simply found nothing.
-	failed: boolean;
-	timedOut?: boolean;
-}
+type AnalyzeResult =
+	| { diagnostics: Diagnostic[]; failed: false }
+	| { diagnostics: Diagnostic[]; failed: true; reason: string; timedOut: boolean };
 
 const analyzeTarget = async (
 	context: EngineContext,
@@ -104,84 +95,98 @@ const analyzeTarget = async (
 	analyzerAssemblies: string[],
 	target: string,
 ): Promise<AnalyzeResult> => {
-	const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-roslynator-"));
-	const outputPath = path.join(outputDirectory, "report.xml");
-	const label = `roslynator analyze (${projectRelativePosix(context.rootDirectory, target)})`;
+	let outputDirectory: string | undefined;
 	try {
+		outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-roslynator-"));
+		const outputPath = path.join(outputDirectory, "report.xml");
 		const analyzeArgs = ["analyze", target, "--output", outputPath];
 		if (analyzerAssemblies.length > 0) {
 			analyzeArgs.push("--analyzer-assemblies", ...analyzerAssemblies);
 		}
-		let result: { stdout: string; stderr: string; exitCode: number | null };
-		try {
-			result = await runSubprocess(roslynator, analyzeArgs, {
-				cwd: context.rootDirectory,
-				timeout: ANALYZE_TIMEOUT_MS,
-			});
-		} catch (error) {
-			// A missing binary is gated out before this ever runs (installedTools.roslynator);
-			// anything else - a timeout, a crash the spawn layer surfaces directly - is
-			// roslynator present but failing, which must not go silent.
-			if (isMissingToolError(error)) return { diagnostics: [], failed: false };
-			warnSubprocessFailure(label, error);
-			const timedOut = error instanceof Error && /timed out/i.test(error.message);
-			return { diagnostics: [], failed: true, timedOut };
-		}
+		const result = await runSubprocess(roslynator, analyzeArgs, {
+			cwd: context.rootDirectory,
+			timeout: ANALYZE_TIMEOUT_MS,
+		});
 		// roslynator's exit code alone cannot distinguish "ran clean" from "crashed
 		// before writing anything": the code also varies with the highest diagnostic
 		// severity found on a normal run. A missing report file is the unambiguous
 		// signal that analysis never completed (e.g. roslynator crashing at solution
 		// load under a newer .NET SDK), so check for the file rather than the code.
 		if (!fs.existsSync(outputPath)) {
-			const detail = result.stderr || result.stdout || "no output";
-			warnSubprocessFailure(
-				label,
-				new Error(`no report written (exit code ${result.exitCode}): ${detail}`),
-			);
-			return { diagnostics: [], failed: true };
+			const detail = truncateFailureDetail(result.stderr || result.stdout || "no output");
+			throw new Error(`no report written (exit code ${result.exitCode}): ${detail}`);
 		}
 		const xml = fs.readFileSync(outputPath, "utf-8");
 		return { diagnostics: parseRoslynatorXml(xml, context.rootDirectory), failed: false };
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		return { diagnostics: [], failed: true, reason, timedOut: /timed out/i.test(reason) };
 	} finally {
-		fs.rmSync(outputDirectory, { recursive: true, force: true });
+		if (outputDirectory) {
+			try {
+				fs.rmSync(outputDirectory, { recursive: true, force: true });
+			} catch (cleanupError) {
+				console.error(
+					`aislop: warning: failed to clean up temporary directory ${outputDirectory}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+				);
+			}
+		}
 	}
 };
 
-// Restored .csproj files (capped the same way findDotnetTargets caps a
-// project-only selection) to retry individually when a solution-level pass
-// fails. Confirmed for the SDK 10 / roslynator solution-load crash: per-project
-// `analyze` succeeds even when `analyze <solution>.sln` cannot load the solution.
-const restoredProjectFallbackTargets = (context: EngineContext): string[] =>
-	findCsprojFiles(context.rootDirectory, context.excludePatterns)
-		.filter((csproj) => hasRestoreEvidence(csproj, context.rootDirectory))
-		.slice(0, MAXIMUM_PROJECT_TARGETS);
-
 const isSolutionTarget = (target: string): boolean => target.toLowerCase().endsWith(".sln");
 
-export const runDotnetLint = async (context: EngineContext): Promise<Diagnostic[]> => {
+export const runDotnetLint = async (context: EngineContext): Promise<AnalyzerRunResult> => {
 	const selection = findDotnetTargets(context);
 	const notice = projectsSkippedNotice(selection, context.rootDirectory);
-	if (selection.targets.length === 0) return notice;
+	if (selection.targets.length === 0) return { diagnostics: notice, failures: [] };
 	const roslynator = resolveToolBinary("roslynator");
 	// Bundled analyzers extend coverage to projects that don't reference them;
 	// when none are bundled, roslynator still runs the project's own analyzers.
 	const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
 	const diagnostics: Diagnostic[] = [];
+	const failures: EngineFailure[] = [];
 	for (const target of selection.targets) {
 		const result = await analyzeTarget(context, roslynator, analyzerAssemblies, target);
-		if (!result.failed || result.timedOut || !isSolutionTarget(target)) {
-			diagnostics.push(...result.diagnostics);
+		diagnostics.push(...result.diagnostics);
+		if (!result.failed) continue;
+		const failure: EngineFailure = {
+			tool: "roslynator",
+			target: projectRelativePosix(context.rootDirectory, target),
+			reason: result.reason,
+		};
+		if (result.timedOut || !isSolutionTarget(target)) {
+			failures.push(failure);
 			continue;
 		}
-		const fallbackTargets = restoredProjectFallbackTargets(context);
-		if (fallbackTargets.length === 0) continue;
+		const projects = findCsprojFiles(context.rootDirectory, context.excludePatterns);
+		const fallbackTargets = projects
+			.filter((project) => hasRestoreEvidence(project, context.rootDirectory))
+			.slice(0, MAXIMUM_PROJECT_TARGETS);
+		if (fallbackTargets.length === 0) {
+			failures.push(failure);
+			continue;
+		}
+		if (fallbackTargets.length !== projects.length) {
+			failures.push({
+				...failure,
+				reason: `${failure.reason}; fallback covers only ${fallbackTargets.length} of ${projects.length} visible projects (restore evidence or project cap)`,
+			});
+		}
 		console.error(
-			`aislop: roslynator analyze failed for the solution; falling back to per-project analyze for ${fallbackTargets.length} restored project(s)`,
+			`aislop: roslynator analyze failed for the solution (${failure.reason}); falling back to per-project analyze for ${fallbackTargets.length} restored project(s)`,
 		);
 		for (const project of fallbackTargets) {
 			const projectResult = await analyzeTarget(context, roslynator, analyzerAssemblies, project);
 			diagnostics.push(...projectResult.diagnostics);
+			if (projectResult.failed) {
+				failures.push({
+					tool: "roslynator",
+					target: projectRelativePosix(context.rootDirectory, project),
+					reason: projectResult.reason,
+				});
+			}
 		}
 	}
-	return [...diagnostics, ...notice];
+	return { diagnostics: [...diagnostics, ...notice], failures };
 };

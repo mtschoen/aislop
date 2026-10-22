@@ -78,6 +78,82 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 		fs.rmSync(root, { recursive: true, force: true });
 	});
 
+	it.each(["cold", "capped"])("retains solution failure when fallback is %s", async (mode) => {
+		writeRestoredProject(root, "Warm");
+		if (mode === "cold") {
+			fs.mkdirSync(path.join(root, "Cold"));
+			fs.writeFileSync(path.join(root, "Cold", "Cold.csproj"), "<Project />");
+		} else {
+			for (let index = 0; index < 32; index++) writeRestoredProject(root, `Project${index}`);
+		}
+		runSubprocess.mockImplementation(async (_command: string, arguments_: string[]) => {
+			if (arguments_[1].endsWith(".csproj"))
+				fs.writeFileSync(outputPathFromArgs(arguments_), "<Roslynator />");
+			return { stdout: "", stderr: "load failed", exitCode: 0 };
+		});
+		const result = await runDotnetLint(csharpContext(root));
+		expect(result.failures).toEqual([
+			expect.objectContaining({ tool: "roslynator", target: "App.sln" }),
+		]);
+	});
+
+	it("retains good fallback findings alongside failed targets", async () => {
+		writeRestoredProject(root, "One");
+		writeRestoredProject(root, "Two");
+		runSubprocess.mockImplementation(async (_command: string, arguments_: string[]) => {
+			if (arguments_[1].endsWith(`${path.sep}One.csproj`)) {
+				fs.writeFileSync(
+					outputPathFromArgs(arguments_),
+					roslynatorXml(path.join(root, "One", "Foo.cs")),
+				);
+			}
+			return { stdout: "", stderr: "", exitCode: 0 };
+		});
+		const result = await runDotnetLint(csharpContext(root));
+		expect(result.diagnostics).toEqual([expect.objectContaining({ rule: "dotnet/AsyncFixer01" })]);
+		expect(result.failures).toEqual([expect.objectContaining({ target: "Two/Two.csproj" })]);
+	});
+
+	it.each(["missing-binary", "unreadable", "direct-project", "setup-error"])(
+		"retains %s failures",
+		async (mode) => {
+			if (mode === "direct-project") {
+				fs.unlinkSync(path.join(root, "App.sln"));
+				writeRestoredProject(root, "Direct");
+			}
+			const originalMkdtempSync = fs.mkdtempSync;
+			if (mode === "setup-error") {
+				vi.spyOn(fs, "mkdtempSync").mockImplementation((prefix) => {
+					if (typeof prefix === "string" && prefix.includes("aislop-roslynator-")) {
+						throw new Error("ENOSPC: no space left on device, mkdtemp");
+					}
+					return originalMkdtempSync(prefix);
+				});
+			}
+			try {
+				runSubprocess.mockImplementation(async (_command: string, arguments_: string[]) => {
+					if (mode === "unreadable") {
+						fs.mkdirSync(outputPathFromArgs(arguments_));
+						return { stdout: "", stderr: "", exitCode: 0 };
+					}
+					throw new Error(
+						mode === "missing-binary" ? "spawn roslynator ENOENT" : "workspace load failed",
+					);
+				});
+				const result = await runDotnetLint(csharpContext(root));
+				expect(result.failures).toEqual([
+					expect.objectContaining({
+						tool: "roslynator",
+						target: mode === "direct-project" ? "Direct/Direct.csproj" : "App.sln",
+						reason: expect.any(String),
+					}),
+				]);
+			} finally {
+				vi.restoreAllMocks();
+			}
+		},
+	);
+
 	it("warns instead of silently reporting a clean scan when roslynator crashes at solution load and writes no report", async () => {
 		// Simulates roslynator crashing while loading the .sln (e.g. the SDK 10
 		// MissingFieldException): it exits non-zero and never writes the report
@@ -85,14 +161,20 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 		runSubprocess.mockResolvedValueOnce({ stdout: "", stderr: "boom: MissingFieldException", exitCode: 1 });
 		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const diagnostics = await runDotnetLint(csharpContext(root));
+		const { diagnostics, failures } = await runDotnetLint(csharpContext(root));
 
 		expect(diagnostics).toEqual([]);
-		expect(warnSpy).toHaveBeenCalled();
-		expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("roslynator"))).toBe(true);
-		expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("no report written"))).toBe(
-			true,
-		);
+		expect(failures).toEqual([
+			expect.objectContaining({
+				tool: "roslynator",
+				target: "App.sln",
+				reason: expect.stringContaining(
+					"no report written (exit code 1): boom: MissingFieldException",
+				),
+			}),
+		]);
+		// The final failure block reports it once; no per-target stderr line duplicates it.
+		expect(warnSpy).not.toHaveBeenCalled();
 		warnSpy.mockRestore();
 	});
 
@@ -110,7 +192,8 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 			});
 		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const diagnostics = await runDotnetLint(csharpContext(root));
+		const { diagnostics, failures } = await runDotnetLint(csharpContext(root));
+		expect(failures).toEqual([]);
 
 		expect(runSubprocess).toHaveBeenCalledTimes(2);
 		const secondCallArgs = runSubprocess.mock.calls[1][1] as string[];
@@ -120,8 +203,23 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 			rule: "dotnet/AsyncFixer01",
 			filePath: "Proj/Foo.cs",
 		});
-		expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("roslynator"))).toBe(true);
+		expect(
+			warnSpy.mock.calls.some(
+				(call) =>
+					String(call[0]).includes("falling back") &&
+					String(call[0]).includes("MissingFieldException"),
+			),
+		).toBe(true);
+		expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("was skipped"))).toBe(false);
 		warnSpy.mockRestore();
+	});
+
+	it("truncates tool output copied into a failure reason", async () => {
+		runSubprocess.mockResolvedValueOnce({ stdout: "", stderr: "x".repeat(5000), exitCode: 1 });
+		const { failures } = await runDotnetLint(csharpContext(root));
+		expect(failures).toHaveLength(1);
+		expect(failures[0].reason.length).toBeLessThan(500);
+		expect(failures[0].reason).toContain("[truncated 4700 characters]");
 	});
 
 	it("skips per-project fallback when solution-level analyze times out", async () => {
@@ -131,12 +229,14 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 		);
 		const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const diagnostics = await runDotnetLint(csharpContext(root));
+		const { diagnostics, failures } = await runDotnetLint(csharpContext(root));
+		expect(failures).toEqual([
+			expect.objectContaining({ reason: expect.stringContaining("timed out") }),
+		]);
 
 		expect(runSubprocess).toHaveBeenCalledTimes(1);
 		expect(diagnostics).toEqual([]);
-		expect(warnSpy).toHaveBeenCalled();
-		expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("timed out"))).toBe(true);
+		expect(warnSpy).not.toHaveBeenCalled();
 		warnSpy.mockRestore();
 	});
 });

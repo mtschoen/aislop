@@ -1,6 +1,13 @@
 import { findCompileCommandsDir } from "../cpp-targets.js";
 import { findMissingTools, type ToolRequirement, withMissingTools } from "../missing-tools.js";
-import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
+import type {
+	AnalyzerRunResult,
+	Diagnostic,
+	Engine,
+	EngineContext,
+	EngineFailure,
+	EngineResult,
+} from "../types.js";
 import { runClangTidy } from "./clang-tidy.js";
 import { resolveCppLintConfig, runCppcheck } from "./cppcheck.js";
 import { runDotnetLint } from "./dotnet.js";
@@ -106,6 +113,11 @@ export const lintEngine: Engine = {
 
 	async run(context: EngineContext): Promise<EngineResult> {
 		const diagnostics: Diagnostic[] = [];
+		const failures: EngineFailure[] = [];
+		const collectAnalyzerResult = (result: AnalyzerRunResult): Diagnostic[] => {
+			failures.push(...result.failures);
+			return result.diagnostics;
+		};
 		const { languages, installedTools } = context;
 
 		const promises: Promise<Diagnostic[]>[] = [];
@@ -145,7 +157,9 @@ export const lintEngine: Engine = {
 		const wantJbCpp = languages.includes("cpp") && cpp.jb && installedTools.jb;
 		const jbPromise: Promise<Diagnostic[]> =
 			wantJbCsharp || wantJbCpp
-				? runJbLint(context, { includeCsharp: wantJbCsharp, includeCpp: wantJbCpp })
+				? runJbLint(context, { includeCsharp: wantJbCsharp, includeCpp: wantJbCpp }).then(
+						collectAnalyzerResult,
+					)
 				: Promise.resolve([]);
 
 		if (languages.includes("cpp")) {
@@ -161,7 +175,7 @@ export const lintEngine: Engine = {
 		if (languages.includes("csharp")) {
 			const csharpPasses: Promise<Diagnostic[]>[] = [];
 			if (csharp.projectEvaluation && csharp.roslynator && installedTools.roslynator) {
-				csharpPasses.push(runDotnetLint(context));
+				csharpPasses.push(runDotnetLint(context).then(collectAnalyzerResult));
 			}
 			if (wantJbCsharp)
 				csharpPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C# Lint")));
@@ -199,6 +213,7 @@ export const lintEngine: Engine = {
 				diagnostics,
 				elapsed: 0,
 				skipped: false,
+				...(failures.length > 0 ? { failures, failed: true } : {}),
 			},
 			missingTools,
 		);

@@ -37,6 +37,17 @@ export interface Diagnostic {
 	advisories?: DependencyAdvisory[];
 }
 
+export interface EngineFailure {
+	tool: string;
+	target: string;
+	reason: string;
+}
+
+export interface AnalyzerRunResult {
+	diagnostics: Diagnostic[];
+	failures: EngineFailure[];
+}
+
 export interface EngineResult {
 	engine: EngineName;
 	diagnostics: Diagnostic[];
@@ -45,6 +56,7 @@ export interface EngineResult {
 	skipReason?: string;
 	missingTools?: string[];
 	failed?: boolean;
+	failures?: EngineFailure[];
 }
 
 export interface EngineContext {

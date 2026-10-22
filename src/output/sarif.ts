@@ -43,6 +43,13 @@ interface SarifLog {
 			};
 		};
 		results: SarifResult[];
+		invocations?: Array<{
+			executionSuccessful: boolean;
+			toolExecutionNotifications: Array<{
+				level: "error";
+				message: { text: string };
+			}>;
+		}>;
 	}>;
 }
 
@@ -72,6 +79,7 @@ const buildRules = (diagnostics: Diagnostic[]): SarifReportingDescriptor[] => {
 };
 
 export const buildSarifLog = (results: EngineResult[]): SarifLog => {
+	const failures = results.flatMap((result) => result.failures ?? []);
 	const diagnostics = results.flatMap((r) => r.diagnostics);
 	const rules = buildRules(diagnostics);
 	const ruleIndex = new Map(rules.map((rule, index) => [rule.id, index]));
@@ -106,6 +114,21 @@ export const buildSarifLog = (results: EngineResult[]): SarifLog => {
 					},
 				},
 				results: sarifResults,
+				...(failures.length > 0
+					? {
+							invocations: [
+								{
+									executionSuccessful: false,
+									toolExecutionNotifications: failures.map((failure) => ({
+										level: "error" as const,
+										message: {
+											text: `${failure.tool} not-run for ${failure.target}: ${failure.reason}`,
+										},
+									})),
+								},
+							],
+						}
+					: {}),
 			},
 		],
 	};

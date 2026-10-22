@@ -85,6 +85,8 @@ aislop bundles the AsyncFixer, Meziantou.Analyzer, and IDisposableAnalyzers asse
 
 #### De-duplication
 
+Selected C# analyzers report invocation failures, missing or unreadable reports, and jb reports without a `Project` element as not-run targets. Both `scan` and `ci` exit non-zero for unresolved failures, independently of scoring. Roslynator retries failed solutions through visible restored projects, capped at 32. Recovery requires at least one project, no visible project omitted for restore evidence or the cap, and successful analysis of every fallback target. Successful findings survive partial failure. Success from jb does not cover Roslynator failure or conversely. Timeouts share this failure path but do not trigger solution fallback; timeout budgets are unchanged. Disabled project evaluation, disabled tools, absent optional installations, and never-selected projects retain their skip policy. C++-only jb failure policy is unchanged.
+
 When both tools run, findings are merged and de-duplicated by `(filePath, line, bare-rule-id)`, where the bare rule id is the part after the `jb/` or `dotnet/` namespace prefix (so a `jb/CS0219` and a `dotnet/CS0219` at the same site count as one). When jb and roslynator report an equivalent finding at the same location, the jb finding wins.
 
 #### `lint.csharp` config block

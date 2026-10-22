@@ -162,6 +162,17 @@ export const warnSubprocessFailure = (tool: string, error: unknown): void => {
 	console.error(`aislop: ${tool} failed to run and was skipped: ${message}`);
 };
 
+const MAXIMUM_FAILURE_DETAIL_LENGTH = 300;
+
+// Tool output copied into a failure reason lands in JSON, SARIF and stderr, so
+// keep only a bounded head of it and say when the rest was dropped.
+export const truncateFailureDetail = (detail: string): string => {
+	const trimmed = detail.trim();
+	return trimmed.length <= MAXIMUM_FAILURE_DETAIL_LENGTH
+		? trimmed
+		: `${trimmed.slice(0, MAXIMUM_FAILURE_DETAIL_LENGTH)}... [truncated ${trimmed.length - MAXIMUM_FAILURE_DETAIL_LENGTH} characters]`;
+};
+
 export const runSubprocess = (
 	command: string,
 	args: string[],

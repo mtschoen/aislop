@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import type { AislopConfig } from "../config/index.js";
 import { collectMissingTools } from "../engines/missing-tools.js";
 import type { EngineResult } from "../engines/types.js";
+import { printEngineFailures } from "../output/engine-failures.js";
 import { calculateScore } from "../scoring/index.js";
 import { type EngineCounts, withCommandLifecycle } from "../telemetry/index.js";
 import { renderDisplayRows } from "../ui/display.js";
@@ -153,6 +154,7 @@ const runScanBody = async (prepared: PreparedScan, config: AislopConfig, options
 
 	const allDiagnostics = results.flatMap((r) => r.diagnostics);
 	const elapsedMs = performance.now() - startTime;
+	const hasEngineFailures = printEngineFailures(results);
 
 	const scoreResult = calculateScore(
 		allDiagnostics,
@@ -167,6 +169,7 @@ const runScanBody = async (prepared: PreparedScan, config: AislopConfig, options
 	const missingTools = collectMissingTools(results);
 	const exitCode = computeScanExitCode({
 		hasErrors,
+		hasEngineFailures,
 		scoreable,
 		score: scoreResult.score,
 		failBelow: config.ci.failBelow,

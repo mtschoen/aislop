@@ -2,10 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { projectRelativePosix } from "../../utils/paths.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import { runSubprocess, truncateFailureDetail } from "../../utils/subprocess.js";
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
 import { findJbTargets, projectsSkippedNotice } from "../dotnet-targets.js";
-import type { Diagnostic, EngineContext, Severity } from "../types.js";
+import type {
+	AnalyzerRunResult,
+	Diagnostic,
+	EngineContext,
+	EngineFailure,
+	Severity,
+} from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
 import { decodeEntities, xmlAttribute } from "./xml-entities.js";
 
@@ -40,58 +46,55 @@ const asSeverity = (raw: string | null): JbSeverity =>
 // Regex parse (no XML dependency, matching dotnet.ts). Builds a TypeId->Severity
 // map from <IssueType> tags, then maps each <Issue> tag to a Diagnostic.
 // Per-language floors and exclude sets are applied by the "Cpp" prefix test.
+// A parse exception propagates so the caller records the target as not-run.
 export const parseJbXml = (
 	xml: string,
 	rootDirectory: string,
 	options: JbParseOptions,
 ): Diagnostic[] => {
-	try {
-		const severityByType = new Map<string, JbSeverity>();
-		const typeTagRe = /<IssueType\b[^>]*\/?>/g;
-		let typeTag = typeTagRe.exec(xml);
-		while (typeTag !== null) {
-			const id = attribute(typeTag[0], "Id");
-			if (id) severityByType.set(id, asSeverity(attribute(typeTag[0], "Severity")));
-			typeTag = typeTagRe.exec(xml);
-		}
-
-		const result: Diagnostic[] = [];
-		const issueTagRe = /<Issue\b[^>]*\/?>/g;
-		let issueTag = issueTagRe.exec(xml);
-		while (issueTag !== null) {
-			const tag = issueTag[0];
-			issueTag = issueTagRe.exec(xml);
-			const typeId = attribute(tag, "TypeId");
-			const file = attribute(tag, "File");
-			if (!typeId || !file) continue;
-			const isCpp = typeId.startsWith("Cpp");
-			const langOptions = isCpp ? options.cpp : options.csharp;
-			if (langOptions.excludeTypes.has(typeId)) continue;
-			const severity = severityByType.get(typeId) ?? "WARNING";
-			if (SEVERITY_RANK[severity] < SEVERITY_RANK[langOptions.severityFloor]) continue;
-
-			// jb reports File with backslash separators regardless of host OS, and on
-			// Linux path.sep never matches them, so normalize before relativizing to
-			// keep diagnostic paths forward-slashed on every OS.
-			const relative = projectRelativePosix(rootDirectory, file.replace(/\\/g, "/"));
-			const lineRaw = attribute(tag, "Line");
-			result.push({
-				filePath: relative,
-				engine: "lint",
-				rule: `jb/${typeId}`,
-				severity: toAislopSeverity(severity),
-				message: attribute(tag, "Message") ?? "",
-				help: "",
-				line: lineRaw ? Number(lineRaw) : 1,
-				column: 1,
-				category: isCpp ? "C++ Lint" : "C# Lint",
-				fixable: false,
-			});
-		}
-		return result;
-	} catch {
-		return [];
+	const severityByType = new Map<string, JbSeverity>();
+	const typeTagRe = /<IssueType\b[^>]*\/?>/g;
+	let typeTag = typeTagRe.exec(xml);
+	while (typeTag !== null) {
+		const id = attribute(typeTag[0], "Id");
+		if (id) severityByType.set(id, asSeverity(attribute(typeTag[0], "Severity")));
+		typeTag = typeTagRe.exec(xml);
 	}
+
+	const result: Diagnostic[] = [];
+	const issueTagRe = /<Issue\b[^>]*\/?>/g;
+	let issueTag = issueTagRe.exec(xml);
+	while (issueTag !== null) {
+		const tag = issueTag[0];
+		issueTag = issueTagRe.exec(xml);
+		const typeId = attribute(tag, "TypeId");
+		const file = attribute(tag, "File");
+		if (!typeId || !file) continue;
+		const isCpp = typeId.startsWith("Cpp");
+		const langOptions = isCpp ? options.cpp : options.csharp;
+		if (langOptions.excludeTypes.has(typeId)) continue;
+		const severity = severityByType.get(typeId) ?? "WARNING";
+		if (SEVERITY_RANK[severity] < SEVERITY_RANK[langOptions.severityFloor]) continue;
+
+		// jb reports File with backslash separators regardless of host OS, and on
+		// Linux path.sep never matches them, so normalize before relativizing to
+		// keep diagnostic paths forward-slashed on every OS.
+		const relative = projectRelativePosix(rootDirectory, file.replace(/\\/g, "/"));
+		const lineRaw = attribute(tag, "Line");
+		result.push({
+			filePath: relative,
+			engine: "lint",
+			rule: `jb/${typeId}`,
+			severity: toAislopSeverity(severity),
+			message: attribute(tag, "Message") ?? "",
+			help: "",
+			line: lineRaw ? Number(lineRaw) : 1,
+			column: 1,
+			category: isCpp ? "C++ Lint" : "C# Lint",
+			fixable: false,
+		});
+	}
+	return result;
 };
 
 interface CsharpLintConfig {
@@ -144,12 +147,13 @@ const analyzeJbTarget = async (
 	includeCsharp: boolean,
 	includeCpp: boolean,
 	target: string,
-): Promise<Diagnostic[]> => {
+): Promise<AnalyzerRunResult> => {
 	// Fresh caches every run: jb's result cache survives config edits and a cold
 	// cache yields partial reports. Removed in the finally block.
-	const cachesHome = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-jb-"));
-	const outputPath = path.join(cachesHome, "report.xml");
+	let cachesHome: string | undefined;
 	try {
+		cachesHome = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-jb-"));
+		const outputPath = path.join(cachesHome, "report.xml");
 		const args = [
 			"inspectcode",
 			target,
@@ -173,20 +177,38 @@ const analyzeJbTarget = async (
 			args.push("--no-build");
 		}
 		// jb is slow (solution-wide, with build): allow up to 10 minutes.
-		await runSubprocess(jb, args, { cwd: context.rootDirectory, timeout: 600000 });
-
-		let xml: string;
-		try {
-			xml = fs.readFileSync(outputPath, "utf-8");
-		} catch {
-			return [];
+		const result = await runSubprocess(jb, args, { cwd: context.rootDirectory, timeout: 600000 });
+		if (!fs.existsSync(outputPath)) {
+			throw new Error(
+				`no report written (exit code ${result.exitCode}): ${truncateFailureDetail(result.stderr || result.stdout || "no output")}`,
+			);
 		}
-		if (!reportLooksComplete(xml)) return [];
-		return parseJbXml(xml, context.rootDirectory, parseOptions);
-	} catch {
-		return [];
+		const xml = fs.readFileSync(outputPath, "utf-8");
+		if (!reportLooksComplete(xml)) throw new Error("incomplete report: no Project element");
+		return { diagnostics: parseJbXml(xml, context.rootDirectory, parseOptions), failures: [] };
+	} catch (error) {
+		return {
+			diagnostics: [],
+			failures: includeCsharp
+				? [
+						{
+							tool: "jb inspectcode",
+							target: projectRelativePosix(context.rootDirectory, target),
+							reason: error instanceof Error ? error.message : String(error),
+						},
+					]
+				: [],
+		};
 	} finally {
-		fs.rmSync(cachesHome, { recursive: true, force: true });
+		if (cachesHome) {
+			try {
+				fs.rmSync(cachesHome, { recursive: true, force: true });
+			} catch (cleanupError) {
+				console.error(
+					`aislop: warning: failed to clean up cache directory ${cachesHome}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+				);
+			}
+		}
 	}
 };
 
@@ -201,14 +223,14 @@ export const buildJbProjectScope = (
 export const runJbLint = async (
 	context: EngineContext,
 	options: { includeCsharp: boolean; includeCpp: boolean },
-): Promise<Diagnostic[]> => {
+): Promise<AnalyzerRunResult> => {
 	const selection = findJbTargets(context);
 	// Only the C# side owns the notice: a C++-only inspection has no stake in
 	// skipped .csproj projects (and would misattribute them to C++ lint).
 	const notice = options.includeCsharp
 		? projectsSkippedNotice(selection, context.rootDirectory)
 		: [];
-	if (selection.targets.length === 0) return notice;
+	if (selection.targets.length === 0) return { diagnostics: notice, failures: [] };
 	const csharp = resolveCsharpLintConfig(context);
 	const cpp = resolveCppLintConfig(context);
 	const jbBinary = resolveToolBinary("jb"); // not bundled -> resolves to "jb" on PATH
@@ -234,20 +256,21 @@ export const runJbLint = async (
 	};
 
 	const diagnostics: Diagnostic[] = [];
+	const failures: EngineFailure[] = [];
 	for (const target of selection.targets) {
-		diagnostics.push(
-			...(await analyzeJbTarget(
-				context,
-				jbBinary,
-				settings,
-				parseOptions,
-				coarseFloor,
-				projectScope,
-				options.includeCsharp,
-				options.includeCpp,
-				target,
-			)),
+		const result = await analyzeJbTarget(
+			context,
+			jbBinary,
+			settings,
+			parseOptions,
+			coarseFloor,
+			projectScope,
+			options.includeCsharp,
+			options.includeCpp,
+			target,
 		);
+		diagnostics.push(...result.diagnostics);
+		failures.push(...result.failures);
 	}
-	return [...diagnostics, ...notice];
+	return { diagnostics: [...diagnostics, ...notice], failures };
 };

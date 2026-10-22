@@ -129,4 +129,4 @@ ci:
   failBelow: 70
 ```
 
-`aislop ci` exits with code 1 when the score is below the threshold.
+`aislop ci` exits with code 1 when the score is below the threshold, an error diagnostic is present, or attempted C# analysis has an unresolved target failure. Execution failures do not change the numeric score: it reflects collected findings, not proof of complete analysis. Rule overrides, source suppression, and baselines do not hide execution failures.

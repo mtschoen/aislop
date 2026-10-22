@@ -7,6 +7,9 @@ import { type GridRow, type GridRowOutcome, LiveGrid } from "../ui/live-grid.js"
 const ALL_ENGINE_NAMES = Object.keys(ENGINE_INFO) as EngineName[];
 
 const resultSummary = (result: EngineResult): { outcome: GridRowOutcome; summary: string } => {
+	if (result.failures?.length) {
+		return { outcome: "fail", summary: `${result.failures.length} target(s) not-run` };
+	}
 	const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
 	if (errors > 0) {
 		return { outcome: "fail", summary: `${errors} error${errors === 1 ? "" : "s"}` };

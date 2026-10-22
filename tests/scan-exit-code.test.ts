@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { computeScanExitCode } from "../src/commands/scan-exit-code.js";
 
 describe("computeScanExitCode", () => {
+	it.each([true, false])(
+		"fails target failures regardless of scoreability (%s) or baseline",
+		(scoreable) => {
+			expect(
+				computeScanExitCode({
+					hasErrors: false,
+					hasEngineFailures: true,
+					scoreable,
+					score: 100,
+					failBelow: 0,
+					newFindings: 0,
+				}),
+			).toBe(1);
+		},
+	);
 	it("fails on error diagnostics even when the score is withheld", () => {
 		expect(computeScanExitCode({ hasErrors: true, scoreable: false, score: 0, failBelow: 70 })).toBe(1);
 	});

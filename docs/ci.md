@@ -1,6 +1,6 @@
 # CI / CD
 
-aislop runs the same gate everywhere. `aislop ci` scans, prints JSON, and exits non-zero when the score drops below your threshold or any error-severity diagnostic is present. The set-and-forget command is `npx --yes aislop@latest ci`: it always runs the latest published CLI, so there is no version to bump.
+aislop runs the same gate everywhere. `aislop ci` scans, prints JSON, and exits non-zero when the score drops below your threshold, an error-severity diagnostic is present, or attempted C# analysis has an unresolved target failure. The set-and-forget command is `npx --yes aislop@latest ci`: it always runs the latest published CLI, so there is no version to bump.
 
 ## Fastest path: `aislop init`
 
@@ -127,7 +127,9 @@ ci:
   format: json
 ```
 
-The CI command exits 1 when the score drops below `failBelow`, or when any error-severity diagnostic is present.
+The CI command exits 1 when the score drops below `failBelow`, when any error-severity diagnostic is present, or when a selected C# analyzer target fails without complete successful fallback. Analyzer failure fails the gate even with score 100, `failBelow: 0`, or an accepted baseline.
+
+Incomplete analysis includes `engines.lint.failures` in JSON: an array of `{ "tool": "roslynator", "target": "src/App/App.csproj", "reason": "no report written ..." }` entries. Targets are root-relative forward-slash paths. These are execution failures, not source findings: they do not increment `issues` or change the numeric score, and source suppressions cannot erase them. The field is omitted when no target failures remain. Human status reports incomplete analysis instead of zero findings; all formats name the not-run tool and target on stderr. SARIF records unsuccessful invocations with tool-execution notifications. Machine stdout stays valid JSON or SARIF.
 
 Format and lint checks for Python, Go, Rust, Ruby, PHP, C/C++, and C# (with `projectEvaluation`) need their tools (`ruff`, `golangci-lint`, `gofmt`, `clippy`, `cppcheck`, and so on) on `PATH`. When one is missing, those checks do not run and the score does not include them. Tools that only run under certain conditions, such as `clang-format` with a `.clang-format` file or `clang-tidy` with a `compile_commands.json`, are reported only when those conditions hold. The scan output names the missing tools, and `aislop doctor` shows how to install them (`aislop-tools` installs the bundled `ruff` and `golangci-lint`). To fail CI instead of scoring a partial scan, set:
 
