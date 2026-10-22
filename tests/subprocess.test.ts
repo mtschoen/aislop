@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,32 +11,78 @@ import {
 	warnSubprocessFailure,
 } from "../src/utils/subprocess.js";
 
-// A zombie still occupies a slot in the process table, so kill(pid, 0)
-// succeeds on it even though it is not really running - it is just waiting
-// for its parent to call wait() and reap it. That reap never happens when
-// the parent has already died and the zombie reparents to a PID 1 that is
-// not an init/reaper (e.g. a bare `node`/`sh` entrypoint in a minimal CI
-// container, as opposed to a desktop OS or an init process like tini). On
-// Linux, cross-check /proc/<pid>/stat: the state field right after the
-// comm's closing paren (comm itself can contain spaces or parens, so split
-// on the LAST ")") is "Z" for a zombie, which this treats as dead.
-const isProcessAlive = (pid: number): boolean => {
-	try {
-		process.kill(pid, 0);
-	} catch {
-		return false;
-	}
-	if (process.platform !== "linux") return true;
+const isMissingProcessError = (error: unknown): boolean =>
+	error instanceof Error && "code" in error && error.code === "ESRCH";
+
+// Read the single-character state code from /proc/<pid>/stat on Linux.
+// The state field sits right after the comm's closing paren (comm itself can
+// contain spaces or parens, so split on the LAST ")"). Returns null when /proc
+// is unavailable so the caller can fall back to ps.
+const readProcStatState = (pid: number): string | null => {
+	if (process.platform !== "linux") return null;
 	try {
 		const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
-		const afterComm = stat.slice(stat.lastIndexOf(")") + 1).trim();
-		const state = afterComm.split(" ")[0];
-		return state !== "Z";
-	} catch {
-		// The process vanished between the kill(pid, 0) check and this read.
-		return false;
+		const closeParen = stat.lastIndexOf(")");
+		if (closeParen === -1) return null;
+		const state = stat.slice(closeParen + 1).trimStart().charAt(0);
+		return state || null;
+	} catch (error) {
+		if (isMissingProcessError(error)) return "X";
+		// If the process was reaped between kill(pid, 0) and reading /proc,
+		// kill(pid, 0) now throws ESRCH. Otherwise /proc is unavailable.
+		try {
+			process.kill(pid, 0);
+		} catch (killError) {
+			if (isMissingProcessError(killError)) return "X";
+			throw killError;
+		}
+		return null;
 	}
 };
+
+// True once a pid is gone at the OS level, treating a zombie as gone: a child
+// that has exited but whose 'exit' event has not been reaped yet still
+// occupies a slot in the process table and answers kill(pid, 0), so a bare
+// liveness probe cannot tell "exited" from "running". Windows has no zombie
+// state (kill(pid, 0) throws ESRCH once the process exits); Linux reads
+// /proc/<pid>/stat directly without spawning a subprocess; other POSIX
+// platforms ask ps for the state and verify absence with kill(pid, 0) before
+// treating an empty result as exit.
+const hasProcessExited = (pid: number): boolean => {
+	try {
+		process.kill(pid, 0);
+	} catch (error) {
+		if (isMissingProcessError(error)) return true;
+		throw error;
+	}
+	if (process.platform === "win32") {
+		return false;
+	}
+	const procState = readProcStatState(pid);
+	if (procState !== null) {
+		return procState === "Z" || procState === "X";
+	}
+	const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf-8" });
+	if (result.error) {
+		throw result.error;
+	}
+	const state = result.stdout.trim().charAt(0);
+	if (result.status !== 0 || !state) {
+		try {
+			process.kill(pid, 0);
+		} catch (killError) {
+			if (isMissingProcessError(killError)) return true;
+			throw killError;
+		}
+		const detail =
+			result.stderr.trim() ||
+			`status=${String(result.status)}, stdout=${JSON.stringify(result.stdout)}`;
+		throw new Error(`ps state probe failed for live pid ${pid}: ${detail}`);
+	}
+	return state === "Z" || state === "X";
+};
+
+const isProcessAlive = (pid: number): boolean => !hasProcessExited(pid);
 
 describe("runSubprocess timeout", () => {
 	it("kills the whole process tree on timeout, not just the direct child", async () => {
@@ -52,28 +99,64 @@ describe("runSubprocess timeout", () => {
 		].join("\n");
 
 		let grandchildPid: number | undefined;
+		// Fake only the timer functions, so the test decides when the timeout
+		// expires: the wall-clock race between child startup (slow on a loaded
+		// CI runner) and the already-armed timeout disappears, while process
+		// spawning, signals and file probes stay real. Date and setImmediate
+		// stay real so the deferred timeout callback in src/utils/subprocess.ts
+		// still runs through the normal check phase.
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		try {
-			await expect(
-				runSubprocess(process.execPath, ["-e", parentScript], { timeout: 2000 }),
-			).rejects.toThrow(/timed out/);
+			const promise = runSubprocess(process.execPath, ["-e", parentScript], { timeout: 2000 });
 
-			grandchildPid = Number(readFileSync(pidFile, "utf-8"));
-			expect(Number.isInteger(grandchildPid)).toBe(true);
-
-			// The tree kill is asynchronous (taskkill on Windows, signal
-			// escalation elsewhere) - poll rather than asserting instantly.
-			const deadline = Date.now() + 5000;
-			while (isProcessAlive(grandchildPid) && Date.now() < deadline) {
-				await new Promise((resolve) => setTimeout(resolve, 100));
+			// Readiness handshake: busy-poll for the grandchild's pid file with
+			// synchronous syscalls (they need no event loop, and the child runs
+			// independently of the parent loop). Only once the tree provably
+			// exists is the timeout expired below; the deadline is hang
+			// detection, not a performance assertion.
+			const spawnDeadline = Date.now() + 20000;
+			while (grandchildPid === undefined && Date.now() < spawnDeadline) {
+				if (existsSync(pidFile)) {
+					const raw = readFileSync(pidFile, "utf-8").trim();
+					if (raw && Number.isInteger(Number(raw))) {
+						grandchildPid = Number(raw);
+					}
+				}
 			}
-			expect(isProcessAlive(grandchildPid)).toBe(false);
+
+			// Expire the timeout on demand. The real setImmediate queued by the
+			// timeout callback runs once the await below yields, tree-kills the
+			// child and rejects; advancing past the 1000ms SIGKILL escalation
+			// afterwards covers the case where SIGTERM alone did not finish the
+			// tree.
+			vi.advanceTimersByTime(2000);
+			await expect(promise).rejects.toThrow(/timed out/);
+			vi.advanceTimersByTime(1000);
+
+			expect(grandchildPid).toBeDefined();
+
+			// The tree kill is asynchronous at OS level (taskkill on Windows,
+			// signal delivery elsewhere) - poll rather than asserting
+			// instantly. The poll is synchronous on purpose: the real timers it
+			// would otherwise sleep on are faked right now.
+			if (grandchildPid !== undefined) {
+				const deadline = Date.now() + 20000;
+				while (isProcessAlive(grandchildPid) && Date.now() < deadline) {
+					// Busy-wait: no timers are real while faked, and process
+					// teardown needs no parent event loop.
+				}
+				expect(isProcessAlive(grandchildPid)).toBe(false);
+			}
 		} finally {
-			if (grandchildPid !== undefined && isProcessAlive(grandchildPid)) {
+			if (grandchildPid !== undefined) {
 				try {
-					process.kill(grandchildPid, "SIGKILL");
+					if (isProcessAlive(grandchildPid)) {
+						process.kill(grandchildPid, "SIGKILL");
+					}
 				} catch {}
 			}
 			rmSync(pidFile, { force: true });
+			vi.useRealTimers();
 		}
 	});
 });
@@ -127,9 +210,11 @@ describe("killActiveChildren", () => {
 			}
 			expect(grandchildPid !== undefined && isProcessAlive(grandchildPid)).toBe(false);
 		} finally {
-			if (grandchildPid !== undefined && isProcessAlive(grandchildPid)) {
+			if (grandchildPid !== undefined) {
 				try {
-					process.kill(grandchildPid, "SIGKILL");
+					if (isProcessAlive(grandchildPid)) {
+						process.kill(grandchildPid, "SIGKILL");
+					}
 				} catch {}
 			}
 			rmSync(pidFile, { force: true });
@@ -146,16 +231,16 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 		const timeout = 1500;
 		const timerExpiry = Date.now() + timeout;
 		try {
-			// The child writes the marker and exits almost immediately, well
-			// inside the timeout. The test then blocks the event loop past the
-			// timeout expiry, so on wake the expired timer callback runs before
-			// the child's exit/close events (timers phase precedes poll phase).
-			// The completion must win.
+			// The child records its pid in the marker and exits almost
+			// immediately, well inside the timeout. The test then blocks the
+			// event loop past the timeout expiry, so on wake the expired timer
+			// callback runs before the child's exit/close events (timers phase
+			// precedes poll phase). The completion must win.
 			const promise = runSubprocess(
 				process.execPath,
 				[
 					"-e",
-					`require("node:fs").writeFileSync(${JSON.stringify(markerFile)}, "ok"); process.stdout.write("ok");`,
+					`require("node:fs").writeFileSync(${JSON.stringify(markerFile)}, String(process.pid)); process.stdout.write("ok");`,
 				],
 				{ timeout },
 			);
@@ -174,17 +259,37 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 			// events cannot be processed until the spin ends - after the timer
 			// has already expired.
 			//
-			// Spin synchronously until BOTH the child has written its marker
-			// (proving it completed) AND the timeout timer has expired past its
-			// deadline. existsSync is a synchronous syscall and yields nothing to
-			// the event loop, so the parent stays starved for the whole poll.
-			const spinDeadline = Date.now() + 30000;
+			// Spin synchronously until ALL of: the child's marker names a pid,
+			// that pid has exited at the OS level, and the timeout timer is past
+			// expiry. Breaking on the marker alone raced on loaded runners: the
+			// child can spend unbounded time between writing the marker and
+			// actually exiting, and if it has not exited when the spin ends, the
+			// expired timer's deferred check sees no exit and kills it. Waiting
+			// for OS-level exit (hasProcessExited handles the unreaped-zombie
+			// state this starved parent leaves behind) makes the wake-up order
+			// deterministic: the poll phase delivers the exit before the check
+			// phase runs the deferred timeout, however slow the machine is. The
+			// deadline is hang detection, not a performance assertion.
+			const spinDeadline = Date.now() + 20000;
+			let childPid: number | undefined;
+			let childExited = false;
 			while (Date.now() < spinDeadline) {
-				if (existsSync(markerFile) && Date.now() > timerExpiry + 200) {
+				if (childPid === undefined && existsSync(markerFile)) {
+					const raw = readFileSync(markerFile, "utf-8").trim();
+					if (raw && Number.isInteger(Number(raw))) {
+						childPid = Number(raw);
+					}
+				}
+				if (childPid !== undefined && !childExited) {
+					childExited = hasProcessExited(childPid);
+				}
+				if (childExited && Date.now() > timerExpiry + 200) {
 					break;
 				}
 			}
 
+			expect(childPid).toBeDefined();
+			expect(childExited).toBe(true);
 			await expect(promise).resolves.toMatchObject({ stdout: "ok", exitCode: 0 });
 		} finally {
 			rmSync(markerFile, { force: true });

@@ -40,6 +40,16 @@ const assertParsesClean = (filePath: string): void => {
 	expect(diagnostics, `file ${filePath} should parse without syntax errors`).toHaveLength(0);
 };
 
+// Every ts.createProgram call parses and binds its lib set from scratch, which
+// cost hundreds of milliseconds per call with the default target libs (and over
+// a minute on an overloaded CI runner, past the test timeout). Callers pass
+// lib: ["lib.es2022.d.ts"] so the ~1.5MB DOM lib is never parsed.
+const semanticDiagnosticCodes = (rootNames: string[], options: ts.CompilerOptions): number[] =>
+	ts
+		.createProgram(rootNames, options)
+		.getSemanticDiagnostics()
+		.map((diagnostic) => diagnostic.code);
+
 const findLine = (content: string, needle: string): number => {
 	const lines = content.split("\n");
 	for (let i = 0; i < lines.length; i++) {
@@ -529,19 +539,22 @@ export function countdown(n: number): number {
 		({ name, declaration, usage, remaining }) => {
 			const source = `export const ${name} = ${declaration};\n${usage}\n`;
 			const file = writeFixture("registry.ts", source);
+			// console and ambient `name` live in the DOM lib; declare both here so
+			// the es2022-only lib set still typechecks console.log and still fails
+			// with TS2451 if un-exporting `name` ever loses module scope.
+			const globals = writeFixture(
+				"globals.d.ts",
+				"declare const console: { log(message: unknown): void };\ndeclare const name: void;\n",
+			);
 			const options = {
 				noEmit: true,
 				skipLibCheck: true,
 				types: [],
 				target: ts.ScriptTarget.ES2022,
 				moduleDetection: ts.ModuleDetectionKind.Legacy,
+				lib: ["lib.es2022.d.ts"],
 			};
-			expect(
-				ts
-					.createProgram([file], options)
-					.getSemanticDiagnostics()
-					.map((diagnostic) => diagnostic.code),
-			).toEqual([]);
+			expect(semanticDiagnosticCodes([file, globals], options)).toEqual([]);
 			const result = removeUnusedDeclarations(tmpDir, [
 				{ filePath: file, line: 1, column: 14, name, kind: "variable" },
 			]);
@@ -549,12 +562,7 @@ export function countdown(n: number): number {
 			expect(result.removed).toBe(1);
 			const after = fs.readFileSync(file, "utf-8");
 			expect(after.startsWith(`const ${name} = ${declaration}`)).toBe(true);
-			expect(
-				ts
-					.createProgram([file], options)
-					.getSemanticDiagnostics()
-					.map((diagnostic) => diagnostic.code),
-			).toEqual([]);
+			expect(semanticDiagnosticCodes([file, globals], options)).toEqual([]);
 			expect(after).toContain(remaining);
 		},
 	);
