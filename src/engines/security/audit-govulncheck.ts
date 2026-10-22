@@ -1,7 +1,12 @@
 import { detectInvocation } from "../../ui/invocation.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import { runSubprocess, SubprocessTimeoutError } from "../../utils/subprocess.js";
 import type { Diagnostic } from "../types.js";
-import { type AuditOutcome, skippedAuditDiagnostic, toDependencyAdvisory } from "./audit-shared.js";
+import {
+	type AuditOutcome,
+	SKIPPED_AUDIT_RULE,
+	skippedAuditDiagnostic,
+	toDependencyAdvisory,
+} from "./audit-shared.js";
 import { isRecord, readRecordArray, readString } from "./audit-value.js";
 
 // `govulncheck -json` prints a stream of JSON values, each an object with exactly one
@@ -288,8 +293,15 @@ export const inspectGovulncheck = async (
 			return { diagnostics: [failedRunDiagnostic(), ...diagnostics], completed: false };
 		}
 		return { diagnostics, completed: wellFormed && result.exitCode === 0 };
-	} catch {
-		return { diagnostics: [failedRunDiagnostic()], completed: false };
+	} catch (error) {
+		// Findings printed before a timeout are kept beside the warning.
+		const printed =
+			error instanceof SubprocessTimeoutError && error.stdout
+				? parseGovulncheckOutput(error.stdout).diagnostics.filter(
+						(diagnostic) => diagnostic.rule !== SKIPPED_AUDIT_RULE,
+					)
+				: [];
+		return { diagnostics: [failedRunDiagnostic(), ...printed], completed: false };
 	}
 };
 

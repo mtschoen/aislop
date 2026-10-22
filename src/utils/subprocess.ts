@@ -173,6 +173,28 @@ export const truncateFailureDetail = (detail: string): string => {
 		: `${trimmed.slice(0, MAXIMUM_FAILURE_DETAIL_LENGTH)}... [truncated ${trimmed.length - MAXIMUM_FAILURE_DETAIL_LENGTH} characters]`;
 };
 
+// A timed-out command still printed whatever it had written before it was killed. The
+// error carries that output so a caller can keep readable findings and still report the
+// run as incomplete.
+export class SubprocessTimeoutError extends Error {
+	constructor(
+		message: string,
+		readonly stdout: string,
+		readonly stderr: string,
+	) {
+		super(message);
+		this.name = "SubprocessTimeoutError";
+	}
+}
+
+const readCapturedOutput = (filePath: string): string => {
+	try {
+		return readFileSync(filePath, "utf-8").trim();
+	} catch {
+		return "";
+	}
+};
+
 export const runSubprocess = (
 	command: string,
 	args: string[],
@@ -259,8 +281,16 @@ export const runSubprocess = (
 					// a finished command as a timeout.
 					if (child.exitCode !== null || child.signalCode !== null) return;
 					killProcessTree(child);
+					const stdout = readCapturedOutput(capture.stdoutPath);
+					const stderr = readCapturedOutput(capture.stderrPath);
 					finalize(() =>
-						reject(new Error(`Command timed out after ${options.timeout}ms: ${command}`)),
+						reject(
+							new SubprocessTimeoutError(
+								`Command timed out after ${options.timeout}ms: ${command}`,
+								stdout,
+								stderr,
+							),
+						),
 					);
 				});
 			}, options.timeout);

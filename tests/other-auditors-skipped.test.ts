@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../src/engines/types.js";
 
 const { runSubprocess } = vi.hoisted(() => ({ runSubprocess: vi.fn() }));
@@ -15,6 +15,12 @@ const { runDependencyAudit } = await import("../src/engines/security/audit.js");
 const { inspectCargoAudit, inspectDotnetAudit, inspectPipAudit } = await import(
 	"../src/engines/security/audit-ecosystem.js"
 );
+
+const projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-other-auditors-"));
+fs.writeFileSync(path.join(projectDirectory, "requirements.txt"), "requests==2.0.0\n");
+afterAll(() => {
+	fs.rmSync(projectDirectory, { recursive: true, force: true });
+});
 
 const SKIPPED_RULE = "security/dependency-audit-skipped";
 
@@ -72,7 +78,7 @@ describe.each(TOOLS)("$name audit that did not run to a report", (tool) => {
 	])("warns and is not completed for %s", async (_name, arrange) => {
 		arrange();
 
-		const outcome = await tool.inspect("/repo", 1000);
+		const outcome = await tool.inspect(projectDirectory, 1000);
 
 		expect(outcome.completed).toBe(false);
 		expect(outcome.diagnostics).toHaveLength(1);
@@ -88,7 +94,7 @@ describe.each(TOOLS)("$name audit that did not run to a report", (tool) => {
 	it("reports a clean audit only when the tool printed its own clean report", async () => {
 		respondWith(tool.cleanReport);
 
-		await expect(tool.inspect("/repo", 1000)).resolves.toEqual({
+		await expect(tool.inspect(projectDirectory, 1000)).resolves.toEqual({
 			diagnostics: [],
 			completed: true,
 		});
@@ -106,7 +112,7 @@ describe("findings are kept next to the warning", () => {
 			2,
 		);
 
-		const outcome = await inspectPipAudit("/repo", 1000);
+		const outcome = await inspectPipAudit(projectDirectory, 1000);
 
 		expect(outcome.diagnostics.map((diagnostic) => diagnostic.rule)).toEqual([
 			SKIPPED_RULE,
@@ -309,7 +315,7 @@ describe("incomplete nested ecosystem reports", () => {
 		"warns without losing findings for %s",
 		async (_name, inspect, report, exitCode, findingCount) => {
 			respondWith(JSON.stringify(report), exitCode);
-			const outcome = await inspect("/repo", 1000);
+			const outcome = await inspect(projectDirectory, 1000);
 			expect(outcome.completed).toBe(false);
 			expect(
 				outcome.diagnostics.filter((diagnostic) => diagnostic.rule === SKIPPED_RULE),
@@ -340,7 +346,7 @@ describe("incomplete nested ecosystem reports", () => {
 			}),
 			1,
 		);
-		const outcome = await inspectCargoAudit("/repo", 1000);
+		const outcome = await inspectCargoAudit(projectDirectory, 1000);
 		expect(outcome.completed).toBe(true);
 		expect(outcome.diagnostics).toEqual([
 			expect.objectContaining({
@@ -366,7 +372,7 @@ describe("incomplete nested ecosystem reports", () => {
 			}),
 			1,
 		);
-		const outcome = await inspectCargoAudit("/repo", 1000);
+		const outcome = await inspectCargoAudit(projectDirectory, 1000);
 		expect(outcome.completed).toBe(false);
 		expect(outcome.diagnostics.map((diagnostic) => diagnostic.rule)).toEqual([SKIPPED_RULE]);
 	});
@@ -380,7 +386,7 @@ describe("incomplete nested ecosystem reports", () => {
 				],
 			}),
 		);
-		await expect(inspectDotnetAudit("/repo", 1000)).resolves.toEqual({
+		await expect(inspectDotnetAudit(projectDirectory, 1000)).resolves.toEqual({
 			completed: true,
 			diagnostics: [],
 		});

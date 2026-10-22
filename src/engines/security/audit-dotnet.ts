@@ -1,10 +1,9 @@
 import { projectRelativePosix } from "../../utils/paths.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import { runSubprocess, SubprocessTimeoutError } from "../../utils/subprocess.js";
 import type { Diagnostic } from "../types.js";
 import {
 	type AuditOutcome,
 	advisoryIdFromUrl,
-	incompleteAudit,
 	SEVERITY_RANK,
 	skippedAuditDiagnostic,
 	toDependencyAdvisory,
@@ -239,8 +238,13 @@ const auditDotnet = async (rootDir: string, timeout: number): Promise<AuditOutco
 			diagnostics: parseDotnetAudit(result.stdout, rootDir),
 			completed: result.exitCode === 0 && isDotnetReport(result.stdout),
 		};
-	} catch {
-		return incompleteAudit();
+	} catch (error) {
+		// Findings printed before a timeout are kept beside the warning.
+		return {
+			diagnostics:
+				error instanceof SubprocessTimeoutError ? parseDotnetAudit(error.stdout, rootDir) : [],
+			completed: false,
+		};
 	}
 };
 

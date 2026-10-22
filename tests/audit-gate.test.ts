@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../src/engines/types.js";
 
 const { runSubprocess } = vi.hoisted(() => ({ runSubprocess: vi.fn() }));
@@ -67,10 +67,15 @@ describe("runDependencyAudit: Python dependency-manifest gate", () => {
 
 	it("runs pip-audit once a dependency manifest is present", async () => {
 		fs.writeFileSync(path.join(dir, "pyproject.toml"), "[project]\nname = 'x'\n");
+		fs.writeFileSync(path.join(dir, "requirements.txt"), "requests==2.0.0\n");
 
 		await runDependencyAudit(pythonContext(dir));
 
-		expect(runSubprocess).toHaveBeenCalledWith("pip-audit", ["--format=json"], expect.anything());
+		expect(runSubprocess).toHaveBeenCalledWith(
+			"pip-audit",
+			["--format=json", "--disable-pip", "--no-deps", "-r", "requirements.txt"],
+			expect.anything(),
+		);
 	});
 
 	it("keys the dotnet audit to manifest-aware audit languages, not scan-scope languages", async () => {
@@ -230,6 +235,12 @@ describe("runDependencyAudit: JavaScript package-manager launch", () => {
 });
 
 describe("external ecosystem audit payloads", () => {
+	const requirementsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-pip-"));
+	fs.writeFileSync(path.join(requirementsDirectory, "requirements.txt"), "requests==2.0.0\n");
+	afterAll(() => {
+		fs.rmSync(requirementsDirectory, { recursive: true, force: true });
+	});
+
 	beforeEach(() => {
 		runSubprocess.mockReset();
 	});
@@ -269,7 +280,7 @@ describe("external ecosystem audit payloads", () => {
 				exitCode: 0,
 			});
 
-		await expect(runPipAudit("/repo", 1000)).resolves.toHaveLength(1);
+		await expect(runPipAudit(requirementsDirectory, 1000)).resolves.toHaveLength(1);
 		await expect(runCargoAudit("/repo", 1000)).resolves.toHaveLength(1);
 		await expect(runGovulncheck("/repo", 1000)).resolves.toHaveLength(1);
 	});
@@ -301,7 +312,9 @@ describe("external ecosystem audit payloads", () => {
 			});
 
 		const skippedRules = ["security/dependency-audit-skipped"];
-		const pipRules = (await runPipAudit("/repo", 1000)).map((diagnostic) => diagnostic.rule);
+		const pipRules = (await runPipAudit(requirementsDirectory, 1000)).map(
+			(diagnostic) => diagnostic.rule,
+		);
 		const cargoRules = (await runCargoAudit("/repo", 1000)).map((diagnostic) => diagnostic.rule);
 		expect(pipRules).toEqual(skippedRules);
 		expect(cargoRules).toEqual(skippedRules);

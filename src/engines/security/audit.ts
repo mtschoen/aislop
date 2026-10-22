@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isDependencyAuditInputFile } from "../../utils/source-file-selection.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import { runSubprocess, SubprocessTimeoutError } from "../../utils/subprocess.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 import { applyAcceptedAdvisories, dateStamp } from "./accepted-advisories.js";
 import {
@@ -11,14 +11,16 @@ import {
 	inspectGovulncheck,
 	inspectPipAudit,
 } from "./audit-ecosystem.js";
+import { mergeFallbackOutcome } from "./audit-fallback-merge.js";
 import {
+	dropsMalformedRecords,
+	isBunReport,
 	type JsAuditManifest,
 	type JsAuditSource,
 	parseBunAudit,
 	parseJsAudit,
 } from "./audit-js-parser.js";
 import { type AuditOutcome, exitedAsAuditTool, skippedAuditDiagnostic } from "./audit-shared.js";
-import { isJsonRecord } from "./audit-value.js";
 import { readRuntimeDependencies } from "./runtime-dependencies.js";
 
 export { parseDotnetAudit } from "./audit-ecosystem.js";
@@ -44,11 +46,10 @@ export const shouldRunDependencyAudit = (
 };
 
 // Dependency metadata that makes pip-audit meaningful for this project (mirrors the
-// PYTHON_SIGNALS used for language detection). A bare `pip-audit` invocation audits the
-// ambient Python environment aislop runs under, not the repo, so when none of these is
-// present - e.g. a source-only tree now detected as Python, or an unscoped run with no
-// `context.files` - the dependency audit must stay off rather than report environment
-// vulnerabilities against a requirements.txt that does not exist.
+// PYTHON_SIGNALS used for language detection). With none of these present - e.g. a
+// source-only tree now detected as Python, or an unscoped run with no `context.files` -
+// the dependency audit stays off. With one present, pip-audit audits requirements.txt
+// only; a project without that file gets a skipped-audit warning (see audit-ecosystem.ts).
 const PYTHON_DEPENDENCY_MANIFESTS = [
 	"requirements.txt",
 	"pyproject.toml",
@@ -88,14 +89,14 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 	// npm/pnpm/bun audit
 	if (auditLanguages.includes("typescript") || auditLanguages.includes("javascript")) {
 		if (fs.existsSync(path.join(context.rootDirectory, "pnpm-lock.yaml"))) {
-			promises.push(reportedOutcome(runPnpmAuditWithFallback(context.rootDirectory, timeout)));
+			promises.push(runPnpmAuditWithFallback(context.rootDirectory, timeout));
 		} else if (hasBunLockfile(context.rootDirectory)) {
 			promises.push(runBunAudit(context.rootDirectory, timeout));
 		} else if (
 			fs.existsSync(path.join(context.rootDirectory, "package-lock.json")) ||
 			fs.existsSync(path.join(context.rootDirectory, "package.json"))
 		) {
-			promises.push(reportedOutcome(runNpmAudit(context.rootDirectory, timeout)));
+			promises.push(runNpmAudit(context.rootDirectory, timeout));
 		}
 	}
 
@@ -162,15 +163,6 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 };
 
 const AUDIT_SKIPPED_RULE = "security/dependency-audit-skipped";
-
-// npm and pnpm report a run that did not complete as an audit-skipped diagnostic.
-const reportedOutcome = async (run: Promise<Diagnostic[]>): Promise<AuditOutcome> => {
-	const diagnostics = await run;
-	return {
-		diagnostics,
-		completed: !diagnostics.some((diagnostic) => diagnostic.rule === AUDIT_SKIPPED_RULE),
-	};
-};
 
 const hasBunLockfile = (rootDir: string): boolean =>
 	fs.existsSync(path.join(rootDir, "bun.lock")) || fs.existsSync(path.join(rootDir, "bun.lockb"));
@@ -303,105 +295,114 @@ const inspectPackageManagerAuditPayload = (output: string): PackageManagerAuditP
 	}
 };
 
+const failedAudit = (
+	source: JsAuditSource,
+	reason: string,
+	findings: Diagnostic[] = [],
+): AuditOutcome => ({
+	diagnostics: [auditSkippedDiagnostic(source, `Failed to run ${source}: ${reason}`), ...findings],
+	completed: false,
+});
+
+// Findings a command printed before it timed out are kept next to the skipped warning.
+const timedOutAudit = (
+	error: unknown,
+	source: JsAuditSource,
+	parse: (stdout: string) => Diagnostic[],
+): AuditOutcome => {
+	const findings =
+		error instanceof SubprocessTimeoutError && error.stdout
+			? parse(error.stdout).filter((diagnostic) => diagnostic.rule !== AUDIT_SKIPPED_RULE)
+			: [];
+	return failedAudit(source, errorMessageOf(error), findings);
+};
+
+// npm audit and pnpm audit exit 1 when they find vulnerabilities (npm-audit docs: "exit
+// with a non-zero code if any vulnerability is found"). Any other exit, an `error` payload
+// or a dropped malformed record means the report is not the whole picture: the readable
+// findings stay, beside the skipped-audit warning.
 const parsePackageManagerAuditResult = (
 	result: Awaited<ReturnType<typeof runSubprocess>>,
 	source: JsAuditSource,
 	manifest?: JsAuditManifest,
-): Diagnostic[] => {
+): AuditOutcome => {
 	const payloadState = inspectPackageManagerAuditPayload(result.stdout);
 	if (!payloadState.recognized) {
-		const detail = result.stderr || (result.stdout ? "invalid JSON output" : "no JSON output");
-		return [auditSkippedDiagnostic(source, `Failed to run ${source}: ${detail}`)];
+		return failedAudit(
+			source,
+			result.stderr || (result.stdout ? "invalid JSON output" : "no JSON output"),
+		);
 	}
 
 	const diagnostics = parseJsAudit(result.stdout, source, manifest);
-	if ((payloadState.reportsError || result.exitCode !== 0) && diagnostics.length === 0) {
-		return [
-			auditSkippedDiagnostic(
-				source,
-				`Failed to run ${source}: ${result.stderr || `exit code ${result.exitCode ?? "unknown"}`}`,
-			),
-		];
-	}
-	return diagnostics;
+	const alreadyReported = diagnostics.some((d) => d.rule === AUDIT_SKIPPED_RULE);
+	const malformed = dropsMalformedRecords(result.stdout);
+	const completed =
+		!alreadyReported &&
+		!payloadState.reportsError &&
+		!malformed &&
+		exitedAsAuditTool(result.exitCode, diagnostics.length > 0);
+	if (completed || alreadyReported) return { diagnostics, completed };
+	const reason =
+		result.stderr ||
+		(malformed
+			? "the report held a malformed record"
+			: payloadState.reportsError
+				? "the report carried an error"
+				: `exit code ${result.exitCode ?? "unknown"}`);
+	return failedAudit(source, reason, diagnostics);
 };
 
-const runNpmAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> => {
+export const runNpmAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+	const manifest = readRuntimeDependencies(rootDir);
 	try {
 		const result = await runPackageManagerAudit("npm", rootDir, timeout);
-		return parsePackageManagerAuditResult(result, "npm audit", readRuntimeDependencies(rootDir));
+		return parsePackageManagerAuditResult(result, "npm audit", manifest);
 	} catch (error) {
-		return [
-			auditSkippedDiagnostic("npm audit", `Failed to run npm audit: ${errorMessageOf(error)}`),
-		];
+		return timedOutAudit(error, "npm audit", (stdout) =>
+			parseJsAudit(stdout, "npm audit", manifest),
+		);
 	}
 };
 
-const isBunErrorReport = (text: string): boolean => {
-	try {
-		const parsed: unknown = JSON.parse(text);
-		return isRecord(parsed) && "error" in parsed;
-	} catch {
-		return false;
-	}
-};
-
-const runBunAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
-	const skipped = (reason: string): AuditOutcome => ({
-		diagnostics: [auditSkippedDiagnostic("bun audit", `Failed to run bun audit: ${reason}`)],
-		completed: false,
-	});
+export const runBunAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
 	try {
 		const result = await runSubprocess("bun", ["audit", "--json"], {
 			cwd: rootDir,
 			timeout,
 		});
-		if (result.stdout) {
-			// bun audit exits 1 when it finds vulnerabilities and 0 when it finds none;
-			// a report is a package map, so an `error` entry is a failed run.
-			const diagnostics = parseBunAudit(result.stdout);
-			return {
-				diagnostics,
-				completed:
-					isJsonRecord(result.stdout) &&
-					!isBunErrorReport(result.stdout) &&
-					exitedAsAuditTool(result.exitCode, diagnostics.length > 0),
-			};
+		// bun audit exits 1 when it finds vulnerabilities and when it cannot read the
+		// registry response, and 0 when none remain (https://bun.sh/docs/pm/cli/audit), so
+		// only a package map of advisory arrays with an agreeing exit code is an audit.
+		const diagnostics = parseBunAudit(result.stdout);
+		if (isBunReport(result.stdout) && exitedAsAuditTool(result.exitCode, diagnostics.length > 0)) {
+			return { diagnostics, completed: true };
 		}
-		if (result.exitCode === 0) return { diagnostics: [], completed: true };
-		return skipped(result.stderr || "unknown error");
+		return failedAudit(
+			"bun audit",
+			result.stderr || result.stdout || `exit code ${result.exitCode ?? "unknown"}`,
+			diagnostics,
+		);
 	} catch (error) {
-		return skipped(errorMessageOf(error));
+		return timedOutAudit(error, "bun audit", parseBunAudit);
 	}
 };
 
-const runPnpmAuditWithFallback = async (
+export const runPnpmAuditWithFallback = async (
 	rootDir: string,
 	timeout: number,
-): Promise<Diagnostic[]> => {
+): Promise<AuditOutcome> => {
 	const canFallbackToNpm = fs.existsSync(path.join(rootDir, "package-lock.json"));
-
+	const manifest = readRuntimeDependencies(rootDir);
+	let outcome: AuditOutcome;
 	try {
 		const result = await runPackageManagerAudit("pnpm", rootDir, timeout);
-		const diagnostics = parsePackageManagerAuditResult(
-			result,
-			"pnpm audit",
-			readRuntimeDependencies(rootDir),
-		);
-		const hasAuditFailure = diagnostics.some((d) => d.rule === "security/dependency-audit-skipped");
-		if (hasAuditFailure) {
-			if (canFallbackToNpm) {
-				return runNpmAudit(rootDir, timeout);
-			}
-			return diagnostics;
-		}
-		return diagnostics;
+		outcome = parsePackageManagerAuditResult(result, "pnpm audit", manifest);
 	} catch (error) {
-		if (canFallbackToNpm) {
-			return runNpmAudit(rootDir, timeout);
-		}
-		return [
-			auditSkippedDiagnostic("pnpm audit", `Failed to run pnpm audit: ${errorMessageOf(error)}`),
-		];
+		outcome = timedOutAudit(error, "pnpm audit", (stdout) =>
+			parseJsAudit(stdout, "pnpm audit", manifest),
+		);
 	}
+	if (outcome.completed || !canFallbackToNpm) return outcome;
+	return mergeFallbackOutcome(outcome, await runNpmAudit(rootDir, timeout));
 };

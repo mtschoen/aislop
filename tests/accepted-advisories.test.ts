@@ -195,7 +195,10 @@ describe("advisory identifiers are carried from the audit data to the diagnostic
 				}),
 			);
 
-			const [diagnostic] = await runPipAudit("repo", 1000);
+			const projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-pip-ids-"));
+			fs.writeFileSync(path.join(projectDirectory, "requirements.txt"), "jinja2==2.0\n");
+			const [diagnostic] = await runPipAudit(projectDirectory, 1000);
+			fs.rmSync(projectDirectory, { recursive: true, force: true });
 
 			expect(diagnostic.packageName).toBe("jinja2");
 			expect(diagnostic.advisories).toEqual([

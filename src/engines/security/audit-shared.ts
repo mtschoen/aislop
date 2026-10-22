@@ -10,7 +10,7 @@ export interface AuditOutcome {
 
 export const incompleteAudit = (): AuditOutcome => ({ diagnostics: [], completed: false });
 
-const SKIPPED_AUDIT_RULE = "security/dependency-audit-skipped";
+export const SKIPPED_AUDIT_RULE = "security/dependency-audit-skipped";
 
 export const skippedAuditDiagnostic = (
 	filePath: string,
@@ -115,4 +115,48 @@ export const mergeAdvisories = (
 		else merged[index] = unionAliases(merged[index], advisory);
 	}
 	return merged;
+};
+
+const DIAGNOSTIC_RANK: Record<string, number> = { error: 3, warning: 2, info: 1 };
+const LEVEL_IN_MESSAGE = /\((critical|high|moderate|low)\b/;
+
+const findingRank = (diagnostic: Diagnostic): [number, number] => [
+	DIAGNOSTIC_RANK[diagnostic.severity] ?? 0,
+	SEVERITY_RANK[LEVEL_IN_MESSAGE.exec(diagnostic.message)?.[1] ?? ""] ?? 0,
+];
+
+const outranks = (candidate: Diagnostic, current: Diagnostic): boolean => {
+	const [candidateSeverity, candidateLevel] = findingRank(candidate);
+	const [currentSeverity, currentLevel] = findingRank(current);
+	return candidateSeverity !== currentSeverity
+		? candidateSeverity > currentSeverity
+		: candidateLevel > currentLevel;
+};
+
+const hasAdvisories = (diagnostic: Diagnostic): boolean => (diagnostic.advisories?.length ?? 0) > 0;
+
+// Findings about one package collapse into one: the worse severity wins (never a
+// downgrade) and every distinct advisory of every report is kept. A finding with no
+// advisory ids stays separate from one that has them, so accepting an identified
+// advisory never covers an unidentified finding. Entries without a package name pass
+// through untouched.
+export const mergeSamePackage = (diagnostics: Diagnostic[]): Diagnostic[] => {
+	const byPackage = new Map<string, Diagnostic>();
+	const result: Diagnostic[] = [];
+	for (const diagnostic of diagnostics) {
+		const name = diagnostic.packageName;
+		const key = name === undefined ? undefined : `${name}\0${hasAdvisories(diagnostic)}`;
+		const earlier = key === undefined ? undefined : byPackage.get(key);
+		if (key === undefined || earlier === undefined) {
+			result.push(diagnostic);
+			if (key !== undefined) byPackage.set(key, diagnostic);
+			continue;
+		}
+		const winner = outranks(diagnostic, earlier) ? diagnostic : earlier;
+		const advisories = mergeAdvisories(earlier.advisories ?? [], diagnostic.advisories ?? []);
+		const combined = advisories.length > 0 ? { ...winner, advisories } : winner;
+		result[result.indexOf(earlier)] = combined;
+		byPackage.set(key, combined);
+	}
+	return result;
 };

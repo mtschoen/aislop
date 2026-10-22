@@ -1,6 +1,11 @@
 import type { DependencyAdvisory, Diagnostic } from "../types.js";
-import { advisoryIdFromUrl, mergeAdvisories, toDependencyAdvisory } from "./audit-shared.js";
-import { isRecord, readString } from "./audit-value.js";
+import {
+	advisoryIdFromUrl,
+	mergeAdvisories,
+	mergeSamePackage,
+	toDependencyAdvisory,
+} from "./audit-shared.js";
+import { isRecord, isRecordArray, readString } from "./audit-value.js";
 
 export type JsAuditSource = "npm audit" | "pnpm audit" | "bun audit";
 
@@ -254,56 +259,73 @@ export const parseJsAudit = (
 		const errorCode = error ? readString(error, "code") : undefined;
 		const errorSummary = error ? readString(error, "summary") : undefined;
 		const errorDetail = error ? readString(error, "detail") : undefined;
-		if (errorCode === "ENOLOCK") {
+		const lockMissing = errorCode === "ENOLOCK";
+		// Both collections are read, so a malformed or empty one never hides the other.
+		const findings = mergeSamePackage([
+			...(isRecord(parsed.advisories) ? parseLegacyAdvisories(parsed.advisories, source) : []),
+			...(isRecord(parsed.vulnerabilities)
+				? parseModernVulnerabilities(parsed.vulnerabilities, source, manifest)
+				: []),
+		]);
+		if (lockMissing || errorSummary || errorCode) {
 			return [
 				{
 					filePath: "package.json",
 					engine: "security",
 					rule: "security/dependency-audit-skipped",
 					severity: "warning",
-					message: `Dependency audit skipped (${source}): lockfile is missing`,
-					help:
-						errorDetail ??
-						"Generate a lockfile, then re-run `aislop scan` for dependency vulnerability checks.",
+					message: lockMissing
+						? `Dependency audit skipped (${source}): lockfile is missing`
+						: `Dependency audit did not complete (${source})`,
+					help: lockMissing
+						? (errorDetail ??
+							"Generate a lockfile, then re-run `aislop scan` for dependency vulnerability checks.")
+						: (errorDetail ??
+							errorSummary ??
+							"Re-run dependency audit directly to inspect the underlying error."),
 					line: 0,
 					column: 0,
 					category: "Security",
 					fixable: false,
 				},
+				...findings,
 			];
 		}
-		if (errorSummary || errorCode) {
-			return [
-				{
-					filePath: "package.json",
-					engine: "security",
-					rule: "security/dependency-audit-skipped",
-					severity: "warning",
-					message: `Dependency audit did not complete (${source})`,
-					help:
-						errorDetail ??
-						errorSummary ??
-						"Re-run dependency audit directly to inspect the underlying error.",
-					line: 0,
-					column: 0,
-					category: "Security",
-					fixable: false,
-				},
-			];
-		}
-
-		const advisories = parsed.advisories;
-		if (isRecord(advisories)) {
-			return parseLegacyAdvisories(advisories, source);
-		}
-
-		const vulnerabilities = parsed.vulnerabilities;
-		if (isRecord(vulnerabilities)) {
-			return parseModernVulnerabilities(vulnerabilities, source, manifest);
-		}
-
-		return [];
+		return findings;
 	} catch {
 		return [];
+	}
+};
+
+// A well-formed bun report is a map of package name to an array of advisory records
+// (https://bun.sh/docs/pm/cli/audit: the raw registry response). Anything else, such as an
+// array, an `error` payload or a record that is not an object, is not proof an audit ran.
+export const isBunReport = (output: string): boolean => {
+	try {
+		const parsed: unknown = JSON.parse(output);
+		return (
+			isRecord(parsed) &&
+			!("error" in parsed) &&
+			Object.values(parsed).every((advisories) => isRecordArray(advisories))
+		);
+	} catch {
+		return false;
+	}
+};
+
+// parseJsAudit drops a collection entry that is not a record, and ignores a collection
+// that is present but not an object (null, an array, a primitive), so an audit whose
+// report held either did not report everything and must not read as complete.
+export const dropsMalformedRecords = (output: string): boolean => {
+	try {
+		const parsed: unknown = JSON.parse(output);
+		if (!isRecord(parsed)) return false;
+		return [parsed.advisories, parsed.vulnerabilities].some(
+			(collection) =>
+				collection !== undefined &&
+				(!isRecord(collection) || !Object.values(collection).every(isRecord)),
+		);
+	} catch {
+		return false;
 	}
 };

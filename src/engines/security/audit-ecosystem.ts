@@ -1,6 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
 import { detectInvocation } from "../../ui/invocation.js";
-import { runSubprocess } from "../../utils/subprocess.js";
+import { runSubprocess, SubprocessTimeoutError } from "../../utils/subprocess.js";
 import type { DependencyAdvisory, Diagnostic } from "../types.js";
+import { findUnauditableRequirement } from "./audit-pip-requirements.js";
 import {
 	type AuditOutcome,
 	exitedAsAuditTool,
@@ -52,7 +55,11 @@ const skippedHelp = (tool: string, ecosystem: string, command: string): string =
 const PIP_AUDIT_SKIPPED = skippedAuditDiagnostic(
 	"requirements.txt",
 	"pip-audit",
-	skippedHelp("pip-audit", "Python", "pip-audit --format=json"),
+	skippedHelp(
+		"pip-audit",
+		"Python",
+		"pip-audit --format=json --disable-pip --no-deps -r requirements.txt",
+	),
 );
 const CARGO_AUDIT_SKIPPED = skippedAuditDiagnostic(
 	"Cargo.toml",
@@ -60,34 +67,72 @@ const CARGO_AUDIT_SKIPPED = skippedAuditDiagnostic(
 	skippedHelp("cargo audit", "Rust", "cargo audit --json"),
 );
 
+const pipDiagnostics = (parsed: Record<string, unknown>): Diagnostic[] =>
+	readRecordArray(parsed, "dependencies")
+		.filter((dependency) => readRecordArray(dependency, "vulns").length > 0)
+		.flatMap((dependency): Diagnostic[] => {
+			const name = readString(dependency, "name");
+			if (!name) return [];
+			return [
+				dependencyDiagnostic(
+					"requirements.txt",
+					`Vulnerable Python dependency: ${name}`,
+					withFixHint(`Upgrade ${name} to fix known vulnerabilities`),
+					{
+						packageName: name,
+						advisories: readRecordArray(dependency, "vulns").map((vulnerability) =>
+							toDependencyAdvisory([readString(vulnerability, "id")], vulnerability.aliases),
+						),
+					},
+				),
+			];
+		});
+
+const PIP_REQUIREMENTS_FILE = "requirements.txt";
+
+// Bare `pip-audit` audits the Python environment aislop runs under, not the project
+// (https://pypi.org/project/pip-audit/: no input arguments means the environment), so the
+// project's own requirements file is passed with `-r`. A project without one is not
+// audited at all: auditing the wrong environment could report a clean result for a
+// vulnerable project. The file is repository-controlled, so pip-audit runs with pip disabled
+// (audit-pip-requirements.ts) and a file that needs pip to resolve is not audited.
+const PIP_AUDIT_NO_REQUIREMENTS = skippedAuditDiagnostic(
+	PIP_REQUIREMENTS_FILE,
+	"pip-audit",
+	"pip-audit was not run because the project has no requirements.txt to audit, and running it without one would audit aislop's own Python environment. Export one (for example `uv export --no-hashes -o requirements.txt` or `poetry export -o requirements.txt`) to enable the Python dependency audit.",
+);
+
+const PIP_AUDIT_ARGUMENTS = [
+	"--format=json",
+	"--disable-pip",
+	"--no-deps",
+	"-r",
+	PIP_REQUIREMENTS_FILE,
+];
+
+const pipAuditNeedsPip = (unauditable: string): Diagnostic =>
+	skippedAuditDiagnostic(
+		PIP_REQUIREMENTS_FILE,
+		"pip-audit",
+		`pip-audit was not run because requirements.txt contains \`${unauditable}\`, which is not an exact \`name==version\` pin. Auditing it would make pip resolve or build the requirement, which can run code from the repository. Pin every requirement (for example \`uv export --no-hashes -o requirements.txt\`) to enable the Python dependency audit.`,
+	);
+
 const auditPip = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+	let result: Awaited<ReturnType<typeof runSubprocess>>;
 	try {
-		const result = await runSubprocess("pip-audit", ["--format=json"], {
+		result = await runSubprocess("pip-audit", PIP_AUDIT_ARGUMENTS, {
 			cwd: rootDir,
 			timeout,
 		});
+	} catch (error) {
+		// Findings printed before a timeout are kept; the audit still did not complete.
+		return { diagnostics: timedOutPipFindings(error), completed: false };
+	}
+	try {
 		if (!result.stdout) return incompleteAudit();
 		const parsed: unknown = JSON.parse(result.stdout);
 		if (!isRecord(parsed)) return incompleteAudit();
-		const diagnostics = readRecordArray(parsed, "dependencies")
-			.filter((dependency) => readRecordArray(dependency, "vulns").length > 0)
-			.flatMap((dependency): Diagnostic[] => {
-				const name = readString(dependency, "name");
-				if (!name) return [];
-				return [
-					dependencyDiagnostic(
-						"requirements.txt",
-						`Vulnerable Python dependency: ${name}`,
-						withFixHint(`Upgrade ${name} to fix known vulnerabilities`),
-						{
-							packageName: name,
-							advisories: readRecordArray(dependency, "vulns").map((vulnerability) =>
-								toDependencyAdvisory([readString(vulnerability, "id")], vulnerability.aliases),
-							),
-						},
-					),
-				];
-			});
+		const diagnostics = pipDiagnostics(parsed);
 		// pip-audit exits 1 when it finds vulnerabilities and 0 when it finds none
 		// (https://pypi.org/project/pip-audit/, "Exit codes"); anything else failed.
 		return {
@@ -109,18 +154,38 @@ const auditPip = async (rootDir: string, timeout: number): Promise<AuditOutcome>
 	}
 };
 
-export const inspectPipAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> =>
-	warnWhenIncomplete(await auditPip(rootDir, timeout), PIP_AUDIT_SKIPPED);
+const timedOutPipFindings = (error: unknown): Diagnostic[] => {
+	if (!(error instanceof SubprocessTimeoutError) || !error.stdout) return [];
+	try {
+		const parsed: unknown = JSON.parse(error.stdout);
+		return isRecord(parsed) ? pipDiagnostics(parsed) : [];
+	} catch {
+		return [];
+	}
+};
+
+export const inspectPipAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+	const requirementsPath = path.join(rootDir, PIP_REQUIREMENTS_FILE);
+	if (!fs.existsSync(requirementsPath)) {
+		return { diagnostics: [PIP_AUDIT_NO_REQUIREMENTS], completed: false };
+	}
+	let unauditable: string | undefined;
+	try {
+		unauditable = findUnauditableRequirement(fs.readFileSync(requirementsPath, "utf8"));
+	} catch {
+		unauditable = "(requirements.txt could not be read)";
+	}
+	if (unauditable !== undefined) {
+		return { diagnostics: [pipAuditNeedsPip(unauditable)], completed: false };
+	}
+	return warnWhenIncomplete(await auditPip(rootDir, timeout), PIP_AUDIT_SKIPPED);
+};
 
 export const runPipAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> =>
 	(await inspectPipAudit(rootDir, timeout)).diagnostics;
 
-const auditCargo = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+const readCargoReport = (result: Awaited<ReturnType<typeof runSubprocess>>): AuditOutcome => {
 	try {
-		const result = await runSubprocess("cargo", ["audit", "--json"], {
-			cwd: rootDir,
-			timeout,
-		});
 		if (!result.stdout) return incompleteAudit();
 		const parsed: unknown = JSON.parse(result.stdout);
 		if (!isRecord(parsed) || !isRecord(parsed.vulnerabilities)) return incompleteAudit();
@@ -193,6 +258,19 @@ const auditCargo = async (rootDir: string, timeout: number): Promise<AuditOutcom
 		return { diagnostics, completed };
 	} catch {
 		return incompleteAudit();
+	}
+};
+
+const auditCargo = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+	try {
+		return readCargoReport(
+			await runSubprocess("cargo", ["audit", "--json"], { cwd: rootDir, timeout }),
+		);
+	} catch (error) {
+		// Findings printed before a timeout are kept beside the warning.
+		if (!(error instanceof SubprocessTimeoutError)) return incompleteAudit();
+		const printed = readCargoReport({ stdout: error.stdout, stderr: error.stderr, exitCode: null });
+		return { diagnostics: printed.diagnostics, completed: false };
 	}
 };
 
