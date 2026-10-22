@@ -113,6 +113,7 @@ const findSolutionOrProjects = (
 	root: string,
 	solutionExtensions: string[],
 	excludePatterns?: string[],
+	solutionMayEvaluateExcludedProjects = false,
 ): DotnetTargetSelection => {
 	let entries: string[];
 	try {
@@ -122,19 +123,26 @@ const findSolutionOrProjects = (
 	}
 	let solution: string | undefined;
 	for (const extension of solutionExtensions) {
-		solution = entries.find((name) => name.endsWith(extension));
-		if (solution) break;
+		const candidates = entries
+			.filter((name) => name.endsWith(extension))
+			.map((name) => path.join(root, name));
+		const visibleSolutions = dropGitIgnoredPaths(root, candidates);
+		if (visibleSolutions.length > 0) {
+			solution = visibleSolutions[0];
+			break;
+		}
 	}
 	const allProjects = collectCsprojFiles(root);
-	const visibleProjects = dropExcludedProjects(
-		root,
-		dropGitIgnoredPaths(root, allProjects),
-		excludePatterns,
-	);
-	if (solution && visibleProjects.length === allProjects.length) {
+	const nonIgnoredProjects = dropGitIgnoredPaths(root, allProjects);
+	const visibleProjects = dropExcludedProjects(root, nonIgnoredProjects, excludePatterns);
+	const noProjectsGitIgnored = nonIgnoredProjects.length === allProjects.length;
+	const userExcludesSatisfied =
+		solutionMayEvaluateExcludedProjects || visibleProjects.length === nonIgnoredProjects.length;
+
+	if (solution && noProjectsGitIgnored && userExcludesSatisfied) {
 		return {
 			...emptySelection(),
-			targets: dropGitIgnoredPaths(root, [path.join(root, solution)]),
+			targets: [solution],
 		};
 	}
 	return selectRestoredProjects(visibleProjects, root);
@@ -156,11 +164,15 @@ export const findDotnetTargets = (
 // first, then .slnx - for full project-reference context. Inspecting projects one
 // at a time loses cross-project symbol resolution and floods CSharpErrors
 // ("Cannot resolve symbol", "has no constructors defined"). Fall back to the
-// restored .csproj files only when no solution file exists.
+// restored .csproj files only when no solution file exists. The solution stays
+// the target even when a user exclude names one of its projects (a vendored
+// submodule): the orchestrator drops excluded-path diagnostics afterwards, whereas
+// abandoning the solution for per-project runs loses cross-project resolution and
+// solution-wide usage, and reports paths relative to each project directory.
 export const findJbTargets = (
 	context: Pick<EngineContext, "rootDirectory" | "excludePatterns">,
 ): DotnetTargetSelection =>
-	findSolutionOrProjects(context.rootDirectory, [".sln", ".slnx"], context.excludePatterns);
+	findSolutionOrProjects(context.rootDirectory, [".sln", ".slnx"], context.excludePatterns, true);
 
 // One advisory notice per lint pass - never one per project - telling the user
 // which build-backed C# work was skipped and how to include it. Mirrors

@@ -232,6 +232,16 @@ describe("findJbTargets", () => {
 		expect(findJbTargets(context(tmpDir)).targets).toEqual([csproj]);
 	});
 
+	it("keeps the solution as the target when a user exclude names one of its projects", () => {
+		const solution = path.join(tmpDir, "App.sln");
+		fs.writeFileSync(solution, "");
+		writeRestoredProject(path.join(tmpDir, "App"), "App.csproj");
+		writeRestoredProject(path.join(tmpDir, "external", "Vendor"), "Vendor.csproj");
+		const excluded = { ...context(tmpDir), excludePatterns: ["external/**"] };
+
+		expect(findJbTargets(excluded).targets).toEqual([solution]);
+	});
+
 	it("gates the .csproj fallback on restore evidence", () => {
 		const cold = writeColdProject(path.join(tmpDir, "src"), "App.csproj");
 		const selection = findJbTargets(context(tmpDir));
@@ -302,4 +312,47 @@ describe("dotnet target discovery honors .gitignore", () => {
 			path.join(tmpDir, "App.csproj"),
 		]);
 	});
+
+	it.each([
+		{
+			id: "103-ignored-sln",
+			solutionFile: "App.sln",
+			ignoreSolution: true,
+		},
+		{
+			id: "103-ignored-slnx",
+			solutionFile: "App.slnx",
+			ignoreSolution: true,
+		},
+		{
+			id: "103-visible-sln-ignored-member",
+			solutionFile: "App.sln",
+			ignoreSolution: false,
+		},
+		{
+			id: "103-visible-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+		},
+	])(
+		"skips gitignored solutions and member projects ($id)",
+		({ solutionFile, ignoreSolution }) => {
+			writeRestoredProject(tmpDir, "App.csproj");
+			fs.mkdirSync(path.join(tmpDir, "ignored"));
+			fs.writeFileSync(path.join(tmpDir, "ignored", "Spike.csproj"), "");
+			const solutionPath = path.join(tmpDir, solutionFile);
+			fs.writeFileSync(solutionPath, "");
+			if (ignoreSolution) {
+				fs.appendFileSync(path.join(tmpDir, ".gitignore"), `${solutionFile}\n`);
+			}
+			expect(findJbTargets(context(tmpDir)).targets).toEqual([
+				path.join(tmpDir, "App.csproj"),
+			]);
+			if (solutionFile === "App.sln") {
+				expect(findDotnetTargets(context(tmpDir)).targets).toEqual([
+					path.join(tmpDir, "App.csproj"),
+				]);
+			}
+		},
+	);
 });
