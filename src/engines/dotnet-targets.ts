@@ -3,6 +3,7 @@ import path from "node:path";
 import { isPathExcluded, normalizeExcludePatterns } from "../utils/exclude.js";
 import { dropGitIgnoredPaths } from "../utils/git-ignore.js";
 import { toPosix } from "../utils/paths.js";
+import { tryParseSolutionProjects } from "./solution-projects.js";
 import type { Diagnostic, EngineContext } from "./types.js";
 
 // Build-output and vendor directories that never hold first-party project files.
@@ -110,11 +111,54 @@ const selectRestoredProjects = (
 };
 
 interface TargetInventory {
-	allProjects: string[];
 	visibleProjects: string[];
 	excludedProjects: string[];
-	hasGitIgnoredProjects?: boolean;
+	gitIgnoredProjects: string[];
 }
+
+const relativeProjects = (root: string, projects: string[]): string[] =>
+	projects.map((project) => toPosix(path.relative(root, project)));
+
+// The TargetInventory fields, for callers that did not build a C# project inventory.
+const scanTargetInventory = (root: string, excludePatterns?: string[]): TargetInventory => {
+	const everyProject = collectCsprojFiles(root);
+	const nonIgnoredProjects = dropGitIgnoredPaths(root, everyProject);
+	const visibleProjects = dropExcludedProjects(root, nonIgnoredProjects, excludePatterns);
+	const nonIgnoredSet = new Set(nonIgnoredProjects);
+	const visibleSet = new Set(visibleProjects);
+	return {
+		visibleProjects: relativeProjects(root, visibleProjects),
+		excludedProjects: relativeProjects(
+			root,
+			nonIgnoredProjects.filter((project) => !visibleSet.has(project)),
+		),
+		gitIgnoredProjects: relativeProjects(
+			root,
+			everyProject.filter((project) => !nonIgnoredSet.has(project)),
+		),
+	};
+};
+
+// Case-folded on every OS: a solution entry that differs from the file on disk only
+// in case still names that project on Windows and macOS, and treating it as a member
+// elsewhere only errs toward the per-project path.
+const projectKey = (relativeProject: string): string => relativeProject.toLowerCase();
+
+// A solution evaluates the projects it declares, not every .csproj in the tree. A
+// gitignored or user-excluded project the solution does not declare (a scratch
+// checkout, the CI copy of a tool's own test fixtures) is never loaded by a solution
+// pass, so it is no reason to give up the solution's cross-project context.
+const solutionDeclaresAny = (
+	root: string,
+	solution: string,
+	relativeProjectPaths: string[],
+): boolean => {
+	if (relativeProjectPaths.length === 0) return false;
+	const parsed = tryParseSolutionProjects(solution, root);
+	if (parsed === null) return true;
+	const members = new Set(parsed.map((project) => projectKey(project.relativePath)));
+	return relativeProjectPaths.some((project) => members.has(projectKey(project)));
+};
 
 const findSolutionOrProjects = (
 	root: string,
@@ -140,35 +184,20 @@ const findSolutionOrProjects = (
 			break;
 		}
 	}
-	const noProjectsGitIgnored = inventory ? !inventory.hasGitIgnoredProjects : undefined;
-	const userExcludesSatisfied =
-		solutionMayEvaluateExcludedProjects ||
-		(inventory ? inventory.excludedProjects.length === 0 : undefined);
 
-	if (solution && noProjectsGitIgnored === true && userExcludesSatisfied === true) {
-		return {
-			...emptySelection(),
-			targets: [solution],
-		};
-	}
-
-	const nonIgnoredProjects = inventory
-		? inventory.allProjects.map((project) => path.resolve(root, project))
-		: dropGitIgnoredPaths(root, collectCsprojFiles(root));
-	const visibleProjects = inventory
-		? inventory.visibleProjects.map((project) => path.resolve(root, project))
-		: dropExcludedProjects(root, nonIgnoredProjects, excludePatterns);
-
+	const projects = inventory ?? scanTargetInventory(root, excludePatterns);
 	if (
 		solution &&
-		(noProjectsGitIgnored ?? nonIgnoredProjects.length === collectCsprojFiles(root).length) &&
-		(userExcludesSatisfied ?? visibleProjects.length === nonIgnoredProjects.length)
+		!solutionDeclaresAny(root, solution, projects.gitIgnoredProjects) &&
+		(solutionMayEvaluateExcludedProjects ||
+			!solutionDeclaresAny(root, solution, projects.excludedProjects))
 	) {
 		return {
 			...emptySelection(),
 			targets: [solution],
 		};
 	}
+	const visibleProjects = projects.visibleProjects.map((project) => path.resolve(root, project));
 	return selectRestoredProjects(visibleProjects, root);
 };
 

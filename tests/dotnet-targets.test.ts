@@ -11,6 +11,7 @@ import {
 	MAXIMUM_PROJECT_TARGETS,
 	projectsSkippedNotice,
 } from "../src/engines/dotnet-targets.js";
+import { createCsharpProjectInventory } from "../src/engines/lint/csharp-execution.js";
 import type { EngineContext } from "../src/engines/types.js";
 
 const context = (rootDirectory: string): EngineContext => ({
@@ -33,6 +34,103 @@ const writeRestoredProject = (directory: string, name: string): string => {
 	fs.mkdirSync(path.join(directory, "obj"), { recursive: true });
 	fs.writeFileSync(path.join(directory, "obj", "project.assets.json"), "{}");
 	return csproj;
+};
+
+// Solution text declaring each project, given as a solution-relative path with the
+// backslash separators Visual Studio writes.
+const solutionDeclaring = (solutionFile: string, ...projects: string[]): string => {
+	if (solutionFile.endsWith(".slnx")) {
+		const entries = projects.map((project) => `  <Project Path="${project}" />`);
+		return ["<Solution>", ...entries, "</Solution>", ""].join("\n");
+	}
+	const csharpProjectType = "9A19103F-16F7-4668-BE54-9A1E7A4F7556";
+	const entries = projects.map((project, index) => {
+		const name = path.win32.basename(project, ".csproj");
+		const guid = `00000000-0000-0000-0000-${String(index).padStart(12, "0")}`;
+		return `Project("{${csharpProjectType}}") = "${name}", "${project}", "{${guid}}"\r\nEndProject`;
+	});
+	return ["Microsoft Visual Studio Solution File, Format Version 12.00", ...entries, ""].join(
+		"\r\n",
+	);
+};
+
+type SolutionEncoding =
+	| "utf-8"
+	| "utf-8-bom"
+	| "utf-16le"
+	| "utf-16be"
+	| "utf-32le"
+	| "utf-32be"
+	| "utf-16le-nobom"
+	| "utf-16be-nobom"
+	| "utf-32le-nobom"
+	| "utf-32be-nobom"
+	| "iso-8859-1"
+	| "unsupported-xml-encoding";
+
+const encodeUtf32 = (content: string, littleEndian: boolean): Buffer => {
+	const codePoints = Array.from(content, (character) => character.codePointAt(0)!);
+	const buffer = Buffer.alloc(codePoints.length * 4);
+	for (let index = 0; index < codePoints.length; index++) {
+		if (littleEndian) {
+			buffer.writeUInt32LE(codePoints[index], index * 4);
+		} else {
+			buffer.writeUInt32BE(codePoints[index], index * 4);
+		}
+	}
+	return buffer;
+};
+
+const encodeUtf16Be = (content: string): Buffer => {
+	const littleEndian = Buffer.from(content, "utf16le");
+	const bigEndian = Buffer.alloc(littleEndian.length);
+	for (let index = 0; index < littleEndian.length; index += 2) {
+		bigEndian[index] = littleEndian[index + 1];
+		bigEndian[index + 1] = littleEndian[index];
+	}
+	return bigEndian;
+};
+
+const withXmlDeclaration = (content: string, declaredEncoding: string): string =>
+	content.startsWith("<?xml")
+		? content
+		: `<?xml version="1.0" encoding="${declaredEncoding}"?>\n${content}`;
+
+const encodeSolution = (content: string, encoding: SolutionEncoding = "utf-8"): Buffer => {
+	if (encoding === "utf-8-bom") {
+		return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content, "utf-8")]);
+	}
+	if (encoding === "utf-16le") {
+		return Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
+	}
+	if (encoding === "utf-16be") {
+		return Buffer.concat([Buffer.from([0xfe, 0xff]), encodeUtf16Be(content)]);
+	}
+	if (encoding === "utf-32le") {
+		return Buffer.concat([Buffer.from([0xff, 0xfe, 0x00, 0x00]), encodeUtf32(content, true)]);
+	}
+	if (encoding === "utf-32be") {
+		return Buffer.concat([Buffer.from([0x00, 0x00, 0xfe, 0xff]), encodeUtf32(content, false)]);
+	}
+	if (encoding === "utf-16le-nobom") {
+		return Buffer.from(withXmlDeclaration(content, "utf-16le"), "utf16le");
+	}
+	if (encoding === "utf-16be-nobom") {
+		return encodeUtf16Be(withXmlDeclaration(content, "utf-16be"));
+	}
+	if (encoding === "utf-32le-nobom") {
+		return encodeUtf32(withXmlDeclaration(content, "utf-32le"), true);
+	}
+	if (encoding === "utf-32be-nobom") {
+		return encodeUtf32(withXmlDeclaration(content, "utf-32be"), false);
+	}
+	if (encoding === "iso-8859-1") {
+		return Buffer.from(withXmlDeclaration(content, "iso-8859-1"), "latin1");
+	}
+	if (encoding === "unsupported-xml-encoding") {
+		return Buffer.from(withXmlDeclaration(content, "x-unknown-encoding"), "utf-8");
+	}
+	return Buffer.from(content, "utf-8");
 };
 
 // Write a .csproj with no restore evidence (a cold project).
@@ -70,20 +168,14 @@ describe("hasRestoreEvidence", () => {
 		// evidence never appears beside the .csproj.
 		const csproj = writeColdProject(path.join(tmpDir, "src", "App"), "App.csproj");
 		fs.mkdirSync(path.join(tmpDir, "artifacts", "obj", "App"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tmpDir, "artifacts", "obj", "App", "project.assets.json"),
-			"{}",
-		);
+		fs.writeFileSync(path.join(tmpDir, "artifacts", "obj", "App", "project.assets.json"), "{}");
 		expect(hasRestoreEvidence(csproj, tmpDir)).toBe(true);
 	});
 
 	it("does not credit another project's central artifacts entry", () => {
 		const csproj = writeColdProject(path.join(tmpDir, "src", "App"), "App.csproj");
 		fs.mkdirSync(path.join(tmpDir, "artifacts", "obj", "Other"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tmpDir, "artifacts", "obj", "Other", "project.assets.json"),
-			"{}",
-		);
+		fs.writeFileSync(path.join(tmpDir, "artifacts", "obj", "Other", "project.assets.json"), "{}");
 		expect(hasRestoreEvidence(csproj, tmpDir)).toBe(false);
 	});
 });
@@ -143,31 +235,55 @@ describe("findDotnetTargets", () => {
 		expect(projectsSkippedNotice(selection, tmpDir)).toHaveLength(0);
 	});
 
-	it("does not select a solution that could evaluate an excluded project", () => {
-		fs.writeFileSync(path.join(tmpDir, "App.sln"), "");
-		const kept = writeRestoredProject(path.join(tmpDir, "App"), "App.csproj");
+	it.each([
+		{ id: "utf-8", encoding: "utf-8" as const },
+		{ id: "128-utf-8-bom", encoding: "utf-8-bom" as const },
+		{ id: "128-utf-16le", encoding: "utf-16le" as const },
+		{ id: "128-utf-16be", encoding: "utf-16be" as const },
+		{ id: "128-utf-32le", encoding: "utf-32le" as const },
+		{ id: "128-utf-32be", encoding: "utf-32be" as const },
+	])(
+		"does not select a solution that could evaluate an excluded project ($id)",
+		({ encoding }) => {
+			fs.writeFileSync(
+				path.join(tmpDir, "App.sln"),
+				encodeSolution(
+					solutionDeclaring("App.sln", "App\\App.csproj", "external\\Vendor\\Vendor.csproj"),
+					encoding,
+				),
+			);
+			const kept = writeRestoredProject(path.join(tmpDir, "App"), "App.csproj");
+			writeRestoredProject(path.join(tmpDir, "external", "Vendor"), "Vendor.csproj");
+			const excluded = { ...context(tmpDir), excludePatterns: ["external/**"] };
+			const inventory = createCsharpProjectInventory(excluded);
+
+			expect(inventory.excludedProjects).toEqual(["external/Vendor/Vendor.csproj"]);
+			expect(findDotnetTargets(excluded).targets).toEqual([kept]);
+			expect(findDotnetTargets(excluded, inventory).targets).toEqual([kept]);
+		},
+	);
+
+	it("selects a solution that declares none of the excluded projects", () => {
+		const solution = path.join(tmpDir, "App.sln");
+		fs.writeFileSync(solution, solutionDeclaring("App.sln", "App\\App.csproj"));
+		writeRestoredProject(path.join(tmpDir, "App"), "App.csproj");
 		writeRestoredProject(path.join(tmpDir, "external", "Vendor"), "Vendor.csproj");
 		const excluded = { ...context(tmpDir), excludePatterns: ["external/**"] };
 
-		expect(findDotnetTargets(excluded).targets).toEqual([kept]);
+		expect(findDotnetTargets(excluded).targets).toEqual([solution]);
 	});
 
 	it("skips bin/obj/node_modules when enumerating", () => {
 		fs.mkdirSync(path.join(tmpDir, "obj"));
 		fs.writeFileSync(path.join(tmpDir, "obj", "Generated.csproj"), "");
 		writeRestoredProject(tmpDir, "App.csproj");
-		expect(findDotnetTargets(context(tmpDir)).targets).toEqual([
-			path.join(tmpDir, "App.csproj"),
-		]);
+		expect(findDotnetTargets(context(tmpDir)).targets).toEqual([path.join(tmpDir, "App.csproj")]);
 	});
 
 	it("selects a project restored into a central artifacts/obj layout", () => {
 		const csproj = writeColdProject(path.join(tmpDir, "src", "Central"), "Central.csproj");
 		fs.mkdirSync(path.join(tmpDir, "artifacts", "obj", "Central"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tmpDir, "artifacts", "obj", "Central", "project.assets.json"),
-			"{}",
-		);
+		fs.writeFileSync(path.join(tmpDir, "artifacts", "obj", "Central", "project.assets.json"), "{}");
 		const selection = findDotnetTargets(context(tmpDir));
 		expect(selection.targets).toEqual([csproj]);
 		expect(selection.coldProjects).toEqual([]);
@@ -234,7 +350,10 @@ describe("findJbTargets", () => {
 
 	it("keeps the solution as the target when a user exclude names one of its projects", () => {
 		const solution = path.join(tmpDir, "App.sln");
-		fs.writeFileSync(solution, "");
+		fs.writeFileSync(
+			solution,
+			solutionDeclaring("App.sln", "App\\App.csproj", "external\\Vendor\\Vendor.csproj"),
+		);
 		writeRestoredProject(path.join(tmpDir, "App"), "App.csproj");
 		writeRestoredProject(path.join(tmpDir, "external", "Vendor"), "Vendor.csproj");
 		const excluded = { ...context(tmpDir), excludePatterns: ["external/**"] };
@@ -308,9 +427,7 @@ describe("dotnet target discovery honors .gitignore", () => {
 		writeRestoredProject(tmpDir, "App.csproj");
 		fs.mkdirSync(path.join(tmpDir, "ignored"));
 		fs.writeFileSync(path.join(tmpDir, "ignored", "Spike.csproj"), "");
-		expect(findDotnetTargets(context(tmpDir)).targets).toEqual([
-			path.join(tmpDir, "App.csproj"),
-		]);
+		expect(findDotnetTargets(context(tmpDir)).targets).toEqual([path.join(tmpDir, "App.csproj")]);
 	});
 
 	it.each([
@@ -318,40 +435,180 @@ describe("dotnet target discovery honors .gitignore", () => {
 			id: "103-ignored-sln",
 			solutionFile: "App.sln",
 			ignoreSolution: true,
+			encoding: "utf-8" as const,
+			ignoredProject: "Spike.csproj",
 		},
 		{
 			id: "103-ignored-slnx",
 			solutionFile: "App.slnx",
 			ignoreSolution: true,
+			encoding: "utf-8" as const,
+			ignoredProject: "Spike.csproj",
 		},
 		{
 			id: "103-visible-sln-ignored-member",
 			solutionFile: "App.sln",
 			ignoreSolution: false,
+			encoding: "utf-8" as const,
+			ignoredProject: "Spike.csproj",
 		},
 		{
 			id: "103-visible-slnx-ignored-member",
 			solutionFile: "App.slnx",
 			ignoreSolution: false,
+			encoding: "utf-8" as const,
+			ignoredProject: "Spike.csproj",
+		},
+		{
+			id: "128-utf16le-sln-ignored-member",
+			solutionFile: "App.sln",
+			ignoreSolution: false,
+			encoding: "utf-16le" as const,
+			ignoredProject: "Spike.csproj",
+		},
+		{
+			id: "128-utf16be-sln-ignored-member",
+			solutionFile: "App.sln",
+			ignoreSolution: false,
+			encoding: "utf-16be" as const,
+			ignoredProject: "Spike.csproj",
+		},
+		{
+			id: "128-utf16le-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-16le" as const,
+			ignoredProject: "Spike.csproj",
+		},
+		{
+			id: "128-utf16be-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-16be" as const,
+			ignoredProject: "Spike.csproj",
+		},
+		{
+			id: "128-utf32le-sln-ignored-member",
+			solutionFile: "App.sln",
+			ignoreSolution: false,
+			encoding: "utf-32le" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf32be-sln-ignored-member",
+			solutionFile: "App.sln",
+			ignoreSolution: false,
+			encoding: "utf-32be" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf32le-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-32le" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf32be-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-32be" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf16le-nobom-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-16le-nobom" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf16be-nobom-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-16be-nobom" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf32le-nobom-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-32le-nobom" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-utf32be-nobom-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "utf-32be-nobom" as const,
+			ignoredProject: "Hidden.csproj",
+		},
+		{
+			id: "128-iso88591-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "iso-8859-1" as const,
+			ignoredProject: "Hidd\u00e9n.csproj",
+		},
+		{
+			id: "128-unsupported-xml-encoding-slnx-ignored-member",
+			solutionFile: "App.slnx",
+			ignoreSolution: false,
+			encoding: "unsupported-xml-encoding" as const,
+			ignoredProject: "Hidden.csproj",
 		},
 	])(
 		"skips gitignored solutions and member projects ($id)",
-		({ solutionFile, ignoreSolution }) => {
+		({ solutionFile, ignoreSolution, encoding, ignoredProject }) => {
 			writeRestoredProject(tmpDir, "App.csproj");
 			fs.mkdirSync(path.join(tmpDir, "ignored"));
-			fs.writeFileSync(path.join(tmpDir, "ignored", "Spike.csproj"), "");
+			fs.writeFileSync(path.join(tmpDir, "ignored", ignoredProject), "");
 			const solutionPath = path.join(tmpDir, solutionFile);
-			fs.writeFileSync(solutionPath, "");
+			fs.writeFileSync(
+				solutionPath,
+				encodeSolution(
+					solutionDeclaring(solutionFile, "App.csproj", `ignored\\${ignoredProject}`),
+					encoding,
+				),
+			);
 			if (ignoreSolution) {
 				fs.appendFileSync(path.join(tmpDir, ".gitignore"), `${solutionFile}\n`);
 			}
-			expect(findJbTargets(context(tmpDir)).targets).toEqual([
+			const inventory = createCsharpProjectInventory(context(tmpDir));
+			expect(findJbTargets(context(tmpDir)).targets).toEqual([path.join(tmpDir, "App.csproj")]);
+			expect(findJbTargets(context(tmpDir), inventory).targets).toEqual([
 				path.join(tmpDir, "App.csproj"),
 			]);
 			if (solutionFile === "App.sln") {
 				expect(findDotnetTargets(context(tmpDir)).targets).toEqual([
 					path.join(tmpDir, "App.csproj"),
 				]);
+				expect(findDotnetTargets(context(tmpDir), inventory).targets).toEqual([
+					path.join(tmpDir, "App.csproj"),
+				]);
+			}
+		},
+	);
+
+	it.each(["App.sln", "App.slnx"])(
+		"keeps a %s that declares no gitignored project as the target",
+		(solutionFile) => {
+			// The CI shape that hid this: a tool checked out under a gitignored directory
+			// of the workspace brings its own test-fixture .csproj, which the consumer's
+			// solution never declares.
+			writeRestoredProject(tmpDir, "App.csproj");
+			fs.mkdirSync(path.join(tmpDir, "ignored", "fixtures"), { recursive: true });
+			fs.writeFileSync(path.join(tmpDir, "ignored", "fixtures", "Sample.csproj"), "");
+			const solutionPath = path.join(tmpDir, solutionFile);
+			fs.writeFileSync(solutionPath, solutionDeclaring(solutionFile, "App.csproj"));
+			const inventory = createCsharpProjectInventory(context(tmpDir));
+
+			expect(inventory.gitIgnoredProjects).toEqual(["ignored/fixtures/Sample.csproj"]);
+			expect(findJbTargets(context(tmpDir)).targets).toEqual([solutionPath]);
+			expect(findJbTargets(context(tmpDir), inventory).targets).toEqual([solutionPath]);
+			if (solutionFile === "App.sln") {
+				expect(findDotnetTargets(context(tmpDir)).targets).toEqual([solutionPath]);
+				expect(findDotnetTargets(context(tmpDir), inventory).targets).toEqual([solutionPath]);
 			}
 		},
 	);

@@ -221,6 +221,47 @@ describe("runDotnetLint - solution-level analyze failure (regression for #dotnet
 		warnSpy.mockRestore();
 	});
 
+	// roslynator writes --output only when it found a diagnostic, so a clean analysis
+	// exits 0, prints the zero summary on stdout, and leaves no report behind.
+	const cleanRunStdout = [
+		"Loading solution 'App.sln'...",
+		"Analyze 'App'",
+		"Analyzed project 'App.csproj' (in 4.0 s)",
+		"",
+		"0 diagnostics found",
+		"",
+	].join("\r\n");
+
+	it("records a clean run when roslynator exits 0 with its zero summary and no report", async () => {
+		writeRestoredProject(root, "App");
+		runSubprocess.mockResolvedValue({ stdout: cleanRunStdout, stderr: "", exitCode: 0 });
+
+		const { diagnostics, failures, executions } = await runDotnetLint(csharpContext(root));
+
+		expect(failures).toEqual([]);
+		expect(diagnostics).toEqual([]);
+		expect(executions?.[0]?.status).toBe("ran");
+		expect(runSubprocess).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		{ label: "a nonzero exit", stdout: cleanRunStdout, exitCode: 2 },
+		{ label: "a nonzero count", stdout: "Analyze 'App'\r\n10 diagnostics found\r\n", exitCode: 0 },
+		{ label: "no summary line", stdout: "Analyze 'App'\r\n", exitCode: 0 },
+	])("keeps a missing report as a failure with $label", async ({ stdout, exitCode }) => {
+		runSubprocess.mockResolvedValue({ stdout, stderr: "", exitCode });
+
+		const { failures } = await runDotnetLint(csharpContext(root));
+
+		expect(failures).toEqual([
+			expect.objectContaining({
+				tool: "roslynator",
+				target: "App.sln",
+				reason: expect.stringContaining(`no report written (exit code ${exitCode})`),
+			}),
+		]);
+	});
+
 	it("truncates tool output copied into a failure reason", async () => {
 		runSubprocess.mockResolvedValueOnce({ stdout: "", stderr: "x".repeat(5000), exitCode: 1 });
 		const { failures } = await runDotnetLint(csharpContext(root));

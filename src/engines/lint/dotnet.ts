@@ -98,6 +98,15 @@ export const parseRoslynatorXml = (xml: string, rootDirectory: string): Diagnost
 
 const ANALYZE_TIMEOUT_MS = 180000;
 
+// The summary roslynator prints on stdout after analysis ("{count} diagnostics found").
+const ZERO_DIAGNOSTICS_SUMMARY = /^\s*0 diagnostics found\s*$/m;
+
+// Exit 0 is CommandStatus.Success, which analyze returns only when no diagnostic was
+// found (aislop never passes --return-success-on-diagnostics); the summary line
+// confirms analysis reached the end rather than exiting early.
+const completedWithoutDiagnostics = (result: { stdout: string; exitCode: number | null }) =>
+	result.exitCode === 0 && ZERO_DIAGNOSTICS_SUMMARY.test(result.stdout);
+
 type AnalyzeResult =
 	| { diagnostics: Diagnostic[]; failed: false }
 	| { diagnostics: Diagnostic[]; failed: true; reason: string; timedOut: boolean };
@@ -120,12 +129,14 @@ const analyzeTarget = async (
 			cwd: context.rootDirectory,
 			timeout: ANALYZE_TIMEOUT_MS,
 		});
-		// roslynator's exit code alone cannot distinguish "ran clean" from "crashed
-		// before writing anything": the code also varies with the highest diagnostic
-		// severity found on a normal run. A missing report file is the unambiguous
-		// signal that analysis never completed (e.g. roslynator crashing at solution
-		// load under a newer .NET SDK), so check for the file rather than the code.
+		// roslynator writes --output only when analysis found at least one diagnostic,
+		// so a clean run leaves no file: it exits 0 after printing its zero summary.
+		// Any other missing report (a crash at solution load under a newer .NET SDK,
+		// a nonzero exit, a count with no file) means analysis never completed.
 		if (!fs.existsSync(outputPath)) {
+			if (completedWithoutDiagnostics(result)) {
+				return { diagnostics: [], failed: false };
+			}
 			const detail = truncateFailureDetail(result.stderr || result.stdout || "no output");
 			throw new Error(`no report written (exit code ${result.exitCode}): ${detail}`);
 		}

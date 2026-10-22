@@ -267,7 +267,7 @@ describe("C# pass execution record", () => {
 					visibleProjectsSet: new Set(projectPaths),
 					excludedProjects: [],
 					excludedProjectsSet: new Set(),
-					hasGitIgnoredProjects: false,
+					gitIgnoredProjects: [],
 					solutionCache: new Map(),
 				};
 
@@ -540,7 +540,7 @@ describe("C# pass execution record", () => {
 				visibleProjectsSet: new Set(scalingIdentities),
 				excludedProjects: instrumentedExcludedArray,
 				excludedProjectsSet: new Set(scalingExclusions),
-				hasGitIgnoredProjects: false,
+				gitIgnoredProjects: [],
 				solutionCache: new Map(),
 			};
 			buildExecution(context, {

@@ -1,20 +1,12 @@
-import fs from "node:fs";
 import path from "node:path";
 import { isPathExcluded, normalizeExcludePatterns } from "../../utils/exclude.js";
 import { dropGitIgnoredPaths } from "../../utils/git-ignore.js";
 import { projectRelativePosix } from "../../utils/paths.js";
 import { collectCsprojFiles } from "../dotnet-targets.js";
+import { parseSolutionProjects, type SolutionProject } from "../solution-projects.js";
 import type { AnalyzerExecution, EngineContext } from "../types.js";
-import { decodeEntities, xmlAttribute } from "./xml-entities.js";
 
 export type CsharpTool = AnalyzerExecution["tool"];
-
-interface SolutionProject {
-	name: string;
-	relativePath: string;
-	basename: string;
-	isCsharp: boolean;
-}
 
 interface SolutionIndex {
 	projects: SolutionProject[];
@@ -31,7 +23,8 @@ export interface CsharpProjectInventory {
 	visibleProjectsSet: Set<string>;
 	excludedProjects: string[];
 	excludedProjectsSet: Set<string>;
-	hasGitIgnoredProjects: boolean;
+	/** Projects on disk that .gitignore hides, repository-relative and sorted. */
+	gitIgnoredProjects: string[];
 	solutionCache: Map<string, SolutionIndex>;
 }
 
@@ -51,9 +44,13 @@ export const createCsharpProjectInventory = (
 ): CsharpProjectInventory => {
 	const root = context.rootDirectory;
 	const rawProjects = collectCsprojFiles(root);
-	const nonIgnored = dropGitIgnoredPaths(root, rawProjects);
-	const hasGitIgnoredProjects = nonIgnored.length !== rawProjects.length;
-	const allProjects = nonIgnored.map((project) => projectRelativePosix(root, project)).sort();
+	const nonIgnored = new Set(dropGitIgnoredPaths(root, rawProjects));
+	const toRelativePaths = (projects: string[]): string[] =>
+		projects.map((project) => projectRelativePosix(root, project)).sort();
+	const allProjects = toRelativePaths(rawProjects.filter((project) => nonIgnored.has(project)));
+	const gitIgnoredProjects = toRelativePaths(
+		rawProjects.filter((project) => !nonIgnored.has(project)),
+	);
 
 	let excludedProjects: string[] = [];
 	let visibleProjects: string[] = [];
@@ -76,74 +73,9 @@ export const createCsharpProjectInventory = (
 		visibleProjectsSet: new Set(visibleProjects),
 		excludedProjects,
 		excludedProjectsSet: new Set(excludedProjects),
-		hasGitIgnoredProjects,
+		gitIgnoredProjects,
 		solutionCache: new Map(),
 	};
-};
-
-const attribute = (tag: string, name: string): string | null => {
-	const value = xmlAttribute(tag, name);
-	return value !== null ? decodeEntities(value) : null;
-};
-
-const stripXmlComments = (xml: string): string => xml.replace(/<!--[\s\S]*?-->/g, "");
-
-// Solution folder type GUID used in .sln files to declare virtual groupings.
-const SOLUTION_FOLDER_GUID = "2150e333-8fdc-42a3-9474-1a3956d46de8";
-
-const parseSolutionProjects = (solutionPath: string, rootDirectory: string): SolutionProject[] => {
-	let content: string;
-	try {
-		content = fs.readFileSync(solutionPath, "utf-8");
-	} catch {
-		return [];
-	}
-	const projects: SolutionProject[] = [];
-	const solutionDirectory = path.dirname(solutionPath);
-
-	if (solutionPath.toLowerCase().endsWith(".slnx")) {
-		const cleanContent = stripXmlComments(content);
-		const projectTagPattern = /<Project\b([^>]*)\/?>/g;
-		let match = projectTagPattern.exec(cleanContent);
-		while (match !== null) {
-			const tag = match[1];
-			const rawPath = attribute(tag, "Path");
-			if (rawPath) {
-				const normalizedPath = rawPath.replace(/\\/g, "/");
-				const absoluteProject = path.resolve(solutionDirectory, normalizedPath);
-				const relative = projectRelativePosix(rootDirectory, absoluteProject);
-				const isCsharp = relative.toLowerCase().endsWith(".csproj");
-				const extension = path.posix.extname(relative);
-				const basename = path.posix.basename(relative, extension);
-				const rawName = attribute(tag, "DisplayName") ?? attribute(tag, "Name");
-				const name = rawName !== null ? rawName : basename;
-				projects.push({ name, relativePath: relative, basename, isCsharp });
-			}
-			match = projectTagPattern.exec(cleanContent);
-		}
-		return projects;
-	}
-
-	const lines = content.split(/\r?\n/);
-	const slnLinePattern =
-		/^[ \t]*Project\s*\(\s*"\{?([0-9a-fA-F-]+)\}?"\s*\)\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"/;
-	for (const line of lines) {
-		const trimmed = line.trimStart();
-		if (trimmed.startsWith("#")) continue;
-		const match = slnLinePattern.exec(line);
-		if (!match) continue;
-		const typeGuid = match[1].toLowerCase();
-		if (typeGuid === SOLUTION_FOLDER_GUID) continue;
-		const name = match[2];
-		const rawPath = match[3].replace(/\\/g, "/");
-		const absoluteProject = path.resolve(solutionDirectory, rawPath);
-		const relative = projectRelativePosix(rootDirectory, absoluteProject);
-		const isCsharp = relative.toLowerCase().endsWith(".csproj");
-		const extension = path.posix.extname(relative);
-		const basename = path.posix.basename(relative, extension);
-		projects.push({ name, relativePath: relative, basename, isCsharp });
-	}
-	return projects;
 };
 
 const buildSolutionIndex = (projects: SolutionProject[]): SolutionIndex => {

@@ -227,7 +227,7 @@ An engine skipped only because the scan has no files it applies to has no `missi
 ```
 
 - `status` is `ran`, `failed` (the pass started and at least one target did not complete; `reason` joins the failure reasons and the same failures appear in `failures`), or `not-selected` (`reason` is `projectEvaluation disabled`, `<tool> disabled in lint.csharp config`, `<tool> tool missing`, or `no solution or restored project targets`).
-- `targets` are the repository-relative solution or project files handed to the tool. jb inspects the solution even when a user exclude names one of its projects (the excluded project's findings are filtered out afterwards); Roslynator falls back to per-project targets when a project is excluded.
+- `targets` are the repository-relative solution or project files handed to the tool. jb inspects the solution even when a user exclude names one of its projects (the excluded project's findings are filtered out afterwards); Roslynator falls back to per-project targets when the solution declares an excluded project. Both fall back to per-project targets when the solution declares a gitignored project; a gitignored or excluded .csproj the solution does not declare leaves the solution as the target.
 - `analyzedProjects` are repository-relative `.csproj` paths. For jb they come from the `<Project>` elements of the report resolved to project files through the target solution's project mapping or invocation target; for Roslynator they are the successfully analyzed project targets, or the solution's member projects when a solution target succeeded. A project removed by a user exclude is listed only in `excludedProjects`, never in `analyzedProjects`.
 - `elapsed` is milliseconds.
 
