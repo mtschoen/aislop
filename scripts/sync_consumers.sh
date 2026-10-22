@@ -15,9 +15,13 @@
 # sha of the aislop fork commit its CI is pinned to. A repo without that
 # file is not a consumer and is skipped silently.
 #
-# When a PR for the pin-bump branch is already open, update_consumer
-# refreshes its title and body to match the new sha on every run, so a
-# force-pushed branch never leaves a stale PR description behind.
+# When the pin-bump branch is absent or holds only pin-bump commits,
+# update_consumer rebuilds it from the default branch and force-pushes; an
+# already-open PR then has its title and body refreshed to match the new sha.
+# When the branch holds any other commit (fixes added so the new pin passes
+# the consumer's gate), it commits the new pin on top and pushes without
+# --force, leaving the open PR's title and body alone. The run summary names
+# the path ("rebuild" or "append") taken for each consumer.
 #
 # Usage: sync_consumers.sh <new-sha>
 # Required env: GITEA_TOKEN
@@ -171,8 +175,35 @@ refresh_open_pull_request() {
 	esac
 }
 
+branch_has_only_pin_commits() {
+	# branch_has_only_pin_commits <repo_dir> <default_branch>
+	# Returns 0 when every commit reachable from origin/BRANCH but not from
+	# origin/<default_branch> is a plain (non-merge) commit touching only
+	# .aislop/fork-commit, or when there is no such commit. Returns 1 when
+	# anything else is on the branch, 2 if history cannot be read.
+	local repo_dir="$1" default_branch="$2"
+	local range="origin/$default_branch..origin/$BRANCH"
+	local merges commits commit files
+
+	merges="$(git -C "$repo_dir" rev-list --min-parents=2 "$range")" || return 2
+	[ -n "$merges" ] && return 1
+	commits="$(git -C "$repo_dir" rev-list "$range")" || return 2
+	for commit in $commits; do
+		files="$(git -C "$repo_dir" diff-tree --no-commit-id --name-only -r --root "$commit")" || return 2
+		[ "$files" = ".aislop/fork-commit" ] || return 1
+	done
+	return 0
+}
+
 update_consumer() {
 	# update_consumer <repo> <default_branch> <clone_url>
+	# Two paths, named in the run summary:
+	#   rebuild: BRANCH is absent, or carries only pin-bump commits. Rebuild it
+	#            from the default branch and force-push.
+	#   append:  BRANCH carries any other commit (fixes added so the new pin
+	#            passes the consumer's gate). Commit the pin on top of the
+	#            existing tip and push WITHOUT --force; the open pull request's
+	#            title and body are left alone.
 	local repo="$1" branch="$2" clone_url="$3"
 	local repo_dir="$SCRATCH/$repo"
 	rm -rf "$repo_dir"
@@ -185,22 +216,69 @@ update_consumer() {
 		return 1
 	fi
 
+	local path="rebuild" remote_heads expected_branch_tip=""
+	if ! remote_heads="$(git -C "$repo_dir" ls-remote --heads origin "refs/heads/$BRANCH" 2>/dev/null)"; then
+		record "$repo" "failed" "could not look up $BRANCH on the remote"
+		return 1
+	fi
+	if [ -n "$remote_heads" ]; then
+		if [ "$(git -C "$repo_dir" rev-parse --is-shallow-repository)" = "true" ]; then
+			git -C "$repo_dir" fetch --quiet --unshallow origin >/dev/null 2>&1 || {
+				record "$repo" "failed" "could not fetch history of $branch"
+				return 1
+			}
+		fi
+		if ! git -C "$repo_dir" fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" >/dev/null 2>&1; then
+			record "$repo" "failed" "could not fetch existing $BRANCH"
+			return 1
+		fi
+		expected_branch_tip="$(git -C "$repo_dir" rev-parse "refs/remotes/origin/$BRANCH")"
+		branch_has_only_pin_commits "$repo_dir" "$branch"
+		case $? in
+		0) path="rebuild" ;;
+		1) path="append" ;;
+		*)
+			record "$repo" "failed" "could not inspect commits on $BRANCH"
+			return 1
+			;;
+		esac
+	fi
+
+	local pin_commit_message="chore: bump aislop fork pin to $SHORT_SHA"
+	local nothing_to_commit=0
 	(
 		cd "$repo_dir" || exit 1
 		git config user.name claude-code
 		git config user.email claude-code@noreply.sticktoitive.net
-		git checkout --quiet -b "$BRANCH"
+		if [ "$path" = "append" ]; then
+			git checkout --quiet -B "$BRANCH" "origin/$BRANCH"
+		else
+			git checkout --quiet -B "$BRANCH" "origin/$branch"
+		fi
 		mkdir -p .aislop
 		printf '%s\n' "$NEW_SHA" >.aislop/fork-commit
 		git add .aislop/fork-commit
-		git commit --quiet -m "chore: bump aislop fork pin to $SHORT_SHA"
-	) || {
+		if [ "$path" = "append" ] && git diff --cached --quiet; then
+			exit 3
+		fi
+		git commit --quiet -m "$pin_commit_message"
+	)
+	case $? in
+	0) ;;
+	3) nothing_to_commit=1 ;;
+	*)
 		record "$repo" "failed" "local commit failed"
 		return 1
-	}
+		;;
+	esac
 
-	if ! git -C "$repo_dir" push --quiet --force "$push_url" "HEAD:refs/heads/$BRANCH" >/dev/null 2>&1; then
-		record "$repo" "failed" "force-push to $BRANCH failed"
+	if [ "$path" = "append" ]; then
+		if [ "$nothing_to_commit" -eq 0 ] && ! git -C "$repo_dir" push --quiet "$push_url" "HEAD:refs/heads/$BRANCH" >/dev/null 2>&1; then
+			record "$repo" "failed" "path=append: push to $BRANCH rejected (non-fast-forward or error), not retried with force"
+			return 1
+		fi
+	elif ! git -C "$repo_dir" push --quiet --force-with-lease="refs/heads/$BRANCH:$expected_branch_tip" "$push_url" "HEAD:refs/heads/$BRANCH" >/dev/null 2>&1; then
+		record "$repo" "failed" "path=rebuild: force-push to $BRANCH failed"
 		return 1
 	fi
 
@@ -216,13 +294,21 @@ update_consumer() {
 
 	case "$pr_status" in
 	200 | 201)
-		record "$repo" "updated" "PR opened ($(jq -r '.html_url // "no url"' "$pr_response"))"
+		record "$repo" "updated" "path=$path: PR opened ($(jq -r '.html_url // "no url"' "$pr_response"))"
 		return 0
 		;;
 	409)
+		if [ "$path" = "append" ]; then
+			if [ "$nothing_to_commit" -eq 1 ]; then
+				record "$repo" "updated" "path=append: $BRANCH already carries the new pin, nothing pushed, open PR left alone"
+			else
+				record "$repo" "updated" "path=append: pin commit pushed (fast-forward), open PR title/body left alone"
+			fi
+			return 0
+		fi
 		local refreshed_url
 		if refreshed_url="$(refresh_open_pull_request "$repo" "$branch" "$pr_title" "$pr_body_text")"; then
-			record "$repo" "updated" "PR already open, force-push and title/body refreshed (${refreshed_url:-no url})"
+			record "$repo" "updated" "path=rebuild: PR already open, force-push and title/body refreshed (${refreshed_url:-no url})"
 			return 0
 		fi
 		record "$repo" "failed" "PR already open but title/body refresh failed"
