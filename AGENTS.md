@@ -201,6 +201,41 @@ Concrete guidance:
   the rule cannot decide. Reach for it instead of growing an exclusion list,
   because a growing exclusion list is the open surface coming back.
 
+## Rule design: results depend only on the tree and its config
+
+A scan of the same tree with the same configuration gives the same findings and
+the same score on every machine, under every account, in CI and locally. A
+linter that scores a tree 99 on a developer's laptop and 100 on the CI runner
+cannot gate anything: either the local hook nags about something the gate will
+never enforce, or the gate passes something the developer was told to fix.
+This requirement outranks coverage. A detector that can only catch a problem by
+reading the environment does not ship in that form.
+
+A detector's decision may read only the scanned files, the repository's
+`.aislop/` configuration, and documented CLI options. It must not read:
+
+- the invoking account (`os.homedir()`, the user name, `HOME`/`USERPROFILE`),
+  the host name, or any other environment variable not documented as aislop
+  configuration
+- the current working directory outside the scan root
+- the wall clock, time zone, or locale
+- machine-global tool configuration (this is why jb `InconsistentNaming` is
+  excluded by default: it binds to a machine-global ReSharper setting)
+
+Optional external tools are the one sanctioned source of variation, and only
+when the output names it. A tool that is absent, disabled, or failed must show
+up in the report (the lint execution record, a `*-skipped` advisory, or an
+engine failure), never as a clean zero. A consumer that needs a fixed tool set
+installs it at a pinned version and validates the execution record, as
+git-wizard's gate does for jb and roslynator.
+
+Known violations, to be closed rather than copied:
+
+- `ai-slop/hardcoded-user-path` seeds its banned roots from `os.homedir()`, so
+  a tree scores differently per account
+  ([issue 101](https://gitea.fleet.sticktoitive.net/schoen/aislop/issues/101)).
+- `docs/rules.md` documents missing C# and C/C++ tooling as silently skipped.
+
 ## Adding new AI slop rules
 
 1. Pick the right file in `src/engines/ai-slop/` (or create a new one)
