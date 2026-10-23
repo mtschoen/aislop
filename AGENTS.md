@@ -178,16 +178,28 @@ exhaustively and stop. That is the property that makes a rule finishable.
 
 Concrete guidance:
 
-- **Python detectors must be structurally decidable without reconstructing Python
-  semantics.** No import tracking, alias resolution, scope stacks, or decorator
-  scope. `python-patterns.ts` is the house pattern: match explicit spellings and
-  bounded lexical shapes such as one line, a fixed neighboring window, a
-  delimited signature, or a literal whole-file marker. Treat unrecognized aliases
-  and bindings as documented non-detections. Modelling Python binding semantics
-  with regexes and no parser does not work.
-- **JS/TS detectors may use TypeScript AST state**, because structural queries
-  (is this node a property assignment?) have definite answers. Inferring meaning
-  from surrounding syntax does not become sound just because an AST is available.
+- **A detector is a fixed spelling or a query over a real parser's tree.** Either
+  it matches one fixed spelling (a single literal token or one-line pattern with
+  nothing to parse, e.g. `assert True`), or it queries the tree of a real parser:
+  the TypeScript compiler API for JS/TS, tree-sitter for languages with a bundled
+  grammar (today only C#, see `src/utils/csharp-parser.ts`), Roslyn, or the
+  language's own compiler. Regex-driven mini-parsers over source text are not
+  allowed: hand-rolled bracket matching, top-level argument splitting, alias or
+  binding tracking, "is there an issue link on a nearby line". Blanking strings
+  and comments first does not make text matching structural.
+- **Python detectors are limited to fixed spellings until a Python grammar is
+  bundled.** A Python detector that needs more than a fixed spelling waits for
+  the grammar; it is not built from text meanwhile. Unrecognized aliases and
+  bindings are documented non-detections, as in `python-patterns.ts`. The
+  existing Python text detectors are grandfathered.
+- **Anything beyond a fixed spelling in JS/TS MUST use the TypeScript AST**
+  (and in C#, the tree-sitter tree), because structural queries (is this node a
+  property assignment?) have definite answers. Inferring meaning from
+  surrounding syntax does not become sound just because an AST is available.
+- **Scope freeze for detector PRs.** The PR that adds a detector states its
+  detections and its deliberate non-detections. For that PR, inputs outside the
+  stated scope are follow-ups, not blockers; misfires on claimed inputs and false
+  positives on ordinary valid code still block.
 - **Under-reporting is acceptable; misfiring on valid code is not.** A rule that
   fires on ordinary application code gets the whole engine switched off, which
   costs more than every finding it would ever produce.
