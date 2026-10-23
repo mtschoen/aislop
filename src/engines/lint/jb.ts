@@ -14,6 +14,7 @@ import type {
 	Severity,
 } from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
+import { checkSolutionCoverage } from "./csharp-coverage.js";
 import {
 	buildExecution,
 	type CsharpProjectInventory,
@@ -359,13 +360,31 @@ export const runJbLint = async (
 				// jb reports only finding-bearing projects, so a solution pass records
 				// the solution's declared members (restricted to the --project scope
 				// and to visible projects), as the roslynator pass does.
-				for (const project of getSolutionIndex(csharpInventory, target).csharpProjects) {
+				const solution = getSolutionIndex(csharpInventory, target);
+				for (const project of solution.csharpProjects) {
 					if (
 						csharpInventory.visibleProjectsSet.has(project.relativePath) &&
 						projectNameInScope(project.name, projectScope)
 					) {
 						analyzedProjects.push(project.relativePath);
 					}
+				}
+				if (options.includeCsharp) {
+					const incomplete = await checkSolutionCoverage({
+						tool: JB_TOOL,
+						rootDirectory: context.rootDirectory,
+						solutionPath: target,
+						inventory: csharpInventory,
+						analyzedProjects,
+						excludePatterns: context.excludePatterns,
+						inScope: (projectPath) =>
+							(
+								solution.byPath.get(projectPath)?.map((project) => project.name) ?? [
+									path.posix.basename(projectPath, path.posix.extname(projectPath)),
+								]
+							).some((name) => projectNameInScope(name, projectScope)),
+					});
+					if (incomplete) failures.push(incomplete);
 				}
 			} else if (projectNameInScope(path.basename(target, path.extname(target)), projectScope)) {
 				// jb names a project after its project file; --project scopes this run too.

@@ -8,7 +8,9 @@ import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 const { subprocess, tools } = vi.hoisted(() => ({ subprocess: vi.fn(), tools: vi.fn() }));
 vi.mock("../src/utils/subprocess.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/utils/subprocess.js")>()),
-	runSubprocess: subprocess,
+	runSubprocess: (await import("./helpers/dotnet-solution-list.js")).withDotnetSolutionList(
+		subprocess,
+	),
 }));
 vi.mock("../src/utils/discovery-tools.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/utils/discovery-tools.js")>()),

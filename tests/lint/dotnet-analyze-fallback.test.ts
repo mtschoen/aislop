@@ -8,7 +8,8 @@ const { runSubprocess } = vi.hoisted(() => ({ runSubprocess: vi.fn() }));
 
 vi.mock("../../src/utils/subprocess.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../../src/utils/subprocess.js")>();
-	return { ...actual, runSubprocess };
+	const { withDotnetSolutionList } = await import("../helpers/dotnet-solution-list.js");
+	return { ...actual, runSubprocess: withDotnetSolutionList(runSubprocess) };
 });
 
 const { runDotnetLint } = await import("../../src/engines/lint/dotnet.js");

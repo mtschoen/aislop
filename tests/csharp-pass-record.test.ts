@@ -18,7 +18,9 @@ import { buildSarifLog } from "../src/output/sarif.js";
 const { subprocess } = vi.hoisted(() => ({ subprocess: vi.fn() }));
 vi.mock("../src/utils/subprocess.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/utils/subprocess.js")>()),
-	runSubprocess: subprocess,
+	runSubprocess: (await import("./helpers/dotnet-solution-list.js")).withDotnetSolutionList(
+		subprocess,
+	),
 }));
 vi.mock("../src/utils/tooling.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/utils/tooling.js")>()),
@@ -414,6 +416,7 @@ describe("C# pass execution record", () => {
 		it.each([
 			["T?o;Display*", ["One/One.csproj", "Two/Two.csproj"]],
 			["Nothing*", []],
+			["One", []],
 		])(
 			"records the intersection of the --project scope %s and the solution members",
 			async (jbProjects, analyzedProjects) => {
@@ -433,10 +436,7 @@ describe("C# pass execution record", () => {
 			["a report cut off inside the Issues tag", "<Report><IssueTypes /><Issues"],
 			["a report without a closing Report tag", "<Report><IssueTypes /><Issues />"],
 			["a report with an unclosed Issues section", "<Report><IssueTypes /><Issues>"],
-			[
-				"a report whose Issues section never closes",
-				"<Report><IssueTypes /><Issues></Report>",
-			],
+			["a report whose Issues section never closes", "<Report><IssueTypes /><Issues></Report>"],
 			["a comment-only report", "<!-- <Report><Issues /></Report> -->"],
 			["a report hidden in a comment", "<!-- <Report><Issues -->"],
 		])("records %s as failed", async (_label, report) => {

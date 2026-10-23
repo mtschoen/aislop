@@ -130,6 +130,15 @@ const ignoredInsideEmbeddedRepository = (rootDirectory: string, files: string[])
 	return result.stdout.split("\0").filter((file) => file.length > 0);
 };
 
+// Classify paths that may not exist on disk via `git check-ignore`, unlike
+// `getIgnoredPaths`, which relies on `git ls-files` and requires on-disk paths.
+export const getGitIgnoredPaths = (rootDirectory: string, files: string[]): Set<string> => {
+	if (files.length === 0) return new Set<string>();
+	const snapshot = getRootSnapshot(rootDirectory);
+	if (snapshot.gitInvocationFailed) return new Set<string>();
+	return new Set(ignoredInsideEmbeddedRepository(rootDirectory, files));
+};
+
 // The subset of `files` (relative to rootDirectory) that git would ignore. Returns an
 // empty set outside a git repo or on any git failure, so callers fall back to keeping
 // every path rather than dropping work they cannot classify. Callers pass paths that exist

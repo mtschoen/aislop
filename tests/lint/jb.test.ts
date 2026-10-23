@@ -14,7 +14,8 @@ import type { EngineContext } from "../../src/engines/types.js";
 const { runSubprocessMock } = vi.hoisted(() => ({ runSubprocessMock: vi.fn() }));
 vi.mock("../../src/utils/subprocess.js", async (importOriginal) => {
 	const original = await importOriginal<typeof import("../../src/utils/subprocess.js")>();
-	return { ...original, runSubprocess: runSubprocessMock };
+	const { withDotnetSolutionList } = await import("../helpers/dotnet-solution-list.js");
+	return { ...original, runSubprocess: withDotnetSolutionList(runSubprocessMock) };
 });
 
 const fixture = (): string =>

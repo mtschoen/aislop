@@ -17,6 +17,7 @@ import type {
 	EngineContext,
 	EngineFailure,
 } from "../types.js";
+import { checkSolutionCoverage } from "./csharp-coverage.js";
 import {
 	buildExecution,
 	type CsharpProjectInventory,
@@ -211,6 +212,15 @@ export const runDotnetLint = async (
 							: csharpInventory.visibleProjects.includes(project),
 					);
 				analyzedProjects.push(...memberProjects);
+				const incomplete = await checkSolutionCoverage({
+					tool: ROSLYNATOR_TOOL,
+					rootDirectory: context.rootDirectory,
+					solutionPath: target,
+					inventory: csharpInventory,
+					analyzedProjects,
+					excludePatterns: context.excludePatterns,
+				});
+				if (incomplete) failures.push(incomplete);
 			} else {
 				analyzedProjects.push(toRelative(context, target));
 			}
