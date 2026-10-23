@@ -222,7 +222,7 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/duplicate-import` | warning | Multiple imports from the same module that should be merged |
 | `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config; Python docstring content is exempt (see notes below the table) |
 | `ai-slop/hardcoded-id` | warning | Provider/project IDs hardcoded in production code instead of env/config |
-| `ai-slop/hardcoded-user-path` | warning | Configured or runtime home-directory paths hardcoded in source or tests instead of runtime APIs/config |
+| `ai-slop/hardcoded-user-path` | warning | Home-directory paths (`/home/<name>`, `/Users/<name>`, `<drive>:\Users\<name>`, configured roots) hardcoded in source or tests instead of runtime APIs/config |
 | `ai-slop/repeated-magic-literal` | warning | The same name and value pair repeats more than `quality.repeatedLiteralThreshold` times in supported Python, JavaScript, or TypeScript source, regardless of surrounding structure |
 | `ai-slop/python-bare-except` | warning | Python `except:` blocks that catch everything without naming an exception type |
 | `ai-slop/python-broad-except` | warning | Python broad exception handlers with silent/pass-style bodies |
@@ -597,9 +597,12 @@ rules:
 ### Hardcoded user paths (`ai-slop/hardcoded-user-path`)
 
 **What is reported.** This rule reports hardcoded machine-bound home paths in source and test files.
-The decision surface is a closed list of banned home roots: the current process home directory
-returned by `os.homedir()`, plus any roots listed under `aiSlop.hardcodedUserPath.bannedRoots` in
-`.aislop/config.yml`. Given a banned root of `/home/alice`, both the exact root and its descendants
+The decision surface is two closed lists. First, three fixed shapes, matched for any user name
+that is not a placeholder: `/home/<name>/`, `/Users/<name>/` and `<drive>:\Users\<name>\` (either
+separator, raw or source-escaped), plus the `file:` forms of each. Second, any roots listed under
+`aiSlop.hardcodedUserPath.bannedRoots` in `.aislop/config.yml`, for non-standard roots such as
+`/mnt/data/<name>`. The verdict depends only on the scanned text and the configuration, never on
+the account that runs the scan. Given a banned root of `/home/alice`, both the exact root and its descendants
 are reported:
 
 ```text
@@ -624,50 +627,63 @@ case-sensitive; Windows matching is case-insensitive. When two banned roots over
 path (for example `/home/alice` and `/home/alice/project` both configured), only one diagnostic is
 reported.
 
-**Why `os.homedir()` alone is not enough.** In CI, `os.homedir()` is the runner's home directory,
-not a developer's, so a committed `/home/alice/...` path never matches there. Configure
-`bannedRoots` for any home directory that should be caught regardless of which machine runs the
-scan:
+**Configuring non-standard roots.** `bannedRoots` covers homes that do not follow the standard
+shapes:
 
 ```yaml
 aiSlop:
   hardcodedUserPath:
     bannedRoots:
-      - /home/alice
+      - /mnt/data/team
 ```
 
 Each configured root must be absolute (a POSIX `/...` root, a Windows drive root, or a UNC root);
 see [docs/configuration.md](configuration.md#hardcoded-user-path-roots) for the exact forms
 accepted and what happens to a non-absolute entry.
 
-**The runtime seed is skipped for placeholder and CI service accounts.** Seeding a banned root
-from `os.homedir()` when that account is itself a placeholder (`runner`, `runneradmin`, `user`,
-`username`, `default`, `defaultuser`, `example`, `public`, `shared`, `someone`, `me`, `your-name`,
-`yourname`, or anything starting with `runner~`) would flag paths bound to the CI runner instead
-of paths bound to a real person, so the seed is dropped in that case. A path under
-`/home/runner/work/repo` is never reported unless `/home/runner` is explicitly configured.
+**Placeholder names are not reported.** Under the standard shapes these user name segments are
+never reported, matched case-insensitively: `runner`, `runneradmin`, `root`, `user`, `username`,
+`default`, `defaultuser`, `example`, `public`, `shared`, `someone`, `me`, `your-name`, `yourname`,
+and anything starting with `runner~`. Use `example` in fixtures and docs (for example
+`/home/example/project` or `C:\Users\example\project`). Every other name is reported, including
+`alice`, because it is plausibly a real account. The list is planned to shrink to `example`,
+`someone` and `me` (see
+[issue 140](https://gitea.fleet.sticktoitive.net/schoen/aislop/issues/140)).
+
+**Escape hatches for a legitimate literal path.** Pick the narrowest that fits:
+
+- `aiSlop.hardcodedUserPath.allowedPlaceholders` in `.aislop/config.yml` lists further user-name
+  segments to exempt under the standard shapes (plain segments, no `/` or `\`, case-insensitive).
+- A per-file override turns the rule off for a glob, for example `templates/**`, by setting
+  `ai-slop/hardcoded-user-path: off` under `rules` in an `overrides` entry in `.aislop/config.yml`
+  (see [ordered per-file overrides](configuration.md#ordered-per-file-overrides)).
+- The inline comment `// aislop-ignore-next-line ai-slop/hardcoded-user-path -- reason` covers a
+  single line.
+
+The name exemption applies to the standard shapes only; a root listed in `bannedRoots` is reported
+whatever its name.
 
 **Why the boundary is narrow.** The rule does not infer whether an arbitrary `/home/<name>` string
 is a filesystem path, web route, placeholder, or another account. That semantic question has no
-sound syntactic answer across every language aislop scans. Restricting the match to the closed list
-of banned roots makes the question finite and avoids growing an exclusion list to guess at routes.
+sound syntactic answer across every language aislop scans. Restricting the match to fixed shapes plus the configured
+`bannedRoots` makes the question finite and avoids growing an exclusion list to guess at routes.
 
-**Known non-detections.** A home path bound to an account that is neither the runtime seed nor
-configured in `bannedRoots` is not reported. For example, `/home/bob/project` is deliberately
-ignored when aislop runs with `/home/alice` as its only banned root. Configure `bannedRoots` for
-every account whose paths should be caught in CI. Relative paths and home-like suffixes inside
-another absolute path are also outside the rule:
+**Known non-detections.** Deliberately not reported: WSL mounts (`/mnt/c/Users/<name>`), `~user`
+spellings, `/root` (it is not a `/home/<name>` shape), the legacy Windows `Documents and Settings` root, user names containing whitespace (names end at whitespace like every other path token, so
+`C:/Users/Alice Doe/` is read as `Alice`), UNC homes unless listed in
+`bannedRoots`, template or glob names (`/home/$USER`, `/home/*`, `<name>`), and relative paths or
+home-like suffixes inside another token. Add a root to `bannedRoots` to catch a non-standard
+shape. Examples outside the rule:
 
 ```text
-home/alice/project
-/srv/site/home/alice/project
+home/example/project
+/srv/site/home/zed/project
 ```
 
 HTTP and HTTPS URLs are consumed as opaque URL tokens before home paths are considered, so their
 route segments are not reported. A local `file:` URL remains machine-bound and is reported. The
 rule never attempts to distinguish a filesystem path from a web route by its shape; a route that
-happens to share a banned root's literal text (for example `/home/alice/summary` as a URL path
-when `/home/alice` is banned) is reported the same as a filesystem path would be, because the rule
+happens to spell a home shape (for example `/home/zed/summary` as a URL path) is reported the same as a filesystem path would be, because the rule
 has no sound way to tell them apart.
 
 **Suppress intentional matches at the site.** Use `aislop` suppression comments with a realistic reason:

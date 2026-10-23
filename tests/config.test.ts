@@ -123,7 +123,7 @@ describe("parseConfig", () => {
 			result = parseConfig({
 				aiSlop: {
 					hardcodedUserPath: {
-						bannedRoots: ["alice", "/home/alice", "home/bob"],
+						bannedRoots: ["example", "/home/example", "home/someone"],
 					},
 				},
 				ci: { format: "sarif" },
@@ -131,9 +131,9 @@ describe("parseConfig", () => {
 			});
 		});
 
-		expect(result.aiSlop.hardcodedUserPath.bannedRoots).toEqual(["/home/alice"]);
-		expect(stderr).toContain('aiSlop.hardcodedUserPath.bannedRoots.0 = "alice"');
-		expect(stderr).toContain('aiSlop.hardcodedUserPath.bannedRoots.2 = "home/bob"');
+		expect(result.aiSlop.hardcodedUserPath.bannedRoots).toEqual(["/home/example"]);
+		expect(stderr).toContain('aiSlop.hardcodedUserPath.bannedRoots.0 = "example"');
+		expect(stderr).toContain('aiSlop.hardcodedUserPath.bannedRoots.2 = "home/someone"');
 		expect(stderr).toContain('ci.format = "sarif"');
 		expect(stderr).toContain("quality.maxNesting = 0");
 	});
@@ -341,9 +341,9 @@ describe("parseConfig bannedRoots validation", () => {
 	});
 
 	it.each([
-		["/home/schoen", "POSIX"],
-		[String.raw`C:\Users\alice`, "Windows drive (backslash)"],
-		["C:/Users/alice", "Windows drive (forward slash)"],
+		["/home/example", "POSIX"],
+		[String.raw`C:\Users\example`, "Windows drive (backslash)"],
+		["C:/Users/example", "Windows drive (forward slash)"],
 		[String.raw`\\server\profiles\alice`, "UNC"],
 	])("accepts an absolute root: %s (%s)", (root) => {
 		const cfg = parseConfig({ aiSlop: { hardcodedUserPath: { bannedRoots: [root] } } });
@@ -366,6 +366,34 @@ describe("parseConfig bannedRoots validation", () => {
 		expect(stderr).toContain("bannedRoots");
 		expect(stderr).toContain(JSON.stringify(root));
 		expect(stderr).not.toContain("Using default configuration");
+	});
+
+	it("defaults allowedPlaceholders to an empty list", () => {
+		expect(parseConfig({}).aiSlop.hardcodedUserPath.allowedPlaceholders).toEqual([]);
+	});
+
+	it("accepts plain allowedPlaceholders segments", () => {
+		const cfg = parseConfig({
+			aiSlop: { hardcodedUserPath: { allowedPlaceholders: ["fixture-user", "Other"] } },
+		});
+		expect(cfg.aiSlop.hardcodedUserPath.allowedPlaceholders).toEqual(["fixture-user", "Other"]);
+	});
+
+	it.each([
+		["a POSIX separator", "home/fixture"],
+		["a trailing POSIX separator", "fixture/"],
+		["a Windows separator", "C:\\Users"],
+		["a leading Windows separator", "\\fixture"],
+		["an empty string", ""],
+	])("rejects an allowedPlaceholders entry with %s", (_, entry) => {
+		let cfg = parseConfig({});
+		const stderr = withStderr(() => {
+			cfg = parseConfig({ aiSlop: { hardcodedUserPath: { allowedPlaceholders: [entry] } } });
+		});
+
+		expect(cfg.aiSlop.hardcodedUserPath.allowedPlaceholders).toEqual([]);
+		expect(stderr).toContain("Invalid aislop configuration");
+		expect(stderr).toContain("allowedPlaceholders");
 	});
 });
 

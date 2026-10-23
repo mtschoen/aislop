@@ -115,10 +115,10 @@ describe("aislop_scan tool", () => {
 				"aiSlop:",
 				"  hardcodedUserPath:",
 				"    bannedRoots:",
-				"      - /home/mcp-review-target",
+				"      - /home/example",
 			].join("\n"),
 		);
-		writeFile("src/launch.ts", 'const tool = "/home/mcp-review-target/project/tool";\n');
+		writeFile("src/launch.ts", 'const tool = "/home/example/project/tool";\n');
 
 		const result = await withCwd(tmpDir, () => handleAislopScan({ path: "." }));
 

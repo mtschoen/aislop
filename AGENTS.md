@@ -243,9 +243,6 @@ git-wizard's gate does for jb and roslynator.
 
 Known violations, to be closed rather than copied:
 
-- `ai-slop/hardcoded-user-path` seeds its banned roots from `os.homedir()`, so
-  a tree scores differently per account
-  ([issue 101](https://gitea.fleet.sticktoitive.net/schoen/aislop/issues/101)).
 - `docs/rules.md` documents missing C# and C/C++ tooling as silently skipped.
 
 ## Adding new AI slop rules

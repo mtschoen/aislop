@@ -71,7 +71,7 @@ describe("formatUpdateNotice", () => {
 
 describe("resolveUpdateCachePath", () => {
 	it("defaults under the home .aislop dir", () => {
-		const cachePath = resolveUpdateCachePath("/home/alice", {});
+		const cachePath = resolveUpdateCachePath("/home/example", {});
 		expect(cachePath).toContain(".aislop");
 		expect(cachePath).toContain("update_check.json");
 	});

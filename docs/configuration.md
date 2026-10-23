@@ -30,6 +30,7 @@ security:
 aiSlop:
   hardcodedUserPath:
     bannedRoots: []
+    allowedPlaceholders: []
   testSpawnTimeout:
     wrapperNames: [run_captured, run_command, _run]
     helperPaths: []
@@ -214,25 +215,31 @@ new findings and do not change the exit code.
 ## Hardcoded user path roots
 
 `ai-slop/hardcoded-user-path` flags hardcoded home-directory paths (see
-[docs/rules.md](rules.md#hardcoded-user-paths-ai-slophardcoded-user-path)). It always checks the
-current process home directory (`os.homedir()`), unless that directory is a placeholder or CI
-service account. Add extra roots so the rule catches paths bound to accounts other than the one
-running the scan, for example a developer's home directory when scanning in CI:
+[docs/rules.md](rules.md#hardcoded-user-paths-ai-slophardcoded-user-path)). It always flags the
+standard home shapes `/home/<name>/`, `/Users/<name>/` and `<drive>:\Users\<name>\` (and their
+`file:` forms) for any user name other than the placeholders listed in docs/rules.md (`example` is the one to use
+in fixtures and docs, e.g. `/home/example/project`). Two keys adjust that:
+
+- `bannedRoots` adds home roots of a non-standard shape, for example `/mnt/data/<name>`.
+- `allowedPlaceholders` lists user-name segments (beyond the built-in placeholders) that are not flagged under the standard
+  shapes. Entries are plain segments (no `/` or `\`), matched case-insensitively.
 
 ```yaml
 aiSlop:
   hardcodedUserPath:
     bannedRoots:
-      - /home/alice
-      - C:\Users\alice
+      - /mnt/data/team
+    allowedPlaceholders:
+      - fixture-user
 ```
 
-Each entry must be an absolute path: a POSIX root starting with `/`, a Windows drive root
+Each `bannedRoots` entry must be an absolute path: a POSIX root starting with `/`, a Windows drive root
 (`C:\...` or `C:/...`), or a UNC root (`\\server\share...`). A relative or bare entry (`alice`,
 `home/alice`) is rejected rather than silently matched, because it would build a matcher with no
 path-boundary requirement and flag ordinary identifiers instead of hardcoded paths. Each rejected
 entry is dropped and reported by path and value; valid entries and all other valid configuration
-fields remain in effect.
+fields remain in effect. An `allowedPlaceholders` entry containing `/` or `\` is rejected the same
+way.
 
 File length counts every physical line, including blank and comment lines. `.tsx`, `.jsx`, and `.go` files get 1.5x `maxFileLoc`, Rust and C/C++ files 2.5x, and `.d.ts` and data-only files are skipped. Function length runs from the signature to the closing brace, minus lines inside multi-line template literals. Python counts only the logical body code (no signature, docstrings, comments, or blank lines). React components get 2x `maxFunctionLoc`, and Rust functions 1.5x.
 

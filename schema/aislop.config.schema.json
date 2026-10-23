@@ -259,7 +259,8 @@
 		"aiSlop": {
 			"default": {
 				"hardcodedUserPath": {
-					"bannedRoots": []
+					"bannedRoots": [],
+					"allowedPlaceholders": []
 				},
 				"testSpawnTimeout": {
 					"wrapperNames": [
@@ -274,7 +275,8 @@
 			"properties": {
 				"hardcodedUserPath": {
 					"default": {
-						"bannedRoots": []
+						"bannedRoots": [],
+						"allowedPlaceholders": []
 					},
 					"type": "object",
 					"properties": {
@@ -283,6 +285,14 @@
 							"type": "array",
 							"items": {
 								"type": "string"
+							}
+						},
+						"allowedPlaceholders": {
+							"default": [],
+							"type": "array",
+							"items": {
+								"type": "string",
+								"pattern": "^[^\\\\/]+$"
 							}
 						}
 					}

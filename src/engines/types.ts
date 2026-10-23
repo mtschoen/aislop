@@ -121,6 +121,7 @@ export interface EngineConfig {
 	aiSlop?: {
 		hardcodedUserPath?: {
 			bannedRoots: string[];
+			allowedPlaceholders?: string[];
 		};
 		testSpawnTimeout?: {
 			wrapperNames?: string[];

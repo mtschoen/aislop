@@ -46,6 +46,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 	aiSlop: {
 		hardcodedUserPath: {
 			bannedRoots: [],
+			allowedPlaceholders: [],
 		},
 		testSpawnTimeout: {
 			wrapperNames: ["run_captured", "run_command", "_run"],

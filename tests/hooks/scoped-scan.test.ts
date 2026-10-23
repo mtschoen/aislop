@@ -205,12 +205,12 @@ describe("runScopedScan", () => {
 				"aiSlop:",
 				"  hardcodedUserPath:",
 				"    bannedRoots:",
-				"      - /home/hook-review-target",
+				"      - /home/example",
 			].join("\n"),
 		);
 		fs.mkdirSync(path.join(root, "src"), { recursive: true });
 		const changedFile = path.join(root, "src/launch.ts");
-		fs.writeFileSync(changedFile, 'const tool = "/home/hook-review-target/project/tool";\n');
+		fs.writeFileSync(changedFile, 'const tool = "/home/example/project/tool";\n');
 
 		const result = await runScopedScan(root, [changedFile]);
 

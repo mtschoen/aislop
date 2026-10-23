@@ -160,15 +160,24 @@ const BannedRootSchema = z.string().refine(isAbsoluteBannedRoot, {
 		`or a UNC root "\\\\server\\share..."), got ${JSON.stringify(issue.input)}`,
 });
 
+const AllowedPlaceholderSchema = z.string().regex(/^[^\\/]+$/, {
+	error: (issue) =>
+		`must be a plain user-name segment with no "/" or "\\" separator, got ${JSON.stringify(issue.input)}`,
+});
+
 const HardcodedUserPathSchema = z.object({
 	/**
-	 * Extra home roots to treat as machine-bound, in addition to the runtime
-	 * `os.homedir()` seed. Lets CI and teams flag paths bound to accounts other
-	 * than the one running the scan (see docs/rules.md for the seeding rules).
-	 * Must be absolute: a relative or bare entry would match ordinary
-	 * identifiers, not just hardcoded paths.
+	 * Extra home roots to treat as machine-bound, beyond the `/home/<name>`,
+	 * `/Users/<name>` and `<drive>:\Users\<name>` shapes the rule always
+	 * flags (see docs/rules.md). Must be absolute: a relative or bare entry
+	 * would match ordinary identifiers, not just hardcoded paths.
 	 */
 	bannedRoots: z.array(BannedRootSchema).default(() => []),
+	/**
+	 * User-name segments that are not flagged under the home-path shapes, in
+	 * addition to the built-in placeholder names. Matched case-insensitively.
+	 */
+	allowedPlaceholders: z.array(AllowedPlaceholderSchema).default(() => []),
 });
 
 export const DEFAULT_SPAWN_WRAPPER_NAMES = ["run_captured", "run_command", "_run"];
@@ -179,7 +188,10 @@ const TestSpawnTimeoutSchema = z.object({
 });
 
 const AiSlopConfigSchema = z.object({
-	hardcodedUserPath: HardcodedUserPathSchema.default(() => ({ bannedRoots: [] })),
+	hardcodedUserPath: HardcodedUserPathSchema.default(() => ({
+		bannedRoots: [],
+		allowedPlaceholders: [],
+	})),
 	testSpawnTimeout: TestSpawnTimeoutSchema.default(() => ({
 		wrapperNames: [...DEFAULT_SPAWN_WRAPPER_NAMES],
 		helperPaths: [],
@@ -275,7 +287,7 @@ const AislopConfigSchema = z.object({
 		acceptedAdvisories: [],
 	})),
 	aiSlop: AiSlopConfigSchema.default(() => ({
-		hardcodedUserPath: { bannedRoots: [] },
+		hardcodedUserPath: { bannedRoots: [], allowedPlaceholders: [] },
 		testSpawnTimeout: { wrapperNames: [...DEFAULT_SPAWN_WRAPPER_NAMES], helperPaths: [] },
 	})),
 	imports: ImportsSchema.default(() => ({
