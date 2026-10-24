@@ -36,6 +36,17 @@ beforeEach(() => {
 // ─── parseConfig ──────────────────────────────────────────────────────────────
 
 describe("parseConfig", () => {
+	it.each([undefined, false, true])(
+		"issue 146: project evaluation forces missing-tool failure over %s",
+		(failOnMissingTools) => {
+			expect(
+				parseConfig({
+					lint: { csharp: { projectEvaluation: true } },
+					ci: { failOnMissingTools },
+				}).ci.failOnMissingTools,
+			).toBe(true);
+		},
+	);
 	it("returns defaults when called with null", () => {
 		const result = parseConfig(null);
 		expect(result).toEqual(DEFAULT_CONFIG);

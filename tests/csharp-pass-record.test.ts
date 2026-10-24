@@ -397,21 +397,40 @@ describe("C# pass execution record", () => {
 		});
 
 		it.each([
-			["no --project scope", undefined, true],
-			["a matching --project scope", "On?;Other*", true],
-			["a nonmatching --project scope", "Other*", false],
-		])("records a clean per-project report under %s", async (_label, jbProjects, credited) => {
-			fs.unlinkSync(path.join(root, "App.sln"));
-			context.config.lint.csharp = { ...context.config.lint.csharp, jbProjects };
-			const result = await runWithJb(CLEAN_REPORT);
-			const jb = toolRecord(result, "jb inspectcode");
-			expect(jb?.status).toBe("ran");
-			if (credited) {
-				expect(jb?.analyzedProjects).toEqual(expect.arrayContaining(["One/One.csproj"]));
-			} else {
-				expect(jb?.analyzedProjects).not.toContain("One/One.csproj");
-			}
-		});
+			["no --project scope", undefined, true, true],
+			["a matching --project scope", "On?;Other*", true, false],
+			["a nonmatching --project scope", "Other*", false, false],
+		])(
+			"records a clean per-project report under %s",
+			async (_label, jbProjects, credited, expectUnrestoredFailure) => {
+				fs.unlinkSync(path.join(root, "App.sln"));
+				fs.rmSync(path.join(root, "Two", "obj", "project.assets.json"));
+				context.config.lint.csharp = {
+					...context.config.lint.csharp,
+					roslynator: false,
+					jbProjects,
+				};
+				const result = await runWithJb(CLEAN_REPORT);
+				const jb = toolRecord(result, "jb inspectcode");
+				expect(jb?.status).toBe(expectUnrestoredFailure ? "failed" : "ran");
+				if (expectUnrestoredFailure) {
+					expect(result.failures).toContainEqual(
+						expect.objectContaining({
+							tool: "jb inspectcode",
+							target: "Two/Two.csproj",
+							reason: expect.stringContaining("no restore evidence"),
+						}),
+					);
+				} else {
+					expect(result.failures ?? []).toEqual([]);
+				}
+				if (credited) {
+					expect(jb?.analyzedProjects).toEqual(expect.arrayContaining(["One/One.csproj"]));
+				} else {
+					expect(jb?.analyzedProjects).not.toContain("One/One.csproj");
+				}
+			},
+		);
 
 		it.each([
 			["T?o;Display*", ["One/One.csproj", "Two/Two.csproj"]],

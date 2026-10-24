@@ -198,11 +198,90 @@ describe("C# analyzer execution at the CI boundary", () => {
 	});
 
 	it.each(["missing", "disabled"])("keeps optional tool %s behavior", async (mode) => {
+		configuration.lint.csharp.projectEvaluation = false;
 		if (mode === "missing") tools.mockResolvedValue({ roslynator: false, jb: false });
 		else configuration.lint.csharp.projectEvaluation = false;
 		expect((await ciCommand(root, configuration)).exitCode).toBe(0);
 		expect(subprocess).not.toHaveBeenCalled();
 	});
+
+	it.each([undefined, false])(
+		"issue 146: strict evaluation fails for missing tools with failOnMissingTools=%s",
+		async (override) => {
+			configuration.lint.csharp.jb = true;
+			if (override === undefined) Reflect.deleteProperty(configuration.ci, "failOnMissingTools");
+			else configuration.ci.failOnMissingTools = override;
+			tools.mockResolvedValue({ roslynator: false, jb: false });
+			expect((await ciCommand(root, configuration)).exitCode).toBe(1);
+			const output = JSON.parse(messages.at(-1)!);
+			expect(output.engines.lint.failures).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ tool: "roslynator", reason: "roslynator tool missing" }),
+					expect.objectContaining({ tool: "jb inspectcode", reason: "jb tool missing" }),
+				]),
+			);
+		},
+	);
+
+	it.each(["roslynator", "jb"] as const)(
+		"issue 146: %s fails when no restored targets exist",
+		async (tool) => {
+			configuration.lint.csharp.roslynator = tool === "roslynator";
+			configuration.lint.csharp.jb = tool === "jb";
+			fs.rmSync(path.join(root, "App.sln"));
+			for (const name of ["One", "Two"]) {
+				fs.rmSync(path.join(root, name, "obj", "project.assets.json"));
+			}
+			expect((await ciCommand(root, configuration)).exitCode).toBe(1);
+			const output = JSON.parse(messages.at(-1)!);
+			expect(output.engines.lint.failed).toBe(true);
+			expect(output.engines.lint.failures).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						target: "One/One.csproj",
+						reason: expect.stringContaining("no restore evidence"),
+					}),
+				]),
+			);
+		},
+	);
+
+	it.each(["roslynator", "jb"] as const)(
+		"issue 146: %s fails for an unrestored member despite a successful solution report",
+		async (tool) => {
+			configuration.lint.csharp.roslynator = tool === "roslynator";
+			configuration.lint.csharp.jb = tool === "jb";
+			fs.writeFileSync(
+				path.join(root, "App.sln"),
+				["One", "Two"]
+					.map(
+						(name) =>
+							`Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "${name}", "${name}/${name}.csproj", "{${name}}"\nEndProject`,
+					)
+					.join("\n"),
+			);
+			fs.rmSync(path.join(root, "Two", "obj", "project.assets.json"));
+			subprocess.mockImplementation(async (_command: string, arguments_: string[]) => {
+				const output =
+					tool === "roslynator"
+						? arguments_[arguments_.indexOf("--output") + 1]
+						: arguments_.find((value) => value.startsWith("--output="))!.slice(9);
+				fs.writeFileSync(
+					output,
+					tool === "roslynator" ? "<Roslynator />" : "<Report><Issues /></Report>",
+				);
+				return { stdout: "", stderr: "", exitCode: 0 };
+			});
+			expect((await ciCommand(root, configuration)).exitCode).toBe(1);
+			expect(JSON.parse(messages.at(-1)!).engines.lint.failures).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						reason: expect.stringMatching(/Two\/Two.csproj.*no restore evidence/),
+					}),
+				]),
+			);
+		},
+	);
 
 	it("does not print a clean terminal status for incomplete analysis", () => {
 		const success = vi.spyOn(log, "success").mockImplementation(() => {});

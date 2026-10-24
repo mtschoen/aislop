@@ -3,8 +3,10 @@ import { isPathExcluded, normalizeExcludePatterns } from "../../utils/exclude.js
 import { getGitIgnoredPaths } from "../../utils/git-ignore.js";
 import { projectRelativePosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
+import { hasRestoreEvidence } from "../dotnet-targets.js";
 import type { EngineFailure } from "../types.js";
 import type { CsharpProjectInventory, CsharpTool } from "./csharp-execution.js";
+import { missingRestoreReason } from "./csharp-strict-evaluation.js";
 
 const SOLUTION_LIST_TIMEOUT_MILLISECONDS = 60_000;
 const PROJECT_TABLE_HEADING = "project(s)";
@@ -88,6 +90,7 @@ export interface SolutionCoverageInput {
 	/** Narrows which members this pass was asked to cover (jb --project scope). */
 	inScope?: (projectPath: string) => boolean;
 	lister?: SolutionMemberLister;
+	requireRestoreEvidence?: boolean;
 }
 
 /**
@@ -126,7 +129,12 @@ export const checkSolutionCoverage = async (
 					project.toLowerCase().endsWith(".csproj") &&
 					!exempt.has(project) &&
 					!isPathExcluded(project, normalizedExcludePatterns) &&
-					!analyzed.has(project) &&
+					(!analyzed.has(project) ||
+						(input.requireRestoreEvidence === true &&
+							!hasRestoreEvidence(
+								path.resolve(input.rootDirectory, project),
+								input.rootDirectory,
+							))) &&
 					(input.inScope?.(project) ?? true),
 			),
 		),
@@ -135,7 +143,15 @@ export const checkSolutionCoverage = async (
 	const gitIgnoredAbsent = getGitIgnoredPaths(input.rootDirectory, absentCandidates);
 	const missing = unanalyzedCandidates.filter((project) => !gitIgnoredAbsent.has(project)).sort();
 	if (missing.length === 0) return null;
-	const named = missing.slice(0, MAXIMUM_NAMED_PROJECTS).join(", ");
+	const named = missing
+		.slice(0, MAXIMUM_NAMED_PROJECTS)
+		.map((project) =>
+			input.requireRestoreEvidence &&
+			!hasRestoreEvidence(path.resolve(input.rootDirectory, project), input.rootDirectory)
+				? `${project} (${missingRestoreReason})`
+				: project,
+		)
+		.join(", ");
 	const remaining = missing.length - MAXIMUM_NAMED_PROJECTS;
 	return {
 		tool: input.tool,

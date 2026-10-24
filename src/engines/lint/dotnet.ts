@@ -26,6 +26,7 @@ import {
 	isSolutionTarget,
 	toRelative,
 } from "./csharp-execution.js";
+import { unrestoredProjectFailures } from "./csharp-strict-evaluation.js";
 import { decodeEntities } from "./xml-entities.js";
 
 // Diagnostic IDs from the bundled analyzers that map onto aislop's AI-slop thesis.
@@ -168,10 +169,11 @@ export const runDotnetLint = async (
 	const csharpInventory = inventory ?? createCsharpProjectInventory(context);
 	const selection = findDotnetTargets(context, csharpInventory);
 	const notice = projectsSkippedNotice(selection, context.rootDirectory);
+	const failures = unrestoredProjectFailures(context, ROSLYNATOR_TOOL, selection);
 	if (selection.targets.length === 0) {
 		return {
 			diagnostics: notice,
-			failures: [],
+			failures,
 			executions: [
 				{
 					...buildExecution(context, {
@@ -196,7 +198,6 @@ export const runDotnetLint = async (
 	// when none are bundled, roslynator still runs the project's own analyzers.
 	const analyzerAssemblies = resolveBundledAnalyzerAssemblies();
 	const diagnostics: Diagnostic[] = [];
-	const failures: EngineFailure[] = [];
 	for (const target of selection.targets) {
 		attemptedTargets.push(toRelative(context, target));
 		const result = await analyzeTarget(context, roslynator, analyzerAssemblies, target);
@@ -219,6 +220,7 @@ export const runDotnetLint = async (
 					inventory: csharpInventory,
 					analyzedProjects,
 					excludePatterns: context.excludePatterns,
+					requireRestoreEvidence: context.config.lint.csharp?.projectEvaluation === true,
 				});
 				if (incomplete) failures.push(incomplete);
 			} else {

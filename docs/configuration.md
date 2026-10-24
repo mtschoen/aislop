@@ -340,3 +340,6 @@ See the [examples/](../examples/) directory for pre-built configs:
 - [`typescript-strict.yml`](../examples/typescript-strict.yml): tight thresholds for zero-slop teams
 - [`monorepo-relaxed.yml`](../examples/monorepo-relaxed.yml): loose thresholds for incremental adoption
 - [`python-go.yml`](../examples/python-go.yml): backend-focused with higher security weight
+## Strict C# project evaluation
+
+Setting `lint.csharp.projectEvaluation: true` forces `ci.failOnMissingTools: true`, even if `ci.failOnMissingTools` is explicitly `false`. Enabled C# analyzers missing from PATH or lacking solution or restored project targets fail CI. Missing restore evidence (`project.assets.json`) also fails CI for an individual project or an unrestored member of an otherwise restored solution. Run `dotnet restore` before scanning. Explicitly disabled analyzers stay disabled. With project evaluation off, `failOnMissingTools` defaults to `false` and optional-tool behavior is unchanged.

@@ -326,6 +326,11 @@ const defaults: AislopConfig = AislopConfigSchema.parse({});
 
 const mergeScoringWeightDefaults = (configuration: AislopConfig): AislopConfig => ({
 	...configuration,
+	ci: {
+		...configuration.ci,
+		failOnMissingTools:
+			configuration.lint.csharp.projectEvaluation || configuration.ci.failOnMissingTools,
+	},
 	scoring: {
 		...configuration.scoring,
 		weights: { ...DEFAULT_WEIGHTS, ...configuration.scoring.weights },

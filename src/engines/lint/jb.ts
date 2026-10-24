@@ -10,7 +10,6 @@ import type {
 	AnalyzerRunResult,
 	Diagnostic,
 	EngineContext,
-	EngineFailure,
 	Severity,
 } from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
@@ -23,6 +22,7 @@ import {
 	isSolutionTarget,
 	toRelative,
 } from "./csharp-execution.js";
+import { unrestoredProjectFailures } from "./csharp-strict-evaluation.js";
 import { decodeEntities, xmlAttribute } from "./xml-entities.js";
 
 const JB_TOOL: AnalyzerExecution["tool"] = "jb inspectcode";
@@ -286,6 +286,17 @@ export const runJbLint = async (
 ): Promise<AnalyzerRunResult> => {
 	const csharpInventory = inventory ?? createCsharpProjectInventory(context);
 	const selection = findJbTargets(context, csharpInventory);
+	const csharp = resolveCsharpLintConfig(context);
+	const cpp = resolveCppLintConfig(context);
+	const projectScope = buildJbProjectScope(
+		options.includeCsharp ? csharp.jbProjects : undefined,
+		options.includeCpp ? cpp.jbProjects : undefined,
+	);
+	const failures = options.includeCsharp
+		? unrestoredProjectFailures(context, JB_TOOL, selection, (projectPath) =>
+				projectNameInScope(path.basename(projectPath, path.extname(projectPath)), projectScope),
+			)
+		: [];
 	// Only the C# side owns the notice: a C++-only inspection has no stake in
 	// skipped .csproj projects (and would misattribute them to C++ lint).
 	const notice = options.includeCsharp
@@ -294,7 +305,7 @@ export const runJbLint = async (
 	if (selection.targets.length === 0) {
 		return {
 			diagnostics: notice,
-			failures: [],
+			failures,
 			executions: options.includeCsharp
 				? [
 						{
@@ -314,15 +325,9 @@ export const runJbLint = async (
 		};
 	}
 	const startedAt = Date.now();
-	const csharp = resolveCsharpLintConfig(context);
-	const cpp = resolveCppLintConfig(context);
 	const jbBinary = resolveToolBinary("jb"); // not bundled -> resolves to "jb" on PATH
 	const settings = resolveBundledJbSettings();
 
-	const projectScope = buildJbProjectScope(
-		options.includeCsharp ? csharp.jbProjects : undefined,
-		options.includeCpp ? cpp.jbProjects : undefined,
-	);
 	const coarseFloor = minSeverityFloor(
 		options.includeCsharp ? csharp.jbSeverityFloor : "ERROR",
 		options.includeCpp ? cpp.jbSeverityFloor : "ERROR",
@@ -339,7 +344,6 @@ export const runJbLint = async (
 	};
 
 	const diagnostics: Diagnostic[] = [];
-	const failures: EngineFailure[] = [];
 	const analyzedProjects: string[] = [];
 	for (const target of selection.targets) {
 		const result = await analyzeJbTarget(
@@ -377,6 +381,7 @@ export const runJbLint = async (
 						inventory: csharpInventory,
 						analyzedProjects,
 						excludePatterns: context.excludePatterns,
+						requireRestoreEvidence: context.config.lint.csharp?.projectEvaluation === true,
 						inScope: (projectPath) =>
 							(
 								solution.byPath.get(projectPath)?.map((project) => project.name) ?? [

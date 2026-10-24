@@ -16,6 +16,7 @@ import {
 	notSelectedExecution,
 	notSelectedReason,
 } from "./csharp-execution.js";
+import { notSelectedFailures } from "./csharp-strict-evaluation.js";
 import { runDotnetLint } from "./dotnet.js";
 import { runExpoDoctor } from "./expo-doctor.js";
 import { runGenericLinter } from "./generic.js";
@@ -123,6 +124,7 @@ export const lintEngine: Engine = {
 		const executions: AnalyzerExecution[] = [];
 		const collectAnalyzerResult = (result: AnalyzerRunResult): Diagnostic[] => {
 			failures.push(...result.failures);
+			failures.push(...notSelectedFailures(context, result.executions ?? []));
 			executions.push(...(result.executions ?? []));
 			return result.diagnostics;
 		};
@@ -207,6 +209,7 @@ export const lintEngine: Engine = {
 				if (reason) notSelected.push(notSelectedExecution(context, tool, reason, csharpInventory));
 			}
 		}
+		failures.push(...notSelectedFailures(context, notSelected));
 		if (promises.length === 0) {
 			return withMissingTools(
 				{
@@ -214,6 +217,7 @@ export const lintEngine: Engine = {
 					diagnostics,
 					elapsed: 0,
 					skipped: true,
+					...(failures.length > 0 ? { failures, failed: true } : {}),
 					skipReason: "no linter for the detected languages",
 					...(notSelected.length > 0 ? { executions: notSelected } : {}),
 				},

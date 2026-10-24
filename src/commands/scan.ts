@@ -174,7 +174,7 @@ const runScanBody = async (prepared: PreparedScan, config: AislopConfig, options
 		score: scoreResult.score,
 		failBelow: config.ci.failBelow,
 		missingTools: missingTools.length > 0,
-		failOnMissingTools: config.ci.failOnMissingTools,
+		failOnMissingTools: config.lint.csharp.projectEvaluation || config.ci.failOnMissingTools,
 		newFindings: baselineSummary?.new,
 	});
 

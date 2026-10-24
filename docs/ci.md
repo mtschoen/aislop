@@ -138,6 +138,8 @@ ci:
   failOnMissingTools: true
 ```
 
+`failOnMissingTools` defaults to `false`, but `lint.csharp.projectEvaluation: true` forces it to `true`, overriding even an explicit `false`. This applies to all reported missing tools, not just C# tools. Enabled C# analyzers that are `not-selected` because their tool is missing or there are no solution or restored project targets also produce engine failures. Projects skipped for missing `project.assets.json` restore evidence produce engine failures naming the tool, project, and restore action. This includes an unrestored member of an otherwise restored solution, even when the analyzer writes a successful report. Run `dotnet restore` before the gate. Explicitly disabled analyzers remain disabled; with project evaluation off, optional-tool behavior is unchanged.
+
 ## Baseline: fail only on new findings
 
 Adopting aislop on an existing codebase does not have to block CI until every finding is fixed. A baseline records the findings you accept today, and `aislop ci` then fails only on findings that are not in it.

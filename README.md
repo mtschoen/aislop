@@ -450,6 +450,8 @@ ci:
 
 `aislop ci` exits 1 for a below-threshold score, failing findings, or unresolved C# analyzer target failures. Docs: [CI/CD](docs/ci.md)
 
+`lint.csharp.projectEvaluation: true` enables strict evaluation: it forces `ci.failOnMissingTools: true`, even over an explicit `false`. Enabled C# analyzers missing from PATH or without restored targets fail the gate, as does a project missing restore evidence, including a member of an otherwise restored solution. Run `dotnet restore` before scanning.
+
 ---
 
 ## For teams
