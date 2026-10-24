@@ -59,10 +59,20 @@ else
   fi
 fi
 
-# `pnpm install` runs the package's prepare script, which builds dist/. The
-# packageManager pin decides the pnpm version, so invoke pnpm through the
-# checkout rather than assuming the caller's pnpm matches.
+# `pnpm install --frozen-lockfile` does not reliably re-run `prepare` on an
+# already-installed checkout when `pnpm-lock.yaml` has not changed, so run
+# `pnpm build` explicitly afterward to ensure `dist/` and `dist/build-info.json`
+# reflect the updated HEAD. The packageManager pin decides the pnpm version, so
+# invoke pnpm through the checkout rather than assuming the caller's pnpm matches.
 cd "$checkoutDirectory"
 pnpm install --frozen-lockfile
+pnpm build
+
+headCommit="$(git rev-parse HEAD)"
+buildCommit="$(node -p 'try { JSON.parse(require("node:fs").readFileSync("dist/build-info.json", "utf8")).commit || "" } catch { "" }')"
+if [ "$buildCommit" != "$headCommit" ]; then
+  echo "ERROR: dist/build-info.json commit ($buildCommit) does not match HEAD ($headCommit) in $checkoutDirectory." >&2
+  exit 1
+fi
 
 node dist/cli.js --version

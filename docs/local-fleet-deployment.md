@@ -30,13 +30,15 @@ Each fleet machine resolves `aislop` to a checkout at `~/aislop` owned by the
 interactive user. Refresh it as that user:
 
 ```bash
-scripts/update-local-checkout.sh    # fetch schoen/main, install, rebuild dist/
+scripts/update-local-checkout.sh    # fetch schoen/main, install, rebuild dist/, assert build-info matches HEAD
 ```
 
 The [refresh script](../scripts/update-local-checkout.sh) honors `AISLOP_HOME`
 (default `~/aislop`) and bootstraps the checkout by cloning from Gitea when it
-is absent. It runs on Linux and Windows under Git Bash. Installation runs the
-package's prepare build; its package-manager pin selects pnpm.
+is absent. It runs on Linux and Windows under Git Bash. Its package-manager pin
+selects pnpm for `pnpm install --frozen-lockfile`, then it explicitly runs
+`pnpm build` (tsdown) and asserts that the `.commit` field in
+`dist/build-info.json` matches `git rev-parse HEAD` before exiting.
 
 Nothing refreshes a machine install on its own.
 [`sync-consumers.yml`](../.gitea/workflows/sync-consumers.yml) bumps consumer
