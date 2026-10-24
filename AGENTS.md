@@ -1,381 +1,192 @@
 # AI Agent Instructions for aislop
 
-This file provides context for AI coding assistants (Claude Code, OpenCode, Copilot, Cursor, etc.) working on the aislop codebase.
+aislop is a unified code-quality CLI: formatting, linting, code-quality,
+AI-pattern, architecture, and security checks; density-aware score out of 100.
 
-## What is aislop?
-
-aislop is a unified code-quality CLI that catches the lazy patterns AI coding tools leave behind. It runs formatting, linting, code-quality, AI-pattern, architecture, and security checks behind a single command and returns a score out of 100.
-
-- **npm package**: `aislop`
-- **CLI binary**: `aislop`
-- **Config directory**: `.aislop/`
-- **Repository**: https://github.com/scanaislop/aislop
+- npm package and CLI binary: `aislop`; configuration directory: `.aislop/`
+- Upstream repository: https://github.com/scanaislop/aislop
+- **Must read [Agent development details](docs/agent-development.md) in full**
+  before designing/changing/reviewing detectors or changing architecture or
+  navigating the engine layout.
+- **Must read [Local and fleet deployment](docs/local-fleet-deployment.md) in
+  full** before linking builds, refreshing/diagnosing fleet installs, changing
+  wrappers, or publishing the fork. Linked instructions are mandatory for that
+  work; the core rules below still apply.
 
 ## Build & test commands
 
 ```bash
 pnpm install           # Install dependencies
-pnpm build             # Build with tsdown (tsdown cleans dist itself)
+pnpm build             # Build with tsdown (cleans dist itself)
 pnpm typecheck         # tsc --noEmit
 pnpm test              # Build + vitest run
-pnpm vitest run        # Run tests without rebuilding (faster iteration)
-pnpm test:coverage     # Run tests with V8 line coverage and Cobertura output
+pnpm vitest run        # Tests without rebuilding (faster iteration)
+pnpm test:coverage     # V8 line coverage and Cobertura output
 pnpm scan              # Build + run aislop on itself
 node dist/cli.js scan . # Run after building manually
 ```
 
-## Cross-platform scripts
+All changes should pass:
+`pnpm typecheck && pnpm test && pnpm test:coverage && pnpm scan`.
 
-Contributors and CI run on Linux, macOS, and Windows. Keep `package.json`
-scripts portable:
+## Architecture and naming
 
-- **No Unix-only shell in scripts.** `rm -rf`, `cp`, `mv`, etc. fail under
-  cmd.exe on Windows. tsdown already cleans its output directory before each
-  build, so an explicit `rm -rf dist` is redundant; the `build` script is just
-  `tsdown`.
-- **No `VAR=value cmd` prefixes.** cmd.exe cannot parse a leading env-var
-  assignment, so `NODE_ENV=production tsdown` errors with
-  `'NODE_ENV' is not recognized`. If a script genuinely needs an env var set
-  cross-platform, add the `cross-env` dev dependency and use
-  `cross-env VAR=value cmd`.
-- **A green Linux CI run is not a Windows guarantee.** A handful of
-  path/permission tests (home-dir resolution, `0600` permission bits,
-  repo-relative path conversion) are environment-specific and may fail locally
-  on Windows while passing in CI. Emit forward-slash paths in diagnostics so
-  `/`-anchored classifiers match on every OS.
+- TypeScript strict mode, ES2022 target, bundler module resolution.
+- Zod v4: import from `"zod/v4"`, not `"zod"`.
+- tsdown (rolldown-based) bundles the CLI and public API, plus MCP and framework
+  adapter entries; see `tsdown.config.ts`. It injects the `package.json` version
+  through `env.VERSION` (with an environment override); use `process.env.VERSION`.
+- vitest has a 30-second timeout; pnpm uses `pnpm-workspace.yaml` and
+  `pnpm-lock.yaml`.
+- Node `^22.18 || >=24.11` is required to run, build, and test; CI uses 22 and 24.
+- `aislop` is the package/binary/config branding. **Do not rename** `ai-slop`,
+  the internal engine name and rule prefix (e.g. `ai-slop/trivial-comment`), or
+  `"AI Slop"`, the diagnostic category label.
 
-## Writing conventions
+## Workflow and permissions
 
-- **No hard-coded machine-specific paths** in shipped code (e.g.
-  `C:\Users\...`, `/home/...`). Derive from `os.homedir()`, env vars, or
-  arguments so it works across machines and CI.
-- **Avoid em-dashes** (U+2014) in committed prose and string literals; a stray
-  em-dash can force a cp1252 re-encode on some Windows toolchains. Use ASCII
-  (` - `, `:`, or parentheses).
+- **Keep fork-only changes in their own files/modules where possible.** Prefer
+  new files, additive registrations, and extracted constants over weaving changes
+  through upstream files when both work; separate modules reduce sync conflicts.
+- **Upstream branch model:** branch from current `origin/develop`; open PRs to
+  `develop` unless the task explicitly says otherwise. `origin` is upstream
+  (`scanaislop/aislop`); `fork` is the personal fork (`mtschoen/aislop`), whose
+  integration branch is `schoen/main`.
+- Writing worktrees live at sibling `~/aislop-worktrees/<task>`, one per branch,
+  not inside the checkout.
+- `develop` -> `main` promotion is a maintainer decision, even with green checks.
+  **Do not merge PRs, publish releases, or promote branches unless
+  explicitly asked in the current task.**
+- Publishing a GitHub Release runs `.github/workflows/release.yml`; failed npm
+  publishes can use its guarded manual recovery after promotion to `main`.
+- Default to draft PRs on github.com unless explicitly asked for ready PRs.
+  Self-hosted Gitea PRs open ready: the instance is user-controlled and its
+  review cycle gates merges.
+- Verify package installs in a clean temporary environment before reporting a
+  published package as working.
+- Issues here are auto-claimed by pr-crew, which lands its own PR within the
+  hour. Implementing a fix in the same session? Open the PR directly, not an
+  issue first, or the two lanes race.
+- **CI:** Node 22 + 24, typecheck + build + test + self-scan.
+- **Fork verification backstop:** `.gitea/workflows/ci.yml` runs Ubuntu Node
+  22/24, Windows host-Node, coverage status, quality gate, and C# lint on pushes
+  to `schoen/main`, `feat/**`, `fix/**`. Coverage posts `pr-crew/coverage` for
+  the default-branch gate. Check it green before pushing branches to GitHub to
+  save cloud minutes and PR churn.
 
-## Key architecture decisions
+## Cross-platform and writing rules
 
-- **TypeScript strict mode**, ES2022 target, bundler module resolution
-- **Zod v4** for config validation. Import from `"zod/v4"`, not `"zod"`
-- **tsdown** (rolldown-based) for bundling. Two entry points: `cli.ts` and `index.ts`
-- **Version injection**: `tsdown.config.ts` reads `package.json` version and injects it via `env.VERSION`. Access it in source via `process.env.VERSION`.
-- **vitest** for testing with a 30-second timeout
-- **pnpm** as the package manager (pnpm-workspace.yaml, pnpm-lock.yaml)
-- **Node ^22.18 || >=24.11 required** to run, build and test (tsdown's own engines floor; it relies on `Promise.withResolvers` among other modern APIs, and vitest needs 22.18+). CI runs Node 22 and 24.
+Contributors and CI run on Linux, macOS, and Windows.
 
-## Project structure
+- **No Unix-only shell in `package.json` scripts:** `rm -rf`, `cp`, `mv`, etc.
+  fail under cmd.exe. tsdown cleans its output directory by default, so
+  `rm -rf dist` is redundant; the build script is just `tsdown`.
+- **No `VAR=value cmd` prefixes:** cmd.exe cannot parse them (`NODE_ENV` is
+  reported as unrecognized). Source does not read `NODE_ENV`; the build does
+  not need that assignment. If a script genuinely needs an environment variable,
+  add the `cross-env` dev dependency and use `cross-env VAR=value cmd`.
+- Emit forward-slash diagnostic paths so `/`-anchored classifiers match on all
+  operating systems. Green Linux CI alone is not a Windows guarantee.
+- **On this fork, Windows test failures are regressions**, not environment noise.
+  The merged `fix/windows-tests` work made `schoen/main` fully green. Separately,
+  clean upstream checkouts have known path/permission failures (home-directory
+  resolution, `0600` bits, repository-relative paths); do not apply that caveat
+  to fork failures.
+- Defender inspects files opened by scanner binaries and slows large Windows
+  scans. Before changing exclusions, read
+  [Windows performance](docs/windows-performance.md) for the opt-in process/path
+  exclusion script `scripts/setup-windows-defender.ps1` and its tradeoffs;
+  `node.exe` is deliberately not in its managed list.
+- **ASCII punctuation only; no em-dashes** in generated prose, comments, commit
+  messages, PR bodies, or string literals. Use ` - `, `:`, or parentheses;
+  non-ASCII punctuation can trigger cp1252 encoding problems on Windows.
+- **No hard-coded machine-specific paths in shipped code or docs.** Derive paths
+  from `os.homedir()`, environment variables, or arguments for portability.
+- Prefer full-word identifiers (`maximum`, not `max`; `configuration`, not
+  `config`) unless this clashes with an existing API.
 
-```
-src/
-  cli.ts                    # CLI entry (commander.js)
-  index.ts                  # Public API exports
-  version.ts                # APP_VERSION constant
+## Detector design: closed, structural decisions
 
-  commands/                 # CLI subcommands
-    scan.ts, fix.ts, ci.ts, init.ts, doctor.ts, rules.ts, interactive.ts
+Before writing a detector, state its finite, enumerable question. **A detector
+is a fixed spelling or a query over a real parser's tree**, never a regex-driven
+mini-parser. Mandatory [development details](docs/agent-development.md) preserve
+the full examples and boundaries.
 
-  config/                   # Configuration
-    schema.ts               # Zod v4 schema
-    defaults.ts             # Default values and YAML templates
-    index.ts                # File discovery and loading
+- Beyond a literal token/one-line fixed spelling, JS/TS **must use the
+  TypeScript compiler AST**; C# must use its bundled tree-sitter tree. A parser
+  does not make intent inference sound.
+- No hand-rolled bracket matching, top-level argument splitting, alias/binding
+  tracking, or nearby-issue-link parsing. Blanking strings/comments first does
+  not make text matching structural.
+- Python stays fixed-spelling-only until a grammar is bundled; existing text
+  detectors are grandfathered. Document alias/binding non-detections.
+- No intent/meaning inference from surrounding declarations. Recurring new
+  misclassifications on one axis mean rescope. Bounded neighboring syntax and
+  AST parents are allowed only for definite structural questions.
+- **Freeze detector PR scope:** state detections and deliberate non-detections.
+  Out-of-scope inputs are follow-ups; claimed-input misfires and false positives
+  on ordinary valid code block. Under-reporting is acceptable; valid-code
+  misfires are not (users disable the engine).
+- Record bounds and why non-detections are deliberate in `docs/rules.md` when
+  the rule lands. Do not claim more coverage than the code provides.
+- Let authors express intent with
+  `// aislop-ignore-next-line <rule> -- reason`, rather than growing exclusion
+  lists to guess it.
 
-  engines/                  # Detection engines (run in parallel)
-    types.ts                # Diagnostic, Engine, EngineContext types
-    orchestrator.ts         # Parallel engine runner
-    format/                 # Formatting (biome, ruff, gofmt, cargo fmt, rubocop, php-cs-fixer)
-    lint/                   # Linting (oxlint, ruff, golangci-lint, clippy, rubocop)
-    code-quality/           # Complexity, duplication, dead code (knip)
-    ai-slop/                # AI pattern detection (13 rules)
-    architecture/           # Custom import/path rules
-    security/               # Secrets, eval, innerHTML, SQL/shell injection, audits
+## Detector design: deterministic results and scan scope
 
-  scoring/                  # Score calculation (0-100, density-aware)
-  output/                   # Terminal rendering, JSON output
-  utils/                    # Discovery, git, subprocess, tooling, telemetry
+The same tree and configuration must yield the same findings and score on every
+machine/account, locally and in CI. **This outranks coverage.** Detectors that
+need environment-dependent decisions do not ship in that form.
 
-tests/                      # Vitest tests (13 files, 285+ tests)
-scripts/                    # Postinstall tool downloads (ruff, golangci-lint)
-.aislop/                    # aislop's own config
-```
+- Decisions may read only scanned files, repository `.aislop/` configuration,
+  and documented CLI options, not the invoking account (`os.homedir()`, user
+  name, `HOME`/`USERPROFILE`), hostname, undocumented environment variables,
+  working directory outside the scan root, wall clock, timezone, locale, or
+  machine-global tool settings. jb `InconsistentNaming` is excluded by default
+  because it depends on machine-global ReSharper configuration.
+- Optional external tools are the only sanctioned variation, **and output must
+  name it**. Absent, disabled, or failed tools must appear in the lint execution
+  record, a `*-skipped` advisory, or an engine failure, never a clean zero.
+  Fixed-tool-set consumers pin versions and validate execution records (as
+  git-wizard's gate does for jb and roslynator).
+- Known violations to close, not copy: `docs/rules.md` documents missing C# and
+  C/C++ tooling as silently skipped.
+- **Git-index detectors must respect selected scan paths** (`--staged`,
+  `--changes`, hooks, and include filters), without dropping selected non-source
+  artifacts through source-extension filtering. Surface missing Git and
+  operational Git failures, including scope-discovery failures, rather than
+  treating them as successful empty results. Only genuine non-repositories are
+  quiet. See `src/engines/ai-slop/committed-artifacts.ts` and
+  `src/commands/scan-file-scope.ts`; hooks pass their selected artifact paths in
+  `src/hooks/io/scoped-scan.ts`.
 
-## Self-detection avoidance
+## Self-detection and new-rule checklist
 
-aislop scans itself. Detector source code must NOT contain the literal patterns being detected. Use string concatenation to break patterns:
+aislop scans itself. In all detector files under `src/engines/ai-slop/`, **do not
+embed literal detected patterns** in regexes, strings, or diagnostic messages.
+Break them with string concatenation. The required development doc preserves
+the concrete example.
 
-```typescript
-// WRONG. aislop will flag its own source
-const pattern = /as any/;
+1. Pick or create the appropriate `src/engines/ai-slop/` file.
+2. Write a detector returning `Diagnostic[]`; avoid self-detection as above.
+3. Register **every new rule id in any engine** in all consistency-gate locations
+   or `pnpm vitest run` fails:
+   - `src/commands/rules.ts`: `BUILTIN_RULES`.
+   - `src/output/rule-labels.ts`: both `RULE_LABELS` and `RULE_DESCRIPTIONS`.
+   - `src/scoring/rule-impact-ai-slop.ts` or `rule-impact-core.ts`: the relevant
+     classification (`strict` / `standard` / `maintainability` / `mechanical` /
+     `style` / `advisory` / `report-only`), composed by `src/scoring/rule-impact.ts`.
+   - `docs/rules.md`: a catalog table row (asserted by tests).
+4. Write tests in `tests/`.
+5. Validate: `pnpm typecheck && pnpm vitest run && pnpm scan`.
 
-// CORRECT. Breaks the literal so it won't self-match
-const pattern = new RegExp(`${"a" + "s"}\\s+${"an" + "y"}`);
-```
+## Packaging and other constraints
 
-This applies to regex patterns, string literals, and diagnostic messages in all detector files under `src/engines/ai-slop/`.
-
-## Naming conventions
-
-- **`aislop`** is the npm package name, CLI binary name, and config directory (`.aislop/`)
-- **`ai-slop`** is the engine name and rule prefix (e.g., `ai-slop/trivial-comment`). Do NOT rename these. They are internal identifiers, not user-facing branding.
-- **`"AI Slop"`** is the category label in diagnostics. Do NOT change this.
-
-## Workflow
-
-- **Fork-only changes live in their own files/modules where possible.** A change
-  woven through upstream files is a conflict on every sync; a separate module
-  merges clean. Prefer new files, additive registrations, and extracted
-  constants over in-place edits to upstream code when both would work.
-- **Branch model**: branch from current `origin/develop`; open PRs to `develop` unless the task explicitly says otherwise.
-- **Main promotion**: `develop` -> `main` is a maintainer decision. Do not merge it just because checks are green.
-- **Releases**: publishing a GitHub Release runs `.github/workflows/release.yml`; failed npm publishes can use its guarded manual recovery after promotion to `main`.
-- **CI**: Node 22 + 24 matrix, typecheck + build + test + self-scan.
-- **In-house verification backstop (fork)**: `.gitea/workflows/ci.yml` runs the
-  full matrix (ubuntu node 22/24, windows host-node, coverage status, quality
-  gate, C# lint) on the self-hosted gitea for every push to `schoen/main`,
-  `feat/**`, `fix/**`. The coverage job posts `pr-crew/coverage` for the
-  default-branch gate.
-  Check it green there before pushing branches to GitHub - saves cloud runner
-  minutes and keeps draft-PR churn quiet.
-- All changes should pass: `pnpm typecheck && pnpm test && pnpm test:coverage && pnpm scan`.
-
-## Agent operation guardrails
-
-- Default to draft PRs on github.com unless the task explicitly asks for a
-  ready PR. PRs on the self-hosted Gitea open ready (non-draft): the instance
-  is fully user-controlled and the review cycle gates merges there anyway.
-- Do not merge PRs, publish releases, or promote branches unless explicitly asked in the current task.
-- Verify package installs in a clean temp environment before reporting a published package as working.
-- An issue opened on this repo is auto-claimed by pr-crew, which lands its own PR
-  within the hour. When implementing a fix yourself in the same session, open the
-  PR directly instead of filing an issue first, or the two lanes race (#59: pr-crew's
-  #60 merged while the parallel #61 was still in review).
-
-## Rule design: state a closed decision surface
-
-Before writing a detector, write down the question it answers and check that the
-question has a finite, enumerable answer. A rule that decides **semantics from
-syntax over an open-ended input space cannot be finished by iteration**: a
-reviewer probing it adversarially will always find two more real
-misclassifications, each fix will be correct, and the defect count will not
-converge. Three detectors stalled this way, accumulating 17 review rounds
-between them with no quality improvement, until the guessing subsystems were
-deleted rather than refined.
-
-Signs the surface is open, and the rule needs rescoping rather than another fix:
-
-- The detector infers intent ("is this configuration, or data?", "is this a
-  route, or a filesystem path?"). Intent has no syntactic answer.
-- It assigns meaning to context instead of asking a closed structural question:
-  what surrounding declarations mean or what an identifier was bound to. Reading
-  bounded neighboring syntax or following AST parent nodes is still structural
-  when the resulting question has a definite answer.
-- Each review round fixes the named case and surfaces a different case on the
-  same axis.
-
-What a closed surface looks like: a literal list you can read in one sitting, a
-single-line pattern, or a structural query with a definite answer. A closed list
-can be under-inclusive or over-inclusive, and a reviewer can probe it
-exhaustively and stop. That is the property that makes a rule finishable.
-
-Concrete guidance:
-
-- **A detector is a fixed spelling or a query over a real parser's tree.** Either
-  it matches one fixed spelling (a single literal token or one-line pattern with
-  nothing to parse, e.g. `assert True`), or it queries the tree of a real parser:
-  the TypeScript compiler API for JS/TS, tree-sitter for languages with a bundled
-  grammar (today only C#, see `src/utils/csharp-parser.ts`), Roslyn, or the
-  language's own compiler. Regex-driven mini-parsers over source text are not
-  allowed: hand-rolled bracket matching, top-level argument splitting, alias or
-  binding tracking, "is there an issue link on a nearby line". Blanking strings
-  and comments first does not make text matching structural.
-- **Python detectors are limited to fixed spellings until a Python grammar is
-  bundled.** A Python detector that needs more than a fixed spelling waits for
-  the grammar; it is not built from text meanwhile. Unrecognized aliases and
-  bindings are documented non-detections, as in `python-patterns.ts`. The
-  existing Python text detectors are grandfathered.
-- **Anything beyond a fixed spelling in JS/TS MUST use the TypeScript AST**
-  (and in C#, the tree-sitter tree), because structural queries (is this node a
-  property assignment?) have definite answers. Inferring meaning from
-  surrounding syntax does not become sound just because an AST is available.
-- **Scope freeze for detector PRs.** The PR that adds a detector states its
-  detections and its deliberate non-detections. For that PR, inputs outside the
-  stated scope are follow-ups, not blockers; misfires on claimed inputs and false
-  positives on ordinary valid code still block.
-- **Under-reporting is acceptable; misfiring on valid code is not.** A rule that
-  fires on ordinary application code gets the whole engine switched off, which
-  costs more than every finding it would ever produce.
-- **Record the bounds in `docs/rules.md` when the rule lands**, not after someone
-  rediscovers them. State what is deliberately not detected and why. A
-  documented non-detection is a design decision; an undocumented one reads as a
-  bug, and a doc that claims more coverage than the code delivers turns a correct
-  diagnostic into an apparent misfire.
-- **Let the author express intent, not the detector guess it.** The inline
-  suppression `// aislop-ignore-next-line <rule> -- reason` exists for the case
-  the rule cannot decide. Reach for it instead of growing an exclusion list,
-  because a growing exclusion list is the open surface coming back.
-
-## Rule design: results depend only on the tree and its config
-
-A scan of the same tree with the same configuration gives the same findings and
-the same score on every machine, under every account, in CI and locally. A
-linter that scores a tree 99 on a developer's laptop and 100 on the CI runner
-cannot gate anything: either the local hook nags about something the gate will
-never enforce, or the gate passes something the developer was told to fix.
-This requirement outranks coverage. A detector that can only catch a problem by
-reading the environment does not ship in that form.
-
-A detector's decision may read only the scanned files, the repository's
-`.aislop/` configuration, and documented CLI options. It must not read:
-
-- the invoking account (`os.homedir()`, the user name, `HOME`/`USERPROFILE`),
-  the host name, or any other environment variable not documented as aislop
-  configuration
-- the current working directory outside the scan root
-- the wall clock, time zone, or locale
-- machine-global tool configuration (this is why jb `InconsistentNaming` is
-  excluded by default: it binds to a machine-global ReSharper setting)
-
-Optional external tools are the one sanctioned source of variation, and only
-when the output names it. A tool that is absent, disabled, or failed must show
-up in the report (the lint execution record, a `*-skipped` advisory, or an
-engine failure), never as a clean zero. A consumer that needs a fixed tool set
-installs it at a pinned version and validates the execution record, as
-git-wizard's gate does for jb and roslynator.
-
-Known violations, to be closed rather than copied:
-
-- `docs/rules.md` documents missing C# and C/C++ tooling as silently skipped.
-
-## Adding new AI slop rules
-
-1. Pick the right file in `src/engines/ai-slop/` (or create a new one)
-2. Write a detector function returning `Diagnostic[]`
-3. Use string concatenation to avoid self-detection (see above)
-4. Register the new rule id in **every** place the consistency-gate tests
-   check, or `pnpm vitest run` will fail (this applies to any new rule id in
-   any engine, not just ai-slop):
-   - `src/commands/rules.ts` (`BUILTIN_RULES` array)
-   - `src/output/rule-labels.ts` - **two** maps: the short label map and the
-     longer description map
-   - `src/scoring/rule-impact.ts` - a score-impact classification
-     (`strict` / `standard` / `maintainability` / `style` / `advisory`)
-   - `docs/rules.md` - a table row (the catalog test asserts this)
-5. Write tests in `tests/`
-6. Validate: `pnpm typecheck && pnpm vitest run && pnpm scan`
-
-## Important constraints
-
-- `complexity.ts` must stay <= 400 lines (it checks itself for file-too-large)
-- The `files` field in `package.json` controls what ships to npm: `dist`,
-  `scripts`, and `tools/jb` (the bundled JetBrains settings asset). A new
-  bundled asset outside `dist`/`scripts` needs its own entry here or it silently
-  ships as null from its resolver function.
-- PostHog telemetry key is a public client-side key (safe to hardcode)
-- Telemetry is opt-out and off in CI by default
-
-## Cross-platform notes
-
-Contributors and CI run on Linux, macOS, and Windows. Keep `package.json`
-scripts portable:
-
-- **No Unix-only shell in scripts.** Do not prefix commands with `rm -rf`,
-  `cp`, `mv`, etc. They fail under cmd.exe on Windows. tsdown already cleans
-  its output directory before each build (the `clean` option defaults to
-  `true`), so an explicit `rm -rf dist` is both redundant and non-portable.
-  The `build` script is just `tsdown`.
-- **No `VAR=value cmd` prefixes.** cmd.exe cannot parse a leading env-var
-  assignment, so `NODE_ENV=production tsdown` errors with
-  `'NODE_ENV' is not recognized`. Nothing in this codebase reads `NODE_ENV`
-  (the bundle is byte-identical with or without it), so it was dropped. If a
-  script ever genuinely needs an env var set cross-platform, add the
-  `cross-env` dev dependency and use `cross-env VAR=value cmd`.
-- **Windows tests are fully green on this fork.** The `fix/windows-tests`
-  work merged into `schoen/main` made the entire suite pass on Windows
-  (230 files / 2595 tests as of the upstream-0.16.0 merge). A clean
-  *upstream* checkout still fails ~42 tests on Windows (path/permission
-  assumptions), so a red suite there is expected - but on `schoen/main`
-  any Windows test failure is a real regression, not environment noise.
-- **Windows Defender slows large scans.** Real-time scanning inspects every
-  file aislop's scanner binaries open. `scripts/setup-windows-defender.ps1`
-  manages opt-in process/path exclusions; see
-  [docs/windows-performance.md](docs/windows-performance.md) for the
-  tradeoffs (including why `node.exe` is deliberately excluded from the
-  managed list).
-
-## Local deploy (running your build as the global `aislop`)
-
-To make the `aislop` command on your machine run a local checkout instead of
-the published npm release:
-
-```bash
-pnpm build              # produce dist/
-pnpm link --global      # repoint the global aislop at this checkout
-aislop --version        # verify it resolves to your build
-```
-
-This fork is developed with git worktrees under `.worktrees/` (one per
-branch). `pnpm link --global` from a worktree points the global command at
-that worktree's `dist/`, so rebuild after switching branches. Remotes:
-`origin` is upstream (scanaislop/aislop); `fork` is the personal fork
-(mtschoen/aislop) with an integration branch `schoen/main`.
-
-### Fleet machines: the per-user checkout
-
-Each fleet machine resolves `aislop` to a checkout at `~/aislop` owned by the
-interactive user. Refresh it as that user:
-
-```bash
-scripts/update-local-checkout.sh    # fetch schoen/main, install, rebuild dist/
-```
-
-The script honors `AISLOP_HOME` (default `~/aislop`) and bootstraps the
-checkout by cloning from Gitea when it is absent.
-
-Nothing refreshes a machine install on its own. `sync-consumers.yml` bumps
-consumer repository pins (`.aislop/fork-commit`) and touches nothing else, so
-a checkout moves only when someone runs the script above. A wrapper or note
-claiming otherwise is wrong: one on llamabox claimed the workflow kept a
-shared `/opt/aislop` current, and that install sat 107 commits and two minor
-versions behind for weeks. CI was never at risk (every consumer's gate job
-builds the fork at its pinned sha in an ephemeral workspace), but the runtime
-hook graded agent work against the stale rule set while the gate enforced the
-pinned one. `aislop doctor` reports the comparison as its `Fork pin` row when
-the repository carries a pin.
-
-Every build stamps `dist/build-info.json` with the commit it was built from
-(`{"version", "commit", "builtAt"}`; `commit` is null when git is
-unavailable, as in an npm source tarball). External tooling reads that file
-to tell which commit a machine's install is actually running without paying
-to spawn the CLI - a hand-refreshed checkout is the fleet's standing
-staleness risk, and the file is what makes the drift detectable.
-
-The account that installs a checkout has to be the account that runs `aislop`
-from it. pnpm hard-links package files out of its content-addressable store,
-and on NTFS a hard link shares one ACL with the store file it points at, so a
-checkout installed out of a different account's store yields `node_modules`
-entries the running user cannot read. This is also why the checkout keeps
-pnpm's default isolated layout: the junction farm traverses correctly when
-owner and runner match, and `node-linker=hoisted` would not change the
-hard-link ACL behavior that actually causes cross-account failures.
-
-Put the `aislop` command on PATH by copying both wrappers from
-`scripts/wrappers/` onto a PATH directory. Windows needs both halves:
-`aislop.cmd` serves cmd and PowerShell, and the extensionless `aislop` serves
-Git Bash, which does not apply `PATHEXT` and so cannot see a `.cmd` file.
-Either wrapper honors `AISLOP_HOME` to point at a different checkout.
-
-To publish the fork build to the internal Gitea npm registry as
-`@schoen/aislop` (for consumer repos that install it like a normal
-dependency), run `scripts/publish-gitea.ps1` from a machine on the
-internal network. Bump `version` in package.json first; the registry
-rejects an already-published version.
-
-## Writing conventions
-
-- **No em-dashes** (U+2014) in generated content: prose, comments, commit
-  messages, PR bodies, string literals. Use ASCII (` - `, `:`, or
-  parentheses). On Windows a stray em-dash can force cp1252 encoding issues.
-- **No hard-coded machine-specific paths** in shipped code (e.g.
-  `C:\Users\...`, `/home/...`). Derive from `os.homedir()`, env vars, or
-  arguments so it works across machines and CI.
-- **Full-word identifiers** over abbreviations (`maximum` not `max`,
-  `configuration` not `config`) where it does not clash with existing API.
+- `complexity.ts` must stay <= 400 lines; it checks itself for file-too-large.
+- `package.json`'s `files` field controls npm contents: `dist`, `scripts`,
+  `tools/grammars`, and `tools/jb` (bundled JetBrains settings). A new bundled
+  asset outside `dist`/`scripts` needs its own inclusion or its resolver can
+  silently return null from the installed package.
+- PostHog's telemetry key is public client-side data, safe to hardcode.
+  Telemetry is opt-out and off in CI by default.
