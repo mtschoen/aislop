@@ -100,10 +100,10 @@ export const calculateScore = (
 	const deductionDensity = deductions / (fileCount.effectiveSourceFileCount + smoothingConstant);
 	const scaledDeductions = deductionDensity * DENSITY_SCALE;
 
-	// Logarithmic scaling: first issues matter most, score can't go below 0
+	// Floor so any deduction prevents a perfect score; clamp at 0.
 	const score = Math.max(
 		0,
-		Math.round(
+		Math.floor(
 			PERFECT_SCORE -
 				(PERFECT_SCORE * Math.log1p(scaledDeductions)) /
 					Math.log1p(PERFECT_SCORE + scaledDeductions),

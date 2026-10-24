@@ -95,6 +95,10 @@ The final score uses **logarithmic scaling with issue-density normalization**. P
 - A single issue in an otherwise clean project stays proportional
 - The score remains meaningful regardless of project size
 
+The result is rounded down to an integer. Zero deductions score exactly 100;
+any nonzero deduction scores below 100, even in a large project. Report-only
+findings and findings with zero engine weight do not deduct points.
+
 ## Score labels
 
 | Score | Label |
@@ -130,3 +134,6 @@ ci:
 ```
 
 `aislop ci` exits with code 1 when the score is below the threshold, an error diagnostic is present, or attempted C# analysis has an unresolved target failure. Execution failures do not change the numeric score: it reflects collected findings, not proof of complete analysis. Rule overrides, source suppression, and baselines do not hide execution failures.
+
+Set `failBelow: 100` to reject any nonzero score deduction, including a single
+scored warning or info finding. The gate uses the same integer score as the report.

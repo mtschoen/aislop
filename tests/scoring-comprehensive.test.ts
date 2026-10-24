@@ -66,7 +66,7 @@ describe("Issue #9: single issue in codebases of different sizes", () => {
 		// This is the #9 scenario: one innerHTML drops score dramatically
 		const result = calculateScore([makeInnerHTMLDiagnostic()], defaultWeights, defaultThresholds);
 
-		expect(result.score).toMatchInlineSnapshot(`72`);
+		expect(result.score).toMatchInlineSnapshot(`71`);
 		expect(result.label).toBe("Needs Work");
 	});
 
@@ -78,7 +78,7 @@ describe("Issue #9: single issue in codebases of different sizes", () => {
 		);
 
 		// format weight=0.5, info penalty=0.25, deduction=0.125
-		expect(result.score).toMatchInlineSnapshot(`99`);
+		expect(result.score).toMatchInlineSnapshot(`98`);
 		expect(result.label).toBe("Healthy");
 	});
 
@@ -90,7 +90,7 @@ describe("Issue #9: single issue in codebases of different sizes", () => {
 		);
 
 		// lint weight=1.0, warning penalty=1, deduction=1.0
-		expect(result.score).toMatchInlineSnapshot(`92`);
+		expect(result.score).toMatchInlineSnapshot(`91`);
 		expect(result.label).toBe("Healthy");
 	});
 
@@ -107,7 +107,7 @@ describe("Issue #9: single issue in codebases of different sizes", () => {
 		);
 
 		// code-quality weight=1.5, error penalty=3, deduction=4.5
-		expect(result.score).toMatchInlineSnapshot(`76`);
+		expect(result.score).toMatchInlineSnapshot(`75`);
 		expect(result.label).toBe("Healthy");
 	});
 });
@@ -203,7 +203,7 @@ describe("multiple issues of same severity", () => {
 		const diagnostics = Array(20).fill(makeDiagnostic({ engine: "lint", severity: "warning" }));
 		const result = calculateScore(diagnostics, defaultWeights, defaultThresholds);
 
-		expect(result.score).toMatchInlineSnapshot(`51`);
+		expect(result.score).toMatchInlineSnapshot(`50`);
 	});
 
 	it("snapshot: 5 security errors", () => {
@@ -249,7 +249,7 @@ describe("mixed severity issues", () => {
 		];
 		const result = calculateScore(diagnostics, defaultWeights, defaultThresholds);
 
-		expect(result.score).toMatchInlineSnapshot(`67`);
+		expect(result.score).toMatchInlineSnapshot(`66`);
 		expect(result.label).toBe("Needs Work");
 	});
 
@@ -459,6 +459,7 @@ describe("label threshold boundaries", () => {
 // ─── Snapshot score table ──────────────────────────────────────────────────────
 
 describe("snapshot: score table for known inputs", () => {
+	// Scores use floor, not nearest-integer rounding; inputs and labels are unchanged.
 	const cases: Array<{
 		name: string;
 		diagnostics: Diagnostic[];
@@ -474,13 +475,13 @@ describe("snapshot: score table for known inputs", () => {
 		{
 			name: "1 format info",
 			diagnostics: [makeDiagnostic({ engine: "format", severity: "info" })],
-			expectedScore: 99,
+			expectedScore: 98,
 			expectedLabel: "Healthy",
 		},
 		{
 			name: "1 lint warning",
 			diagnostics: [makeDiagnostic({ engine: "lint", severity: "warning" })],
-			expectedScore: 92,
+			expectedScore: 91,
 			expectedLabel: "Healthy",
 		},
 		{
@@ -492,13 +493,13 @@ describe("snapshot: score table for known inputs", () => {
 		{
 			name: "1 security error (the #9 scenario)",
 			diagnostics: [makeInnerHTMLDiagnostic()],
-			expectedScore: 72,
+			expectedScore: 71,
 			expectedLabel: "Needs Work",
 		},
 		{
 			name: "1 code-quality error",
 			diagnostics: [makeDiagnostic({ engine: "code-quality", severity: "error" })],
-			expectedScore: 76,
+			expectedScore: 75,
 			expectedLabel: "Healthy",
 		},
 		{
@@ -516,7 +517,7 @@ describe("snapshot: score table for known inputs", () => {
 		{
 			name: "3 security errors",
 			diagnostics: Array(3).fill(makeDiagnostic({ engine: "security", severity: "error" })),
-			expectedScore: 53,
+			expectedScore: 52,
 			expectedLabel: "Needs Work",
 		},
 	];
@@ -621,7 +622,7 @@ describe("density-aware scoring (sourceFileCount)", () => {
 			defaultThresholds,
 		);
 
-		expect(withoutFileCount.score).toBe(72);
+		expect(withoutFileCount.score).toBe(71);
 		expect(withoutFileCount.effectiveSourceFileCount).toBe(1);
 		expect(withoutFileCount.sourceFileCountMode).toBe("estimated-from-diagnostics");
 	});

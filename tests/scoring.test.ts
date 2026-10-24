@@ -30,6 +30,28 @@ const makeDiagnostic = (overrides: Partial<Diagnostic> = {}): Diagnostic => ({
 // ─── calculateScore ────────────────────────────────────────────────────────────
 
 describe("calculateScore", () => {
+	it.each(["warning", "info"] as const)(
+		"issue 145: one %s in 400 effective source files scores below 100",
+		(severity) => {
+			const result = calculateScore(
+				[makeDiagnostic({ severity })],
+				defaultWeights,
+				defaultThresholds,
+				400,
+			);
+			expect(result.effectiveSourceFileCount).toBe(400);
+			expect(result.score).toBeLessThan(100);
+		},
+	);
+
+	it.each([{ diagnostics: [] }, { diagnostics: [makeDiagnostic()] }])(
+		"keeps zero deductions at exactly 100 in 400 effective source files (%j)",
+		({ diagnostics }) => {
+			const result = calculateScore(diagnostics, { lint: 0 }, defaultThresholds, 400);
+			expect(result.score).toBe(100);
+		},
+	);
+
 	it("returns 100 and Healthy when there are no diagnostics", () => {
 		const result = calculateScore([], defaultWeights, defaultThresholds);
 		expect(result.score).toBe(100);
@@ -145,7 +167,7 @@ describe("calculateScore", () => {
 		expect(result.score).toBeGreaterThanOrEqual(0);
 	});
 
-	it("score is an integer (Math.round applied)", () => {
+	it("score is an integer (Math.floor applied)", () => {
 		const result = calculateScore([makeDiagnostic()], defaultWeights, defaultThresholds);
 		expect(Number.isInteger(result.score)).toBe(true);
 	});
@@ -320,8 +342,9 @@ describe("calculateScore", () => {
 				DEFAULT_CONFIG.scoring.maxPerRule,
 			).score;
 
-		expect(scoreFor(makeDiagnostic({ engine: "format" }))).toBe(99);
-		expect(scoreFor(makeDiagnostic({ engine: "lint" }))).toBe(98);
+		// Flooring changes format 98.907 -> 98 and lint 97.867 -> 97 only.
+		expect(scoreFor(makeDiagnostic({ engine: "format" }))).toBe(98);
+		expect(scoreFor(makeDiagnostic({ engine: "lint" }))).toBe(97);
 		expect(scoreFor(makeDiagnostic({ engine: "code-quality" }))).toBe(97);
 		expect(
 			scoreFor(makeDiagnostic({ engine: "ai-slop", rule: "ai-slop/unsafe-type-assertion" })),

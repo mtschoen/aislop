@@ -1,7 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { computeScanExitCode } from "../src/commands/scan-exit-code.js";
+import { DEFAULT_CONFIG } from "../src/config/defaults.js";
+import type { Diagnostic } from "../src/engines/types.js";
+import { calculateScore } from "../src/scoring/index.js";
 
 describe("computeScanExitCode", () => {
+	it.each(["warning", "info"] as const)(
+		"issue 145: failBelow 100 rejects one %s in 400 effective source files",
+		(severity) => {
+			const diagnostic: Diagnostic = {
+				filePath: "src/example.ts",
+				engine: "lint",
+				rule: "some/rule",
+				severity,
+				message: "Finding with a nonzero score deduction",
+				help: "Fix the finding",
+				line: 1,
+				column: 0,
+				category: "Lint",
+				fixable: false,
+			};
+			const { weights, thresholds, smoothing, maxPerRule } = DEFAULT_CONFIG.scoring;
+			const { score } = calculateScore(
+				[diagnostic],
+				weights,
+				thresholds,
+				400,
+				smoothing,
+				maxPerRule,
+			);
+			expect(
+				computeScanExitCode({ hasErrors: false, scoreable: true, score, failBelow: 100 }),
+			).toBe(1);
+		},
+	);
+
 	it.each([true, false])(
 		"fails target failures regardless of scoreability (%s) or baseline",
 		(scoreable) => {
