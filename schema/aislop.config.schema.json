@@ -49,7 +49,8 @@
 				"maxFileLoc": 400,
 				"maxNesting": 5,
 				"maxParams": 6,
-				"repeatedLiteralThreshold": 3
+				"repeatedLiteralThreshold": 3,
+				"maxTrackedFileBytes": 524288
 			},
 			"type": "object",
 			"properties": {
@@ -75,6 +76,12 @@
 				},
 				"repeatedLiteralThreshold": {
 					"default": 3,
+					"type": "integer",
+					"exclusiveMinimum": 0,
+					"maximum": 9007199254740991
+				},
+				"maxTrackedFileBytes": {
+					"default": 524288,
 					"type": "integer",
 					"exclusiveMinimum": 0,
 					"maximum": 9007199254740991

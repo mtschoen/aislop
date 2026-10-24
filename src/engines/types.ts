@@ -93,6 +93,8 @@ export interface EngineContext {
 	files?: string[];
 	testFiles?: string[];
 	projectFiles?: string[];
+	trackedArtifactFiles?: string[];
+	includePatterns?: string[];
 	// Raw user exclude entries (config `exclude` + `.aislopignore`). The
 	// file-scanning engines already start from the excluded file list; this lets
 	// the build-backed C# engines - which shell out to tools that scan whole
@@ -112,6 +114,7 @@ export interface EngineConfig {
 		maxNesting: number;
 		maxParams: number;
 		repeatedLiteralThreshold?: number;
+		maxTrackedFileBytes?: number;
 	};
 	security: {
 		audit: boolean;

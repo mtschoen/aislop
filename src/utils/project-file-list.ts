@@ -65,16 +65,20 @@ export const enumerateProjectFiles = (
 	rootDirectory: string,
 	pruneDirectories: Set<string>,
 ): string[] => {
-	const result = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-		cwd: rootDirectory,
-		encoding: "utf-8",
-		maxBuffer: MAX_BUFFER,
-	});
+	const result = spawnSync(
+		"git",
+		["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+		{
+			cwd: rootDirectory,
+			encoding: "utf-8",
+			maxBuffer: MAX_BUFFER,
+		},
+	);
 
 	if (!result.error && result.status === 0) {
 		const normalizedPruneDirectories = normalizePruneDirectories(pruneDirectories);
 		return result.stdout
-			.split("\n")
+			.split("\0")
 			.filter((file) => file.length > 0)
 			.filter((file) => !isInPrunedDirectory(file, normalizedPruneDirectories))
 			.filter((file) => fs.existsSync(path.resolve(rootDirectory, file)));

@@ -41,6 +41,7 @@ describe("file policy matching", () => {
 				maxNesting: 3,
 				maxParams: 4,
 				repeatedLiteralThreshold: 3,
+				maxTrackedFileBytes: 524288,
 			},
 			rules: { "ai-slop/narrative-comment": "off" },
 		});

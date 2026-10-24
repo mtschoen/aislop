@@ -34,7 +34,7 @@ export const isDependencyAuditInputFile = (filePath: string): boolean =>
 export const listProjectFiles = (rootDirectory: string): string[] =>
 	enumerateProjectFiles(rootDirectory, WALK_PRUNE_DIRECTORIES);
 
-const normalizeIncludePatterns = (patterns: string[]): string[] =>
+export const normalizeIncludePatterns = (patterns: string[]): string[] =>
 	patterns.flatMap((pattern) => {
 		const normalized = pattern.trim().replace(/^\.\//, "").replace(/\/$/, "");
 		if (normalized === "" || normalized === ".") return ["**"];
@@ -42,6 +42,11 @@ const normalizeIncludePatterns = (patterns: string[]): string[] =>
 		if (picomatch.scan(normalized).isGlob) return [normalized];
 		return supportedGlobPatterns([normalized, `${normalized}/**`]);
 	});
+
+export const isPathIncluded = (relativePath: string, normalizedPatterns: string[]): boolean => {
+	if (normalizedPatterns.length === 0) return true;
+	return createGlobMatcher(normalizedPatterns, { dot: true })(relativePath);
+};
 
 const createPathMatcher = (patterns: string[]): ((filePath: string) => boolean) => {
 	return createGlobMatcher(patterns, { dot: true });

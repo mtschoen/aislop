@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -83,13 +84,25 @@ describe("test scan scope", () => {
 	it("keeps test findings inside an explicit include scope", async () => {
 		writeFile("src/app.ts", "export const app = true;\n");
 		writeFile("tests/outside.test.ts", "expect(true).toBe(true);\n");
+		writeFile("docs/old.log", "unchanged tool output\n");
+		writeFile("docs/dump.json", "x".repeat(600 * 1024));
+		execFileSync("git", ["init", "-q"], { cwd: tmpDir, stdio: "ignore" });
+		execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], {
+			cwd: tmpDir,
+			stdio: "ignore",
+		});
+		execFileSync(
+			"git",
+			["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
+			{ cwd: tmpDir, stdio: "ignore" },
+		);
 
 		await expect(runJsonScan(buildConfig(["src"]))).resolves.toMatchObject({
 			findingCount: 0,
 			exitCode: 0,
 		});
 		await expect(runJsonScan(buildConfig())).resolves.toMatchObject({
-			findingCount: 1,
+			findingCount: 3,
 			exitCode: 1,
 		});
 	});

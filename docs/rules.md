@@ -225,6 +225,8 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/hardcoded-url` | warning | Environment-specific URLs hardcoded in production code instead of env/config; Python docstring content is exempt (see notes below the table) |
 | `ai-slop/hardcoded-id` | warning | Provider/project IDs hardcoded in production code instead of env/config |
 | `ai-slop/hardcoded-user-path` | warning | Home-directory paths (`/home/<name>`, `/Users/<name>`, `<drive>:\Users\<name>`, configured roots) hardcoded in source or tests instead of runtime APIs/config |
+| `ai-slop/committed-tool-output` | warning | A tracked file whose name ends in `.log`, `.trx`, `.sarif`, `.stdout.txt`, `.stderr.txt`, `.tar.gz`, `.tgz`, `.tar`, `.zip`, or `.7z` (raw tool output committed as proof); see [Committed tool output](#committed-tool-output-ai-slopcommitted-tool-output-ai-slopcommitted-large-file) |
+| `ai-slop/committed-large-file` | warning | A tracked text file (no NUL byte in its first 8000 bytes) larger than `quality.maxTrackedFileBytes` (default 524288 bytes, 512 KiB), other than a lockfile; see [Committed tool output](#committed-tool-output-ai-slopcommitted-tool-output-ai-slopcommitted-large-file) |
 | `ai-slop/repeated-magic-literal` | warning | The same name and value pair repeats more than `quality.repeatedLiteralThreshold` times in supported Python, JavaScript, or TypeScript source, regardless of surrounding structure |
 | `ai-slop/python-bare-except` | warning | Python `except:` blocks that catch everything without naming an exception type |
 | `ai-slop/python-broad-except` | warning | Python broad exception handlers with silent/pass-style bodies |
@@ -714,6 +716,47 @@ Two things are flagged from that effective state:
 - Drop-in `.conf` fragments (e.g. `foo.service.d/override.conf`): the `.conf` extension is not one of the four scanned extensions.
 - Directive values continued across lines with a trailing backslash.
 - Unit content in files with a non-standard extension (for example `.service.j2`): only the exact four extensions above are analyzed.
+
+### Committed tool output (ai-slop/committed-tool-output, ai-slop/committed-large-file)
+
+Agents under review pressure sometimes commit raw tool output to the repository as
+"proof": analyzer SARIF files, captured stdout and stderr, test inventories, evidence
+tarballs. Past examples were `before.sarif` and `after.sarif` (11,746 lines each) plus
+captured stream files, and several evidence tarballs of 100 KB to 3 MB beside a
+53,000-line JSON inventory. The files go stale the moment the code changes and stay in
+every clone forever.
+
+**What is detected.** Both rules look only at files git tracks, the entries listed by
+`git ls-files --cached`. Untracked and ignored files are never considered.
+
+- `ai-slop/committed-tool-output` reports a tracked file whose basename ends, compared
+  case-insensitively, in one of these fixed spellings: `.log`, `.trx`, `.sarif`,
+  `.stdout.txt`, `.stderr.txt`, `.tar.gz`, `.tgz`, `.tar`, `.zip`, `.7z`. That is the
+  whole list.
+- `ai-slop/committed-large-file` reports a tracked text file whose size on disk exceeds
+  `quality.maxTrackedFileBytes` (default 524288, 512 KiB; see
+  [configuration](configuration.md#quality-thresholds)). Lockfiles are spared by exact
+  basename: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`,
+  `bun.lock`, `bun.lockb`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`,
+  `go.sum`, `Gemfile.lock`, `composer.lock`, `packages.lock.json`, `flake.lock`,
+  `mix.lock`, `pubspec.lock`, `Podfile.lock`. A file that matches the tool-output list
+  is reported by `ai-slop/committed-tool-output` only.
+
+**Deliberate non-detections.**
+
+- A directory that is not a git repository yields no findings from either rule: with no
+  repository there is nothing committed. Missing `git` is surfaced in the engine's
+  `missingTools` record, and operational `git ls-files` errors are surfaced as engine
+  failures.
+- Raw dumps under other names that stay below the byte ceiling.
+- Binary files of any size (gif, wasm, fonts, images). Text versus binary is git's own heuristic and the whole decision: a file is binary when a NUL byte appears in its first 8000 bytes. A NUL only after byte 8000 counts as text. There is no extension allowlist; binary archives are covered by `ai-slop/committed-tool-output` by name.
+- Untracked files, including ignored ones.
+- Any content-based judgement of whether a JSON, text, or markdown file is a dump.
+
+**Escape hatch.** A binary or log file cannot carry an `aislop-ignore` comment. List the
+legitimate fixture in the `exclude` entries of `.aislop/config.yml` (for example
+`tests/fixtures`), or set the rule to `off` under `rules`. Otherwise put counts and the
+reproduction command in the PR body or a short doc, or attach a CI artifact.
 
 ### Rule notes
 

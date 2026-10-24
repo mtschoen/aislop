@@ -22,6 +22,7 @@ export const createEngineContext = (
 	// Fixers rewrite files, so the exclude list has to reach them: without it a
 	// whole-project tool such as dotnet format would reformat excluded code.
 	excludePatterns: [...config.exclude, ...readAislopIgnorePatterns(rootDirectory)],
+	includePatterns: config.include,
 	installedTools: options.safe
 		? { ...projectInfo.installedTools, rubocop: false, "php-cs-fixer": false }
 		: projectInfo.installedTools,
@@ -41,6 +42,7 @@ export const createEngineContext = (
 				files: options.scope.files,
 				testFiles: options.scope.testFiles,
 				projectFiles: options.scope.projectFiles,
+				trackedArtifactFiles: options.scope.trackedArtifactFiles,
 				dependencyAuditFiles: options.scope.dependencyAuditFiles,
 				dependencyAuditScope: options.scope.dependencyAuditScope,
 			}

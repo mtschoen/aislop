@@ -1,5 +1,6 @@
 import type { Coverage } from "../utils/discover.js";
 import { getChangedFiles, getStagedFiles } from "../utils/git.js";
+import { isWithinProject, toProjectPath } from "../utils/source-file-policy.js";
 import { KNOWN_EXTRA_EXTENSIONS } from "../utils/source-files.js";
 import {
 	filterDependencyAuditFiles,
@@ -8,6 +9,28 @@ import {
 	filterProjectDeclarationFiles,
 	listProjectFiles,
 } from "../utils/source-file-selection.js";
+
+const SCOPE_DISCOVERY_FAILURE = Symbol.for("aislop.scopeDiscoveryFailure");
+
+interface ScopedCandidateArray extends Array<string> {
+	[SCOPE_DISCOVERY_FAILURE]?: string;
+}
+
+const withinScanRoot = (rootDirectory: string, files: string[]): string[] => {
+	const filtered = files.filter((filePath) =>
+		isWithinProject(toProjectPath(rootDirectory, filePath)),
+	);
+	const source: ScopedCandidateArray = files;
+	const failure = source[SCOPE_DISCOVERY_FAILURE];
+	if (failure !== undefined) {
+		Object.defineProperty(filtered, SCOPE_DISCOVERY_FAILURE, {
+			value: failure,
+			enumerable: false,
+			configurable: true,
+		});
+	}
+	return filtered;
+};
 
 export type ScanScopeMode =
 	| { readonly kind: "full" }
@@ -29,6 +52,7 @@ export interface ScanFileScope {
 	readonly scoreFileCount: number;
 	readonly scopeLabel: string;
 	readonly testFiles: string[];
+	readonly trackedArtifactFiles?: string[];
 }
 
 export const deriveScanCoverage = (coverage: Coverage, fileCount: number): Coverage => ({
@@ -47,10 +71,13 @@ const scopedCandidates = (
 ): { files: string[]; label: string } => {
 	switch (mode.kind) {
 		case "staged":
-			return { files: getStagedFiles(rootDirectory), label: "staged file(s)" };
+			return {
+				files: withinScanRoot(rootDirectory, getStagedFiles(rootDirectory)),
+				label: "staged file(s)",
+			};
 		case "changes":
 			return {
-				files: getChangedFiles(rootDirectory, mode.base),
+				files: withinScanRoot(rootDirectory, getChangedFiles(rootDirectory, mode.base)),
 				label: mode.base ? `changed vs ${mode.base} file(s)` : "changed file(s)",
 			};
 		case "full":
@@ -108,5 +135,6 @@ export const collectScanFileScope = (request: ScanFileScopeRequest): ScanFileSco
 		scoreFileCount: projectSourceFiles.length + projectTestFiles.length,
 		scopeLabel: candidates.label,
 		testFiles,
+		...(request.mode.kind === "full" ? {} : { trackedArtifactFiles: candidates.files }),
 	};
 };

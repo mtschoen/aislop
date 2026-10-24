@@ -18,6 +18,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 		maxNesting: 5,
 		maxParams: 6,
 		repeatedLiteralThreshold: 3,
+		maxTrackedFileBytes: 524288,
 	},
 	lint: {
 		typecheck: false,

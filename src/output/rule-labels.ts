@@ -43,6 +43,8 @@ const RULE_LABELS: Record<string, string> = {
 	"ai-slop/hardcoded-id": "Hardcoded provider ID",
 	"ai-slop/hardcoded-user-path": "Hardcoded user home path",
 	"ai-slop/repeated-magic-literal": "Repeated magic literal",
+	"ai-slop/committed-tool-output": "Committed tool output",
+	"ai-slop/committed-large-file": "Oversized tracked text file",
 	"ai-slop/python-bare-except": "Bare except",
 	"ai-slop/python-broad-except": "Broad except",
 	"ai-slop/python-mutable-default": "Mutable default argument",
@@ -167,6 +169,9 @@ const RULE_DESCRIPTIONS: Record<string, string> = {
 	"ai-slop/hardcoded-id": "Provider/account/test ID is embedded directly in code.",
 	"ai-slop/hardcoded-user-path":
 		"Machine-specific user home path is embedded directly in source or tests.",
+	"ai-slop/committed-tool-output":
+		"A tracked file has the name of raw tool output (log, SARIF, TRX, captured stream, archive).",
+	"ai-slop/committed-large-file": "A tracked text file is larger than quality.maxTrackedFileBytes.",
 	"ai-slop/repeated-magic-literal":
 		"Same named argument or assignment repeats a literal instead of referencing a constant.",
 	"ai-slop/python-bare-except": "Bare except catches everything, including system exits.",

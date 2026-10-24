@@ -21,6 +21,7 @@ quality:
   maxNesting: 5
   maxParams: 6
   repeatedLiteralThreshold: 3
+  maxTrackedFileBytes: 524288
 
 security:
   audit: true
@@ -146,6 +147,7 @@ Control what triggers code quality warnings:
 | `maxNesting` | 5 | Max control-flow nesting depth |
 | `maxParams` | 6 | Max function parameters |
 | `repeatedLiteralThreshold` | 3 | Permitted occurrences of one named literal in one file; values are reported only when this threshold is exceeded (for example, 3 reports 4 or more occurrences) |
+| `maxTrackedFileBytes` | 524288 | Largest tracked text file, in bytes (binary files are never considered), before `ai-slop/committed-large-file` reports it (512 KiB); lockfiles are spared and tool-output names are reported by `ai-slop/committed-tool-output` instead |
 
 ## Accepted advisories
 

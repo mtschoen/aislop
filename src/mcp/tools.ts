@@ -41,6 +41,8 @@ const buildEngineContext = (
 		languages: project.languages,
 		dependencyAuditLanguages: detectManifestLanguages(rootDirectory),
 		frameworks: project.frameworks,
+		excludePatterns: config.exclude,
+		includePatterns: config.include,
 		installedTools: project.installedTools,
 		config: {
 			overrides: config.overrides,

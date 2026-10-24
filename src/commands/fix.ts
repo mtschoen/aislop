@@ -332,6 +332,7 @@ const runFixBody = async (
 			dependencyAuditLanguages: context.dependencyAuditLanguages,
 			frameworks: projectInfo.frameworks,
 			excludePatterns: context.excludePatterns,
+			includePatterns: context.includePatterns,
 			installedTools: context.installedTools,
 			config: engineConfig,
 			...(scope
@@ -339,6 +340,7 @@ const runFixBody = async (
 						files: context.files,
 						testFiles: context.testFiles,
 						projectFiles: context.projectFiles,
+						trackedArtifactFiles: context.trackedArtifactFiles,
 						dependencyAuditFiles: context.dependencyAuditFiles,
 						dependencyAuditScope: context.dependencyAuditScope,
 					}

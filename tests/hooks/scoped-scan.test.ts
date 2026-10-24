@@ -124,14 +124,48 @@ describe("runScopedScan", () => {
 		fs.writeFileSync(path.join(root, "src", "app.ts"), "export const value = true;\n");
 		const testPath = path.join(root, "src", "app.test.ts");
 		fs.writeFileSync(testPath, "it('passes', () => expect(true).toBe(true));\n");
+		const selectedAsciiLog = path.join(root, "docs", "run.log");
+		const selectedQuotedLog = path.join(root, "docs", "caf\u00e9.log");
+		if (gitAvailable) {
+			fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+			fs.writeFileSync(path.join(root, "docs", "old.log"), "unchanged log\n");
+			fs.writeFileSync(path.join(root, "docs", "dump.json"), "x".repeat(600 * 1024));
+			fs.writeFileSync(selectedAsciiLog, "selected ascii log\n");
+			fs.writeFileSync(selectedQuotedLog, "selected quoted log\n");
+			execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+			execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], {
+				cwd: root,
+				stdio: "ignore",
+			});
+			execFileSync(
+				"git",
+				["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
+				{ cwd: root, stdio: "ignore" },
+			);
+		}
 
-		const result = await runScopedScan(root, [testPath]);
+		const selectedFiles = gitAvailable
+			? [testPath, selectedAsciiLog, selectedQuotedLog]
+			: [testPath];
+		const result = await runScopedScan(root, selectedFiles);
 
 		expect(result.diagnostics).toEqual([
 			expect.objectContaining({
 				filePath: "src/app.test.ts",
 				rule: "ai-slop/tautological-test",
 			}),
+			...(gitAvailable
+				? [
+						expect.objectContaining({
+							filePath: "docs/caf\u00e9.log",
+							rule: "ai-slop/committed-tool-output",
+						}),
+						expect.objectContaining({
+							filePath: "docs/run.log",
+							rule: "ai-slop/committed-tool-output",
+						}),
+					]
+				: []),
 		]);
 	});
 

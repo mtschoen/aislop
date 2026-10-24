@@ -79,6 +79,12 @@ export const AI_SLOP_RULE_SCORE_IMPACTS: Record<string, RuleScoreImpact> = {
 		"User-specific paths leak machine details and make source or tests fail on other machines.",
 		12,
 	),
+	"ai-slop/committed-tool-output": standard(
+		"Raw tool output committed as proof bloats history and goes stale; put counts in the PR body.",
+	),
+	"ai-slop/committed-large-file": maintainability(
+		"Oversized tracked files bloat clones and usually hold generated dumps rather than source.",
+	),
 	"ai-slop/repeated-magic-literal": maintainability(
 		"Repeated named literals create measurable change amplification and should be extracted to constants.",
 	),

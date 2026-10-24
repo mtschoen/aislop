@@ -1,6 +1,7 @@
 import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
 import { detectOverAbstraction } from "./abstractions.js";
 import { detectTrivialComments } from "./comments.js";
+import { inspectCommittedArtifacts } from "./committed-artifacts.js";
 import { detectCppPatterns } from "./cpp-patterns.js";
 import { detectCSharpPatterns } from "./csharp-patterns.js";
 import { detectDeadPatterns } from "./dead-patterns.js";
@@ -62,18 +63,26 @@ export const aiSlopEngine: Engine = {
 			detectSystemdTimeouts(context),
 			detectUnknownDirectives(context),
 		]);
+		const committedArtifacts = await inspectCommittedArtifacts(context);
 
 		for (const result of results) {
 			if (result.status === "fulfilled") {
 				diagnostics.push(...result.value);
 			}
 		}
+		diagnostics.push(...committedArtifacts.diagnostics);
 
 		return {
 			engine: "ai-slop",
 			diagnostics,
 			elapsed: 0,
 			skipped: false,
+			...(committedArtifacts.missingTools.length > 0
+				? { missingTools: committedArtifacts.missingTools }
+				: {}),
+			...(committedArtifacts.failures.length > 0
+				? { failed: true, failures: committedArtifacts.failures }
+				: {}),
 		};
 	},
 };

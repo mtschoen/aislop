@@ -28,6 +28,7 @@ const QualitySchema = z.object({
 	maxNesting: z.number().positive().default(5),
 	maxParams: z.number().positive().default(6),
 	repeatedLiteralThreshold: z.number().int().positive().default(3),
+	maxTrackedFileBytes: z.number().int().positive().default(524288),
 });
 
 const CsharpLintSchema = z.object({
@@ -261,6 +262,7 @@ const AislopConfigSchema = z.object({
 		maxNesting: 5,
 		maxParams: 6,
 		repeatedLiteralThreshold: 3,
+		maxTrackedFileBytes: 524288,
 	})),
 	lint: LintConfigSchema.default(() => ({
 		typecheck: false,
