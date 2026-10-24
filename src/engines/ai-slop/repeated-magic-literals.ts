@@ -5,6 +5,13 @@ import type { Diagnostic } from "../types.js";
 const JS_TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const MAXIMUM_STRING_LITERAL_LENGTH = 80;
 const TRIVIAL_NUMERIC_VALUES = new Set([-1, 0, 1, 2]);
+const WHITESPACE_STRING_VALUES = new Set(["\n", "\r\n", "\r", "\t", " "]);
+const PYTHON_WHITESPACE_ESCAPES = new Map([
+	["\\n", "\n"],
+	["\\r\\n", "\r\n"],
+	["\\r", "\r"],
+	["\\t", "\t"],
+]);
 const PYTHON_INTEGER_LITERAL_RE =
 	/^[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|\d(?:_?\d)*)$/;
 const PYTHON_ASSIGNMENT_LITERAL_RE =
@@ -41,13 +48,16 @@ const pythonNumericLiteralValue = (rawValue: string): LiteralValue | null => {
 
 const stringLiteralValue = (value: string): LiteralValue | null => {
 	if (value.length === 0 || value.length > MAXIMUM_STRING_LITERAL_LENGTH) return null;
+	if (WHITESPACE_STRING_VALUES.has(value)) return null;
 	return { key: `string:${value}`, display: `'${value}'` };
 };
 
 const pythonStringLiteralValue = (prefix: string, value: string): LiteralValue | null => {
-	const literalValue = stringLiteralValue(value);
-	if (!literalValue) return null;
 	const normalizedPrefix = prefix.toLowerCase();
+	const decodedValue = normalizedPrefix.includes("r")
+		? value
+		: (PYTHON_WHITESPACE_ESCAPES.get(value) ?? value);
+	if (!stringLiteralValue(decodedValue)) return null;
 	return {
 		key: `python-string:${normalizedPrefix}:${value}`,
 		display: `${normalizedPrefix}'${value}'`,

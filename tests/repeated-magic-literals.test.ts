@@ -822,6 +822,83 @@ describe("repeated magic literals", () => {
 	});
 });
 
+describe("repeated magic literal whitespace exemption", () => {
+	const whitespaceSpellings = [
+		["newline", '"\\n"'],
+		["carriage return and newline", '"\\r\\n"'],
+		["carriage return", '"\\r"'],
+		["tab", '"\\t"'],
+		["single space", '" "'],
+		["single-quoted newline", "'\\n'"],
+	] as const;
+
+	it.each(whitespaceSpellings)(
+		"does not report a repeated Python %s literal",
+		async (_label, spelling) => {
+			const filePath = writeFile(
+				"whitespace.py",
+				[
+					...Array.from({ length: 5 }, () => `text = ${spelling}`),
+					...Array.from({ length: 5 }, () => 'label = "alpha"'),
+				].join("\n"),
+			);
+
+			const matches = repeatedLiteralMatches(
+				await detectHardcodedConfigLiterals(makeContext([filePath])),
+			);
+
+			expect(matches).toHaveLength(1);
+			expect(matches[0].message).toContain("alpha");
+		},
+	);
+
+	it.each(whitespaceSpellings)(
+		"does not report a repeated TypeScript %s literal",
+		async (_label, spelling) => {
+			const filePath = writeFile(
+				"whitespace.ts",
+				[
+					...Array.from({ length: 5 }, () => `text = ${spelling};`),
+					...Array.from({ length: 5 }, () => 'label = "alpha";'),
+				].join("\n"),
+			);
+
+			const matches = repeatedLiteralMatches(
+				await detectHardcodedConfigLiterals(makeContext([filePath])),
+			);
+
+			expect(matches).toHaveLength(1);
+			expect(matches[0].message).toContain("alpha");
+		},
+	);
+
+	it("still reports a Python raw-string backslash-n, which is not a newline", async () => {
+		const filePath = writeFile(
+			"raw.py",
+			Array.from({ length: 5 }, () => 'pattern = r"\\n"').join("\n"),
+		);
+
+		const matches = repeatedLiteralMatches(
+			await detectHardcodedConfigLiterals(makeContext([filePath])),
+		);
+
+		expect(matches).toHaveLength(1);
+	});
+
+	it("still reports repeated multi-character whitespace", async () => {
+		const filePath = writeFile(
+			"double.ts",
+			Array.from({ length: 5 }, () => 'indent = "  ";').join("\n"),
+		);
+
+		const matches = repeatedLiteralMatches(
+			await detectHardcodedConfigLiterals(makeContext([filePath])),
+		);
+
+		expect(matches).toHaveLength(1);
+	});
+});
+
 describe("repeated magic literal configuration", () => {
 	it("defaults the permitted occurrence threshold to three", () => {
 		expect(parseConfig({}).quality.repeatedLiteralThreshold).toBe(3);

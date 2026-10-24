@@ -298,6 +298,8 @@ In JavaScript and TypeScript, the rule scans object property assignments, parame
 
 Supported JS/TS properties have static identifier, string, or numeric names. Supported values are finite numeric literals (including unary `+` and `-`) and non-empty string literals of at most 80 characters after parentheses and TypeScript assertion wrappers are removed. The numeric values -1, 0, 1, and 2 are treated as trivial and excluded.
 
+**Deliberate non-detection: trivial values.** The numeric values -1, 0, 1, and 2, and five whitespace-only string values (a newline, a carriage return plus newline, a carriage return, a tab, and a single space), are never reported, regardless of how often they repeat. The whitespace set is closed and matched on the decoded value, so the escape spelling `"\n"` in Python, JavaScript, and TypeScript is exempt; a Python raw string such as `r"\n"` holds a backslash and the letter n, not a newline, and is still counted. Other whitespace strings (for example two spaces) and the empty string are not covered by this exemption.
+
 **Differing values never group.** Grouping is by name and value together, so a property whose value differs across rows of a table never groups on that property. A named-constant reference (`timeout=_DEFAULT_TIMEOUT_SECONDS`) contributes nothing to any group: only literal occurrences are counted.
 
 **Suppress above the reported line.** Where the repetition genuinely is data, or the values are meant to stay independently tunable, suppress it with a reason. The diagnostic is reported on the first occurrence in the group, so the directive goes above that line:
