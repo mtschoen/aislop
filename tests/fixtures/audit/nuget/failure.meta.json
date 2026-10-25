@@ -1,0 +1,13 @@
+{
+	"tool": "NuGet (dotnet list package)",
+	"toolVersion": "10.0.401 (dotnet SDK)",
+	"binary": "dotnet",
+	"arguments": ["list", "Probe.csproj", "package", "--no-restore", "--vulnerable", "--include-transitive", "--format", "json"],
+	"workingDirectory": "<project>",
+	"input": "net10.0 Probe.csproj has no PackageReference and has never been restored (no assets file)",
+	"exitCode": 1,
+	"source": "stdout",
+	"stderr": "",
+	"captureDate": "2026-10-25",
+	"trimmed": "Removed sources, including machine-local package sources; replaced absolute project directories in paths and problem text with <project>. Reformatted JSON."
+}

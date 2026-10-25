@@ -1,0 +1,13 @@
+{
+	"tool": "cargo audit",
+	"toolVersion": "0.22.2",
+	"binary": "cargo",
+	"arguments": ["audit", "--json"],
+	"workingDirectory": "<project>",
+	"input": "Dependency-free audit-probe crate, version 0.1.0, edition 2021, src/main.rs contains fn main() {}; setup: cargo generate-lockfile.",
+	"exitCode": 0,
+	"source": "stdout",
+	"stderr": "",
+	"captureDate": "2026-10-25",
+	"trimmed": "Reformatted JSON only; no fields removed. Advisory database commit and update date retained. Captured using an isolated scratch CARGO_HOME."
+}

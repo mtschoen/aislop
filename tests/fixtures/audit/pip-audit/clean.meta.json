@@ -1,0 +1,13 @@
+{
+	"tool": "pip-audit",
+	"toolVersion": "2.10.1",
+	"binary": "pip-audit",
+	"arguments": ["--format=json", "--disable-pip", "--no-deps", "-r", "requirements.txt"],
+	"workingDirectory": "<project>",
+	"input": "requirements.txt contains only the comment: # no dependencies",
+	"exitCode": 0,
+	"source": "stdout",
+	"stderr": "No known vulnerabilities found\n",
+	"captureDate": "2026-10-25",
+	"trimmed": "Reformatted JSON. Removed two generic --no-deps/hash guidance warnings from stderr."
+}

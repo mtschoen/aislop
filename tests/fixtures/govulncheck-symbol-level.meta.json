@@ -1,0 +1,14 @@
+{
+	"tool": "govulncheck",
+	"toolVersion": "v1.9.0",
+	"binary": "govulncheck",
+	"arguments": ["-json", "./..."],
+	"workingDirectory": "<project>",
+	"input": "example.com/vulnprobe requires golang.org/x/text v0.3.7 and calls language.MatchStrings",
+	"exitCode": 0,
+	"source": "stdout",
+	"stderr": "",
+	"captureDate": "2026-10-25",
+	"trimmed": "Existing fixture retained unchanged: config, progress, two trimmed OSV entries and module/package/symbol findings. Original command, tool version and input are documented in govulncheck-audit.test.ts and the stream's config. Original stderr and exit status were not recorded.",
+	"exitCodeEvidence": "Exit 0 verified by recapturing the same v1.9.0 symbol-level command and dependency/call shape on 2026-10-25, not recovered from the original run. See audit/govulncheck/vulnerable.meta.json. The recapture uses go1.26.1 instead of the original go1.27.2-X:nodwarf5 and adds an SBOM message, so it is stored separately."
+}

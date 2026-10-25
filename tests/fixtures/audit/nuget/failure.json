@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"parameters": "--vulnerable --include-transitive",
+	"problems": [
+		{
+			"project": "<project>/Probe.csproj",
+			"level": "error",
+			"text": "No assets file was found for `<project>/Probe.csproj`. Run restore before running this command."
+		}
+	],
+	"projects": [{ "path": "<project>/Probe.csproj" }]
+}

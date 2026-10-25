@@ -1,0 +1,91 @@
+{
+  "config": {
+    "protocol_version": "v1.0.0",
+    "scanner_name": "govulncheck",
+    "scanner_version": "v1.9.0",
+    "db": "https://vuln.go.dev",
+    "db_last_modified": "2026-10-21T00:27:29Z",
+    "go_version": "go1.26.1",
+    "scan_level": "symbol",
+    "scan_mode": "source"
+  }
+}
+{
+  "SBOM": {
+    "go_version": "go1.26.1",
+    "modules": [
+      { "path": "example.com/vulnprobe" },
+      { "path": "golang.org/x/text", "version": "v0.3.7" },
+      { "path": "stdlib", "version": "v1.26.1" }
+    ],
+    "roots": ["example.com/vulnprobe"]
+  }
+}
+{
+  "progress": { "message": "Fetching vulnerabilities from the database..." }
+}
+{
+  "osv": {
+    "id": "GO-2022-1059",
+    "aliases": ["CVE-2022-32149", "GHSA-69ch-w2m2-3vjp"],
+    "summary": "Denial of service via crafted Accept-Language header in golang.org/x/text/language"
+  }
+}
+{
+  "osv": {
+    "id": "GO-2026-5970",
+    "aliases": ["CVE-2026-56852"],
+    "summary": "Infinite loop on invalid input in golang.org/x/text"
+  }
+}
+{
+  "progress": { "message": "Checking the code against the vulnerabilities..." }
+}
+{
+  "finding": {
+    "osv": "GO-2022-1059",
+    "fixed_version": "v0.3.8",
+    "trace": [{ "module": "golang.org/x/text", "version": "v0.3.7" }]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2026-5970",
+    "fixed_version": "v0.39.0",
+    "trace": [{ "module": "golang.org/x/text", "version": "v0.3.7" }]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2022-1059",
+    "fixed_version": "v0.3.8",
+    "trace": [
+      {
+        "module": "golang.org/x/text",
+        "version": "v0.3.7",
+        "package": "golang.org/x/text/language"
+      }
+    ]
+  }
+}
+{
+  "finding": {
+    "osv": "GO-2022-1059",
+    "fixed_version": "v0.3.8",
+    "trace": [
+      {
+        "module": "golang.org/x/text",
+        "version": "v0.3.7",
+        "package": "golang.org/x/text/language",
+        "function": "MatchStrings",
+        "position": { "filename": "language/match.go", "offset": 1181, "line": 33, "column": 6 }
+      },
+      {
+        "module": "example.com/vulnprobe",
+        "package": "example.com/vulnprobe",
+        "function": "main",
+        "position": { "filename": "main.go", "offset": 86, "line": 3, "column": 36 }
+      }
+    ]
+  }
+}

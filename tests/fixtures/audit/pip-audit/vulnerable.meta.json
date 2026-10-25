@@ -1,0 +1,13 @@
+{
+	"tool": "pip-audit",
+	"toolVersion": "2.10.1",
+	"binary": "pip-audit",
+	"arguments": ["--format=json", "--disable-pip", "--no-deps", "-r", "requirements.txt"],
+	"workingDirectory": "<project>",
+	"input": "requirements.txt contains requests==2.19.1",
+	"exitCode": 1,
+	"source": "stdout",
+	"stderr": "Found 10 known vulnerabilities in 1 package\n",
+	"captureDate": "2026-10-25",
+	"trimmed": "Kept the first of ten vulnerability entries, including its aliases; removed its description. Reformatted JSON. Removed two generic --no-deps/hash guidance warnings from stderr; the retained summary describes the original untrimmed report."
+}

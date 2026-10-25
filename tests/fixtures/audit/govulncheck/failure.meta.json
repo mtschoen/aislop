@@ -1,0 +1,14 @@
+{
+	"tool": "govulncheck",
+	"toolVersion": "v1.9.0",
+	"goVersion": "go1.26.1",
+	"binary": "govulncheck",
+	"arguments": ["-json", "./..."],
+	"workingDirectory": "<project>",
+	"input": "Empty directory with no go.mod",
+	"exitCode": 1,
+	"source": "stdout",
+	"stderr": "govulncheck: no go.mod file\n\ngovulncheck only works with Go modules. Try navigating to your module directory.\nOtherwise, run go mod init to make your project a module.\n\nSee https://go.dev/doc/modules/managing-dependencies for more information.\n",
+	"captureDate": "2026-10-25",
+	"trimmed": "Stdout config message and stderr retained in full."
+}

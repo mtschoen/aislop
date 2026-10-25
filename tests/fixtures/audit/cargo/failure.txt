@@ -1,0 +1,14 @@
+error: not found: Couldn't load Cargo.lock
+Caused by:
+  -> I/O operation failed: parse error: TOML parse error at line 1, column 11
+  |
+1 | version = "invalid"
+  |           ^^^^^^^^^
+invalid type: string "invalid", expected u32
+
+  -> parse error: TOML parse error at line 1, column 11
+  |
+1 | version = "invalid"
+  |           ^^^^^^^^^
+invalid type: string "invalid", expected u32
+

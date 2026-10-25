@@ -25,6 +25,12 @@ const REAL_STREAM = fs.readFileSync(
 	path.join(import.meta.dirname, "fixtures", "govulncheck-symbol-level.json"),
 	"utf8",
 );
+const REAL_STREAM_METADATA: { exitCode: number } = JSON.parse(
+	fs.readFileSync(
+		path.join(import.meta.dirname, "fixtures", "govulncheck-symbol-level.meta.json"),
+		"utf8",
+	),
+);
 
 const CONFIG_LINE_FOR_IGNORED = JSON.stringify({ config: { protocol_version: "v1.0.0" } });
 const GO_ADVISORY = "GO-2022-1059";
@@ -41,10 +47,11 @@ describe("govulncheck audit parsing", () => {
 	});
 
 	it("reports the advisory whose vulnerable symbol is called, from real multi-line output", async () => {
-		respondWith(REAL_STREAM);
+		respondWith(REAL_STREAM, REAL_STREAM_METADATA.exitCode);
 
-		const diagnostics = await runGovulncheck("/repo", 1000);
+		const { diagnostics, completed } = await inspectGovulncheck("/repo", 1000);
 
+		expect(completed).toBe(true);
 		expect(diagnostics).toHaveLength(1);
 		expect(diagnostics[0]).toMatchObject({
 			filePath: "go.mod",

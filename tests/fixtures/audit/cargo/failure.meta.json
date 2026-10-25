@@ -1,0 +1,14 @@
+{
+	"tool": "cargo audit",
+	"toolVersion": "0.22.2",
+	"binary": "cargo",
+	"arguments": ["audit", "--json"],
+	"workingDirectory": "<project>",
+	"input": "Dependency-free audit-probe crate, version 0.1.0, edition 2021, src/main.rs contains fn main() {}; Cargo.lock contains version = \"invalid\" followed by a newline.",
+	"exitCode": 2,
+	"source": "stderr",
+	"stdout": "",
+	"stderr": "",
+	"captureDate": "2026-10-25",
+	"trimmed": "None; stderr retained exactly and stdout is empty. Captured using an isolated scratch CARGO_HOME."
+}

@@ -1,0 +1,13 @@
+{
+	"tool": "bun",
+	"toolVersion": "1.3.13",
+	"binary": "bun",
+	"arguments": ["audit", "--json"],
+	"workingDirectory": "<project>",
+	"input": "package.json pins is-number 7.0.0; bun install --ignore-scripts creates bun.lock",
+	"exitCode": 0,
+	"source": "stdout",
+	"stderr": "bun audit v1.3.13 (bf2e2cec)\n",
+	"captureDate": "2026-10-25",
+	"trimmed": "Stdout unchanged. Removed ANSI styling from the stderr banner."
+}

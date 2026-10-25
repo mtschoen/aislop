@@ -1,0 +1,1 @@
+ERROR:pip_audit._cli:invalid requirements input: requirements.txt

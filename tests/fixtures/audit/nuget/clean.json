@@ -1,0 +1,5 @@
+{
+	"version": 1,
+	"parameters": "--vulnerable --include-transitive",
+	"projects": [{ "path": "<project>/Probe.csproj" }]
+}

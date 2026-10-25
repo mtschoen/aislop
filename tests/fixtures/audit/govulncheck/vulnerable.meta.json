@@ -1,0 +1,14 @@
+{
+	"tool": "govulncheck",
+	"toolVersion": "v1.9.0",
+	"goVersion": "go1.26.1",
+	"binary": "govulncheck",
+	"arguments": ["-json", "./..."],
+	"workingDirectory": "<project>",
+	"input": "example.com/vulnprobe requires golang.org/x/text v0.3.7; main calls language.MatchStrings with a language.NewMatcher; go mod tidy ran first",
+	"exitCode": 0,
+	"source": "stdout",
+	"stderr": "",
+	"captureDate": "2026-10-25",
+	"trimmed": "Kept config, SBOM, progress, GO-2022-1059 and GO-2026-5970 OSV messages and their four findings. Removed unrelated OSV messages and module/package-only findings. Kept only id, aliases and summary in the retained OSV entries; reformatted whitespace. No other symbol-level findings were present."
+}

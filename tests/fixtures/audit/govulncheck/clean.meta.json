@@ -1,0 +1,14 @@
+{
+	"tool": "govulncheck",
+	"toolVersion": "v1.9.0",
+	"goVersion": "go1.26.1",
+	"binary": "govulncheck",
+	"arguments": ["-json", "./..."],
+	"workingDirectory": "<project>",
+	"input": "example.com/vulnprobe has no third-party dependencies; main is empty; go mod tidy ran first",
+	"exitCode": 0,
+	"source": "stdout",
+	"stderr": "",
+	"captureDate": "2026-10-25",
+	"trimmed": "Kept config, SBOM and progress. Removed OSV messages and module/package-only findings for uncalled standard-library vulnerabilities. No symbol-level findings were present. Clean means no reachable advisory at the default symbol scan level, not no database entries for the toolchain. Reformatted whitespace."
+}
