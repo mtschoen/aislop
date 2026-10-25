@@ -194,7 +194,7 @@ Session review commands:
 | `--project` | Install to project-scope config |
 | `--dry-run` | Print the planned diff without writing |
 | `--yes` | Skip confirmation prompt |
-| `--quality-gate` | Add a Claude Stop hook that blocks score regressions |
+| `--quality-gate` | Add a Stop hook (Claude and Codex) that blocks score regressions |
 
 Agent shortcut flags: `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--kimi`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
 
@@ -306,6 +306,7 @@ aislop hook install --agent claude,cursor
 aislop hook install --codex
 aislop hook install --kimi
 aislop hook install --claude --quality-gate
+aislop hook install --codex --quality-gate
 aislop hook baseline
 aislop hook status
 aislop hook uninstall --claude

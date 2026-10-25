@@ -5,7 +5,7 @@ import {
 	runClaudeHook,
 	runClaudeStopHook,
 } from "../hooks/adapters/claude.js";
-import { runCodexHook } from "../hooks/adapters/codex.js";
+import { runCodexHook, runCodexStopHook } from "../hooks/adapters/codex.js";
 import { runCursorHook } from "../hooks/adapters/cursor.js";
 import { runGeminiHook } from "../hooks/adapters/gemini.js";
 import { runPiHook } from "../hooks/adapters/pi.js";
@@ -52,7 +52,7 @@ const AGENT_LABELS: Record<AgentName, { label: string; hint: string }> = {
 	cursor: { label: "Cursor", hint: "afterFileEdit, runtime" },
 	gemini: { label: "Gemini CLI", hint: "AfterTool, runtime" },
 	pi: { label: "pi", hint: "extension, runtime" },
-	codex: { label: "Codex CLI", hint: "PostToolUse, runtime" },
+	codex: { label: "Codex CLI", hint: "PostToolUse + Stop, runtime" },
 	kimi: { label: "Kimi Code", hint: "rules-only" },
 	windsurf: { label: "Windsurf", hint: RULES_ONLY_PROJECT_HINT },
 	cline: { label: "Cline + Roo", hint: RULES_ONLY_PROJECT_HINT },
@@ -299,7 +299,7 @@ export const hookRun = async (
 	} else if (agent === "pi") {
 		exitCode = await runPiHook();
 	} else if (agent === "codex") {
-		exitCode = await runCodexHook();
+		exitCode = flags?.stop ? await runCodexStopHook() : await runCodexHook();
 	} else {
 		process.stderr.write(`hook: agent "${agent}" has no runtime adapter (rules-file-only)\n`);
 		process.exit(0);

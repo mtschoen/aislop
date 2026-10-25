@@ -79,28 +79,35 @@ describe("installCodex global", () => {
 		]);
 	});
 
-	it("preserves BOM, CRLF line endings, comments, trailing commas, and custom indentation in hooks.json", () => {
-		const opts = { home, cwd, scope: "global" as const };
-		const paths = resolveCodexPaths(opts);
-		fs.mkdirSync(path.dirname(paths.hooks), { recursive: true });
-		const content =
-			'\uFEFF// Header comment\r\n{\r\n    /* Custom comment */\r\n    "customSetting": true,\r\n    "extra": { "k": "v", },\r\n}\r\n';
-		fs.writeFileSync(paths.hooks, content, "utf-8");
+	it.each([
+		["without qualityGate", false],
+		["with qualityGate (issue 139)", true],
+	])(
+		"preserves BOM, CRLF line endings, comments, trailing commas, and custom indentation in hooks.json (%s)",
+		(_description, qualityGate) => {
+			const opts = { home, cwd, scope: "global" as const, qualityGate };
+			const paths = resolveCodexPaths(opts);
+			fs.mkdirSync(path.dirname(paths.hooks), { recursive: true });
+			const content =
+				'\uFEFF// Header comment\r\n{\r\n    /* Custom comment */\r\n    "customSetting": true,\r\n    "extra": { "k": "v", },\r\n}\r\n';
+			fs.writeFileSync(paths.hooks, content, "utf-8");
 
-		installCodex(opts);
-		const rawAfterInstall = fs.readFileSync(paths.hooks, "utf-8");
-		expect(rawAfterInstall.startsWith("\uFEFF")).toBe(true);
-		expect(rawAfterInstall).toContain("\r\n");
-		expect(rawAfterInstall).toContain("// Header comment");
-		expect(rawAfterInstall).toContain("/* Custom comment */");
-		expect(rawAfterInstall).toContain('    "customSetting": true');
-		expect(rawAfterInstall).toContain('    "extra": { "k": "v", }');
-		expect(rawAfterInstall).toContain('    "hooks": {');
+			installCodex(opts);
+			const rawAfterInstall = fs.readFileSync(paths.hooks, "utf-8");
+			expect(rawAfterInstall.startsWith("\uFEFF")).toBe(true);
+			expect(rawAfterInstall).toContain("\r\n");
+			expect(rawAfterInstall).toContain("// Header comment");
+			expect(rawAfterInstall).toContain("/* Custom comment */");
+			expect(rawAfterInstall).toContain('    "customSetting": true');
+			expect(rawAfterInstall).toContain('    "extra": { "k": "v", }');
+			expect(rawAfterInstall).toContain('    "hooks": {');
+			expect(rawAfterInstall.includes("aislop hook codex --stop")).toBe(qualityGate);
 
-		uninstallCodex(opts);
-		const rawAfterUninstall = fs.readFileSync(paths.hooks, "utf-8");
-		expect(rawAfterUninstall).toBe(content);
-	});
+			uninstallCodex(opts);
+			const rawAfterUninstall = fs.readFileSync(paths.hooks, "utf-8");
+			expect(rawAfterUninstall).toBe(content);
+		},
+	);
 
 	it("refuses to overwrite malformed hooks.json", () => {
 		const opts = { home, cwd, scope: "global" as const };
@@ -196,5 +203,23 @@ describe("installCodex global", () => {
 		uninstallCodex(opts);
 		const rawAfterUninstall = fs.readFileSync(paths.hooks, "utf-8");
 		expect(rawAfterUninstall).toBe(commentedEmpty);
+	});
+
+	it("registers a matcher-less Stop hook only with the quality gate, idempotently", () => {
+		const opts = { home, cwd, scope: "global" as const, qualityGate: true };
+		const paths = resolveCodexPaths(opts);
+		installCodex(opts);
+		const hooks = JSON.parse(fs.readFileSync(paths.hooks, "utf-8"));
+		expect(hooks.hooks.Stop).toHaveLength(1);
+		expect(hooks.hooks.Stop[0].matcher).toBeUndefined();
+		expect(hooks.hooks.Stop[0].hooks[0].command).toBe("aislop hook codex --stop");
+		expect(hooks.hooks.PostToolUse).toHaveLength(1);
+
+		expect(installCodex(opts).wrote).toHaveLength(0);
+
+		installCodex({ ...opts, qualityGate: false });
+		const without = JSON.parse(fs.readFileSync(paths.hooks, "utf-8"));
+		expect(without.hooks.Stop).toBeUndefined();
+		expect(without.hooks.PostToolUse).toHaveLength(1);
 	});
 });

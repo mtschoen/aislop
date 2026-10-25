@@ -3,13 +3,8 @@ import { buildHookScanCompletedProps, track } from "../../telemetry/index.js";
 import { buildFeedback } from "../feedback.js";
 import { acquireHookLock } from "../io/scan-lock.js";
 import { resolveHookFiles, runScopedScan } from "../io/scoped-scan.js";
-import {
-	appendSessionFiles,
-	captureBaseline,
-	clearSessionFiles,
-	readBaseline,
-	readSessionFiles,
-} from "../quality-gate/baseline.js";
+import { appendSessionFiles, captureBaseline, readBaseline } from "../quality-gate/baseline.js";
+import { evaluateStopGate } from "./runtime.js";
 
 interface ClaudeHookStdin {
 	hook_event_name?: string;
@@ -204,38 +199,10 @@ export const runClaudeStopHook = async (
 	// Avoid infinite Stop loops if the model has already replied to a previous block.
 	if (input.stop_hook_active) return 0;
 
-	const baseline = readBaseline(cwd);
-	if (!baseline) return 0;
-
-	const sessionFiles = readSessionFiles(cwd);
-	if (sessionFiles.length === 0) return 0;
-
-	const release = acquireHookLock(cwd);
-	if (!release) return 0;
-	try {
-		const { diagnostics, score, rootDirectory } = await runScopedScan(cwd, sessionFiles);
-		const feedback = buildFeedback(
-			diagnostics,
-			score,
-			rootDirectory,
-			{
-				score: baseline.score,
-				findingFingerprints: baseline.findingFingerprints,
-			},
-			{ agent: "claude", touchedFiles: sessionFiles },
-		);
-		if (!feedback.regressed) {
-			clearSessionFiles(cwd);
-			return 0;
-		}
-		const envelope = renderClaudeOutput(JSON.stringify(feedback), {
-			reason: `aislop: score dropped from ${baseline.score} to ${score}. Fix the ${feedback.counts.total} finding${feedback.counts.total === 1 ? "" : "s"} before finishing.`,
-		});
-		write(JSON.stringify(envelope));
-		return 0;
-	} catch {
-		return 0;
-	} finally {
-		release();
-	}
+	const block = await evaluateStopGate({ agent: "claude", cwd });
+	if (!block) return 0;
+	write(
+		JSON.stringify(renderClaudeOutput(JSON.stringify(block.feedback), { reason: block.reason })),
+	);
+	return 0;
 };

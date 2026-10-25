@@ -283,14 +283,15 @@ aislop install hooks --claude          # natural alias for hook install
 
 Hook install flags: `--agent <names>`, `-g, --global`, `--project`, `--dry-run`, `--yes`, `--quality-gate`, plus per-agent shortcuts `--claude`, `--cursor`, `--gemini`, `--pi`, `--codex`, `--kimi`, `--windsurf`, `--cline`, `--kilocode`, `--antigravity`, `--copilot`.
 
-Codex installs an `apply_patch` `PostToolUse` callback alongside its `AGENTS.md` rules under `$CODEX_HOME` (default `~/.codex`). Codex reviews new or changed hooks before running them; aislop leaves that trust decision to Codex instead of modifying `hooks.state`. Kimi installs rules globally in `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`). Kimi's `PostToolUse` event is observation-only, so callback output cannot deliver runtime feedback to the model.
+Codex installs an `apply_patch` `PostToolUse` callback alongside its `AGENTS.md` rules under `$CODEX_HOME` (default `~/.codex`); with `--quality-gate` it also registers a `Stop` hook (`aislop hook codex --stop`) that blocks completion when the score regressed against the session baseline, and does not block again once Codex reports `stop_hook_active`. Both Codex callbacks do nothing in a project that has no `.aislop/config.yml`. Codex reviews new or changed hooks before running them; aislop leaves that trust decision to Codex instead of modifying `hooks.state`. Kimi installs rules globally in `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`). Kimi's `PostToolUse` event is observation-only, so callback output cannot deliver runtime feedback to the model.
 
 Qwen and OpenCode are both viable future runtime adapters, but neither is installed yet. Qwen's Claude-style lifecycle hooks should support a direct command adapter after its payload and output contracts are verified. OpenCode requires a packaged JavaScript plugin using `tool.execute.after`, so it needs a separate plugin lifecycle and cross-platform install design.
 
-**Quality-gate mode**: Blocks if score regresses below baseline.
+**Quality-gate mode**: Blocks if score regresses below baseline (Claude and Codex `Stop` hooks).
 
 ```bash
 aislop hook install --claude --quality-gate
+aislop hook install --codex --quality-gate
 aislop hook baseline                    # re-capture baseline
 aislop hook status                      # list installed
 aislop hook uninstall --claude          # remove
