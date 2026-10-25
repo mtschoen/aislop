@@ -138,22 +138,45 @@ describe("parseClangFormatViolations", () => {
 	});
 });
 
-// 450 sources split into 3 chunks under the shared 200-file cap, enough to have
-// chunks complete out of order while the pool is still holding others back.
+// 450 sources split into at least 3 chunks under the shared 200-file cap (more
+// when a long temp path pushes a chunk over the command-line character budget),
+// enough to have chunks complete out of order while the pool holds others back.
 const SOURCE_COUNT = 450;
-const CHUNK_COUNT = 3;
+const MINIMUM_CHUNK_COUNT = 3;
+const MINIMUM_DOUBLE_DIGIT_CHUNK_COUNT = 12;
+const LONG_SOURCE_SUBDIRECTORY = path.join(
+	"src",
+	...Array.from({ length: 6 }, () => "d".repeat(100)),
+);
 const POOL_WIDTH = Math.max(1, os.availableParallelism() - 2);
 
 const sleep = (milliseconds: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const writeSources = (rootDirectory: string): void => {
+const writeSources = (rootDirectory: string, sourceSubdirectory = "src"): void => {
 	fs.writeFileSync(path.join(rootDirectory, ".clang-format"), "BasedOnStyle: Google\n");
-	fs.mkdirSync(path.join(rootDirectory, "src"), { recursive: true });
+	const targetDirectory = path.join(rootDirectory, sourceSubdirectory);
+	fs.mkdirSync(targetDirectory, { recursive: true });
 	for (let index = 0; index < SOURCE_COUNT; index += 1) {
 		const name = `f${String(index).padStart(3, "0")}.cpp`;
-		fs.writeFileSync(path.join(rootDirectory, "src", name), "int  a ;\n");
+		fs.writeFileSync(path.join(targetDirectory, name), "int  a ;\n");
 	}
+};
+
+// The chunk count the runner will produce for the tree written by writeSources,
+// from the real chunker over the same absolute paths: the character budget makes
+// it depend on how long the temp directory's path is.
+const expectedChunkCount = (
+	rootDirectory: string,
+	sourceSubdirectory = "src",
+	minimumChunkCount = MINIMUM_CHUNK_COUNT,
+): number => {
+	const files = Array.from({ length: SOURCE_COUNT }, (_, index) =>
+		path.join(rootDirectory, sourceSubdirectory, `f${String(index).padStart(3, "0")}.cpp`),
+	);
+	const chunkCount = chunkFilePaths(files).length;
+	expect(chunkCount).toBeGreaterThanOrEqual(minimumChunkCount);
+	return chunkCount;
 };
 
 // The file paths a chunk invocation was given, i.e. everything after the `--`
@@ -197,8 +220,9 @@ describe("runClangFormat - pooled chunk execution", () => {
 
 		await runClangFormat(makeContext(pooledSourceDir));
 
-		expect(runSubprocess).toHaveBeenCalledTimes(CHUNK_COUNT);
-		expect(peakInFlight).toBe(Math.min(POOL_WIDTH, CHUNK_COUNT));
+		const chunkCount = expectedChunkCount(pooledSourceDir);
+		expect(runSubprocess).toHaveBeenCalledTimes(chunkCount);
+		expect(peakInFlight).toBe(Math.min(POOL_WIDTH, chunkCount));
 	});
 
 	it("produces identical diagnostics no matter which chunk finishes first", async () => {
@@ -214,7 +238,8 @@ describe("runClangFormat - pooled chunk execution", () => {
 			return runClangFormat(makeContext(pooledSourceDir));
 		};
 
-		const firstChunkLast = await scanWithDelays((callIndex) => (CHUNK_COUNT - callIndex) * 15);
+		const chunkCount = expectedChunkCount(pooledSourceDir);
+		const firstChunkLast = await scanWithDelays((callIndex) => (chunkCount - callIndex) * 15);
 		const firstChunkFirst = await scanWithDelays((callIndex) => (callIndex + 1) * 15);
 
 		expect(firstChunkLast).toEqual(firstChunkFirst);
@@ -233,7 +258,7 @@ describe("fixClangFormat - pooled chunk execution", () => {
 
 	beforeAll(() => {
 		pooledSourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-clang-format-fixpool-"));
-		writeSources(pooledSourceDir);
+		writeSources(pooledSourceDir, LONG_SOURCE_SUBDIRECTORY);
 	}, 120_000);
 
 	afterAll(() => {
@@ -260,8 +285,15 @@ describe("fixClangFormat - pooled chunk execution", () => {
 
 		await expect(fixClangFormat(makeContext(pooledSourceDir))).rejects.toThrow("chunk 1 exploded");
 
-		expect(runSubprocess).toHaveBeenCalledTimes(CHUNK_COUNT);
-		expect(completedCalls.sort()).toEqual([0, 1, 2]);
+		const chunkCount = expectedChunkCount(
+			pooledSourceDir,
+			LONG_SOURCE_SUBDIRECTORY,
+			MINIMUM_DOUBLE_DIGIT_CHUNK_COUNT,
+		);
+		expect(runSubprocess).toHaveBeenCalledTimes(chunkCount);
+		expect(completedCalls.sort((first, second) => first - second)).toEqual(
+			Array.from({ length: chunkCount }, (_, index) => index),
+		);
 		expect((runSubprocess.mock.calls[0][1] as string[]).slice(0, 2)).toEqual(["-i", "--"]);
 	});
 
