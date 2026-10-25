@@ -73,7 +73,14 @@ describe("runDependencyAudit: Python dependency-manifest gate", () => {
 
 		expect(runSubprocess).toHaveBeenCalledWith(
 			"pip-audit",
-			["--format=json", "--disable-pip", "--no-deps", "-r", "requirements.txt"],
+			[
+				"--format=json",
+				"--progress-spinner=off",
+				"--disable-pip",
+				"--no-deps",
+				"-r",
+				"requirements.txt",
+			],
 			expect.anything(),
 		);
 	});

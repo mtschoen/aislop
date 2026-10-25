@@ -15,8 +15,15 @@ vi.mock("../src/utils/subprocess.js", async (importOriginal) => ({
 const { inspectPipAudit } = await import("../src/engines/security/audit-ecosystem.js");
 const { runDependencyAudit } = await import("../src/engines/security/audit.js");
 const skippedRule = "security/dependency-audit-skipped";
-const resolvingArguments = ["--format=json", "-r", "requirements.txt"];
-const pinnedArguments = ["--format=json", "--disable-pip", "--no-deps", "-r", "requirements.txt"];
+const resolvingArguments = ["--format=json", "--progress-spinner=off", "-r", "requirements.txt"];
+const pinnedArguments = [
+	"--format=json",
+	"--progress-spinner=off",
+	"--disable-pip",
+	"--no-deps",
+	"-r",
+	"requirements.txt",
+];
 const finding = { name: "urllib3", version: "1.26.0", vulns: [{ id: "PYSEC-1" }] };
 const report = JSON.stringify({ dependencies: [finding], fixes: [] });
 
@@ -112,7 +119,9 @@ describe("issue 127: opt-in resolving Python audit", () => {
 			skippedRule,
 			"security/vulnerable-dependency",
 		]);
-		expect(outcome.diagnostics[0].help).toContain("pip-audit --format=json -r requirements.txt");
+		expect(outcome.diagnostics[0].help).toContain(
+			"pip-audit --format=json --progress-spinner=off -r requirements.txt",
+		);
 	});
 
 	it.each([

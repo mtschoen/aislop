@@ -537,7 +537,14 @@ describe("L5: pip-audit audits the project, not its own environment", () => {
 
 		expect(runSubprocess).toHaveBeenCalledWith(
 			"pip-audit",
-			["--format=json", "--disable-pip", "--no-deps", "-r", "requirements.txt"],
+			[
+				"--format=json",
+				"--progress-spinner=off",
+				"--disable-pip",
+				"--no-deps",
+				"-r",
+				"requirements.txt",
+			],
 			expect.objectContaining({ cwd: projectDirectory }),
 		);
 		expect(outcome.completed).toBe(true);

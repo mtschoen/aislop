@@ -224,11 +224,14 @@ new findings and do not change the exit code.
 ## Resolving Python requirements (CI only)
 
 By default, `pip-audit` audits `requirements.txt` only when every requirement is
-an exact `name==version` pin, using `--disable-pip --no-deps`. Loose requirements
-produce a `security/dependency-audit-skipped` warning, not a clean audit.
+an exact `name==version` pin, using `--disable-pip --no-deps`. Both modes use
+`--progress-spinner=off` to keep terminal-forcing environments from corrupting the
+JSON report. Loose requirements produce a `security/dependency-audit-skipped`
+warning, not a clean audit.
 
 Set `security.resolvePythonRequirements: true` to allow resolving loose files
-**only under `aislop ci`**. This runs `pip-audit --format=json -r requirements.txt`
+**only under `aislop ci`**. This runs
+`pip-audit --format=json --progress-spinner=off -r requirements.txt`
 using pip's resolver, including extras, markers, constraints, `--find-links`,
 editable requirements and nested requirements files. The resolver can execute
 build code from the repository and the package index. Enable it only for trusted

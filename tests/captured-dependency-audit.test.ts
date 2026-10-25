@@ -142,7 +142,10 @@ describe.each(tools)("captured $name output (issue 127)", (tool) => {
 		).toEqual(expected.diagnostics);
 		expect(runSubprocess).toHaveBeenCalledWith(
 			metadata.binary,
-			metadata.arguments,
+			// Capture arguments are provenance; current invocations also disable the spinner.
+			tool.name === "pip-audit"
+				? [metadata.arguments[0], "--progress-spinner=off", ...metadata.arguments.slice(1)]
+				: metadata.arguments,
 			expect.objectContaining({ cwd: projectDirectory }),
 		);
 	});

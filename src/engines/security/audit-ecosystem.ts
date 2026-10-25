@@ -101,12 +101,18 @@ const PIP_AUDIT_NO_REQUIREMENTS = skippedAuditDiagnostic(
 
 const PIP_AUDIT_ARGUMENTS = [
 	"--format=json",
+	"--progress-spinner=off",
 	"--disable-pip",
 	"--no-deps",
 	"-r",
 	PIP_REQUIREMENTS_FILE,
 ];
-const PIP_AUDIT_RESOLVING_ARGUMENTS = ["--format=json", "-r", PIP_REQUIREMENTS_FILE];
+const PIP_AUDIT_RESOLVING_ARGUMENTS = [
+	"--format=json",
+	"--progress-spinner=off",
+	"-r",
+	PIP_REQUIREMENTS_FILE,
+];
 
 interface PipAuditOptions {
 	resolvePythonRequirements?: boolean;
