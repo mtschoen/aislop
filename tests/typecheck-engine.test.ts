@@ -54,6 +54,17 @@ afterEach(() => {
 });
 
 describe("runTypecheck", () => {
+	it("names tsc as skipped when no trusted tsc resolves for a project with a tsconfig", async () => {
+		writeFile("tsconfig.json", JSON.stringify(baseTsconfig));
+		writeFile("src/index.ts", "export const value = 1;\n");
+		await expect(runTypecheck(buildContext(), () => null)).rejects.toThrow(/^tsc skipped:/);
+	});
+
+	it("stays quiet without a tsconfig even when no trusted tsc resolves", async () => {
+		writeFile("src/index.ts", "export const value = 1;\n");
+		await expect(runTypecheck(buildContext(), () => null)).resolves.toEqual([]);
+	});
+
 	it("returns no diagnostics for a clean TypeScript project", async () => {
 		linkNodeModules();
 		writeFile("tsconfig.json", JSON.stringify(baseTsconfig));

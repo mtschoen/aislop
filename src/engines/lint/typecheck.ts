@@ -63,15 +63,24 @@ const isReferenceOnlyConfig = (tsconfigPath: string): boolean => {
 	}
 };
 
-export const runTypecheck = async (context: EngineContext): Promise<Diagnostic[]> => {
+export const runTypecheck = async (
+	context: EngineContext,
+	resolveTscPath: () => string | null = resolveTrustedTscPath,
+): Promise<Diagnostic[]> => {
 	const tsconfigs = findTsconfigs(context.rootDirectory).filter((p) => !isReferenceOnlyConfig(p));
 	if (tsconfigs.length === 0) return [];
 
 	const diagnostics: Diagnostic[] = [];
 	const seen = new Set<string>();
 
-	const tscCli = resolveTrustedTscPath();
-	if (!tscCli) return [];
+	const tscCli = resolveTscPath();
+	if (!tscCli) {
+		// Throwing lands in the lint runner's rejected-tool path (engine failure naming tsc),
+		// so an unresolvable tsc is never reported as a clean zero.
+		throw new Error(
+			`tsc skipped: no trusted typescript/lib/tsc.js could be resolved, so ${tsconfigs.length} tsconfig.json file(s) were not type-checked`,
+		);
+	}
 
 	for (const tsconfig of tsconfigs) {
 		const projectDir = path.dirname(tsconfig);
