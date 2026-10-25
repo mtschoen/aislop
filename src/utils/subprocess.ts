@@ -1,7 +1,10 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import childProcess, { type ChildProcess } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { hasChildExited } from "./process-state.js";
+
+export { hasChildExited, hasProcessExited } from "./process-state.js";
 
 interface SubprocessResult {
 	stdout: string;
@@ -46,38 +49,45 @@ export const chunkFilePaths = (
 
 // A timed-out tool (e.g. cppcheck -j) can have spawned worker processes of its
 // own; killing only the direct child leaves those workers running as orphans.
-// This kills the whole tree instead. Windows has no process groups, so it
-// shells out to taskkill's /T (tree) flag; POSIX relies on the child having
-// been spawned detached (see below) so its pid doubles as a process-group id.
-const killProcessTree = (child: ChildProcess): void => {
+// This kills the whole tree instead and returns false when the direct child
+// was already gone so the signal could not be delivered. Windows has no
+// process groups, so it shells out to taskkill's /T (tree) flag; POSIX relies
+// on the child having been spawned detached (see below) so its pid doubles as
+// a process-group id.
+const killProcessTree = (child: ChildProcess): boolean => {
 	if (process.platform === "win32") {
 		if (child.pid === undefined) {
-			child.kill("SIGTERM");
-			return;
+			return child.kill("SIGTERM");
+		}
+		if (!child.kill(0)) {
+			return false;
 		}
 		// taskkill walks the tree by parent pid, so the parent must still be
-		// alive when it runs - calling child.kill() first would sever the
-		// walk and orphan the very workers this is meant to reap.
-		const taskkill = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+		// alive when it runs - calling child.kill("SIGTERM") first would sever
+		// the walk and orphan the very workers this is meant to reap.
+		const taskkill = childProcess.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
 			stdio: "ignore",
 			windowsHide: true,
 		});
 		// A missing taskkill binary must not crash the process; the timeout
 		// rejection still fires regardless of whether this succeeds.
 		taskkill.once("error", () => {});
-		return;
+		return true;
 	}
 
 	if (child.pid === undefined) {
-		child.kill("SIGTERM");
+		if (!child.kill("SIGTERM")) return false;
 		setTimeout(() => child.kill("SIGKILL"), 1000).unref();
-		return;
+		return true;
+	}
+	if (!child.kill("SIGTERM")) {
+		return false;
 	}
 	const pid = child.pid;
 	try {
 		process.kill(-pid, "SIGTERM");
 	} catch {
-		child.kill("SIGTERM");
+		// The direct child was already signaled via child.kill("SIGTERM") above.
 	}
 	setTimeout(() => {
 		try {
@@ -86,6 +96,7 @@ const killProcessTree = (child: ChildProcess): void => {
 			child.kill("SIGKILL");
 		}
 	}, 1000).unref();
+	return true;
 };
 
 // Every in-flight child is tracked here so an interactive Ctrl-C can reap it.
@@ -215,7 +226,7 @@ export const runSubprocess = (
 			return;
 		}
 
-		const child = spawn(command, args, {
+		const child = childProcess.spawn(command, args, {
 			cwd: options.cwd,
 			env: { ...process.env, ...options.env },
 			stdio: ["ignore", capture.outFd, capture.errFd],
@@ -267,20 +278,24 @@ export const runSubprocess = (
 			timer = setTimeout(() => {
 				// Under a starved event loop an expired timer can fire on the
 				// same wake-up that carries the child's own exit/close events,
-				// and the timers phase runs first. Deferring one phase via
-				// setImmediate lets a completion that already happened win
-				// instead of being misreported as a timeout; a still-running
-				// child just gets killed one phase later.
+				// and the timers phase runs first. Deferring to the check phase
+				// via setImmediate gives the intervening poll phase a chance to
+				// reap the child, but a single non-blocking poll pass is not
+				// guaranteed to observe an OS-level exit that just happened:
+				// queuing setImmediate makes uv_backend_timeout 0, so poll does
+				// not wait if SIGCHLD delivery to the signal pipe (POSIX) or
+				// the RegisterWaitForSingleObject threadpool callback posting to
+				// the IOCP (Windows) is still in flight under CPU contention.
 				setImmediate(() => {
 					if (settled) return;
-					// The child may have exited during the same starved stretch
-					// that delayed this timer, with its 'close' event still one
-					// poll iteration away (the pipe EOF takes an extra read
-					// round-trip). If the OS-level exit has been observed, let
-					// that completion resolve normally instead of misreporting
-					// a finished command as a timeout.
-					if (child.exitCode !== null || child.signalCode !== null) return;
-					killProcessTree(child);
+					// Check both libuv's reaped state (exitCode/signalCode) and
+					// the OS-level process state (including unreaped zombies on
+					// POSIX), plus whether signaling the child reports it already
+					// gone. When the child has finished at the OS level before
+					// 'close' has fired, let 'close' resolve with the captured
+					// output instead of misreporting a timeout.
+					if (hasChildExited(child)) return;
+					if (!killProcessTree(child)) return;
 					const stdout = readCapturedOutput(capture.stdoutPath);
 					const stderr = readCapturedOutput(capture.stderrPath);
 					finalize(() =>

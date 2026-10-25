@@ -1,86 +1,18 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import childProcess, { type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import fs, { existsSync, readFileSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
 	chunkFilePaths,
+	hasChildExited,
+	hasProcessExited,
 	isMissingToolError,
 	killActiveChildren,
 	runSubprocess,
 	warnSubprocessFailure,
 } from "../src/utils/subprocess.js";
-
-const isMissingProcessError = (error: unknown): boolean =>
-	error instanceof Error && "code" in error && error.code === "ESRCH";
-
-// Read the single-character state code from /proc/<pid>/stat on Linux.
-// The state field sits right after the comm's closing paren (comm itself can
-// contain spaces or parens, so split on the LAST ")"). Returns null when /proc
-// is unavailable so the caller can fall back to ps.
-const readProcStatState = (pid: number): string | null => {
-	if (process.platform !== "linux") return null;
-	try {
-		const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
-		const closeParen = stat.lastIndexOf(")");
-		if (closeParen === -1) return null;
-		const state = stat.slice(closeParen + 1).trimStart().charAt(0);
-		return state || null;
-	} catch (error) {
-		if (isMissingProcessError(error)) return "X";
-		// If the process was reaped between kill(pid, 0) and reading /proc,
-		// kill(pid, 0) now throws ESRCH. Otherwise /proc is unavailable.
-		try {
-			process.kill(pid, 0);
-		} catch (killError) {
-			if (isMissingProcessError(killError)) return "X";
-			throw killError;
-		}
-		return null;
-	}
-};
-
-// True once a pid is gone at the OS level, treating a zombie as gone: a child
-// that has exited but whose 'exit' event has not been reaped yet still
-// occupies a slot in the process table and answers kill(pid, 0), so a bare
-// liveness probe cannot tell "exited" from "running". Windows has no zombie
-// state (kill(pid, 0) throws ESRCH once the process exits); Linux reads
-// /proc/<pid>/stat directly without spawning a subprocess; other POSIX
-// platforms ask ps for the state and verify absence with kill(pid, 0) before
-// treating an empty result as exit.
-const hasProcessExited = (pid: number): boolean => {
-	try {
-		process.kill(pid, 0);
-	} catch (error) {
-		if (isMissingProcessError(error)) return true;
-		throw error;
-	}
-	if (process.platform === "win32") {
-		return false;
-	}
-	const procState = readProcStatState(pid);
-	if (procState !== null) {
-		return procState === "Z" || procState === "X";
-	}
-	const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf-8" });
-	if (result.error) {
-		throw result.error;
-	}
-	const state = result.stdout.trim().charAt(0);
-	if (result.status !== 0 || !state) {
-		try {
-			process.kill(pid, 0);
-		} catch (killError) {
-			if (isMissingProcessError(killError)) return true;
-			throw killError;
-		}
-		const detail =
-			result.stderr.trim() ||
-			`status=${String(result.status)}, stdout=${JSON.stringify(result.stdout)}`;
-		throw new Error(`ps state probe failed for live pid ${pid}: ${detail}`);
-	}
-	return state === "Z" || state === "X";
-};
 
 const isProcessAlive = (pid: number): boolean => !hasProcessExited(pid);
 
@@ -205,7 +137,11 @@ describe("killActiveChildren", () => {
 			// The kill is asynchronous (taskkill on Windows, signal escalation
 			// elsewhere) - poll rather than asserting instantly.
 			const deadline = Date.now() + 5000;
-			while (grandchildPid !== undefined && isProcessAlive(grandchildPid) && Date.now() < deadline) {
+			while (
+				grandchildPid !== undefined &&
+				isProcessAlive(grandchildPid) &&
+				Date.now() < deadline
+			) {
 				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
 			expect(grandchildPid !== undefined && isProcessAlive(grandchildPid)).toBe(false);
@@ -224,10 +160,7 @@ describe("killActiveChildren", () => {
 
 describe("runSubprocess timeout under event-loop starvation", () => {
 	it("does not reject a child that completed while the event loop was blocked", async () => {
-		const markerFile = path.join(
-			tmpdir(),
-			`aislop-starvation-${process.pid}-${Date.now()}.marker`,
-		);
+		const markerFile = path.join(tmpdir(), `aislop-starvation-${process.pid}-${Date.now()}.marker`);
 		const timeout = 1500;
 		const timerExpiry = Date.now() + timeout;
 		try {
@@ -266,10 +199,11 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 			// actually exiting, and if it has not exited when the spin ends, the
 			// expired timer's deferred check sees no exit and kills it. Waiting
 			// for OS-level exit (hasProcessExited handles the unreaped-zombie
-			// state this starved parent leaves behind) makes the wake-up order
-			// deterministic: the poll phase delivers the exit before the check
-			// phase runs the deferred timeout, however slow the machine is. The
-			// deadline is hang detection, not a performance assertion.
+			// state this starved parent leaves behind) guarantees the child has
+			// finished at the OS level before the spin ends, even when libuv's
+			// poll phase has not yet reaped it by the time the check phase runs
+			// the deferred timeout. The deadline is hang detection, not a
+			// performance assertion.
 			const spinDeadline = Date.now() + 20000;
 			let childPid: number | undefined;
 			let childExited = false;
@@ -293,6 +227,90 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 			await expect(promise).resolves.toMatchObject({ stdout: "ok", exitCode: 0 });
 		} finally {
 			rmSync(markerFile, { force: true });
+		}
+	});
+
+	it("does not reject when the OS reports the child exited before libuv reaped it, or when child.kill returns false", async () => {
+		const originalPlatform = process.platform;
+		const esrch = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+		for (const scenario of [
+			{ mode: "os-exited-before-reap", platform: originalPlatform },
+			{ mode: "kill-returns-false", platform: "win32" },
+			{ mode: "kill-returns-false", platform: "linux" },
+			{ mode: "stalled-ps-probe-pr-157", platform: "darwin" },
+		] as const) {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			Object.defineProperty(process, "platform", { value: scenario.platform });
+			const fakeChild = Object.assign(new EventEmitter(), {
+				pid: 999999,
+				exitCode: null as number | null,
+				signalCode: null as NodeJS.Signals | null,
+				kill: vi.fn(() => scenario.mode === "stalled-ps-probe-pr-157"),
+			}) as unknown as ChildProcess;
+
+			const spawnSpy = vi
+				.spyOn(childProcess, "spawn")
+				.mockImplementation((_command, _arguments, spawnOptions) => {
+					const stdio = spawnOptions?.stdio as [unknown, number, number] | undefined;
+					if (stdio && typeof stdio[1] === "number") {
+						writeSync(stdio[1], "ok\n");
+					}
+					return fakeChild;
+				});
+			const spawnSyncSpy = vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+				status: null,
+				signal: "SIGKILL",
+				stdout: "",
+				stderr: "",
+				error: Object.assign(new Error("spawnSync ps ETIMEDOUT"), { code: "ETIMEDOUT" }),
+			} as unknown as ReturnType<typeof childProcess.spawnSync>);
+			const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+				if (scenario.mode === "os-exited-before-reap") {
+					throw esrch;
+				}
+				return true;
+			});
+			const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation((target, options) => {
+				if (String(target).startsWith("/proc/")) {
+					return "999999 (node) R 1 1 1";
+				}
+				return readFileSync(target, options as BufferEncoding);
+			});
+
+			try {
+				const timeout = 1500;
+				const promise = runSubprocess(process.execPath, ["-e", ""], { timeout });
+				promise.catch(() => {});
+				vi.advanceTimersByTime(timeout);
+				await new Promise((resolve) => setImmediate(resolve));
+
+				if (scenario.mode === "stalled-ps-probe-pr-157") {
+					expect(spawnSyncSpy).toHaveBeenCalledWith("ps", ["-o", "stat=", "-p", "999999"], {
+						encoding: "utf-8",
+						timeout: 1000,
+						killSignal: "SIGKILL",
+					});
+					expect(fakeChild.kill).toHaveBeenCalledWith("SIGTERM");
+					fakeChild.emit("close", null);
+					await expect(promise).rejects.toThrow(/timed out/);
+				} else {
+					fakeChild.exitCode = 0;
+					fakeChild.emit("close", 0);
+					await expect(promise).resolves.toEqual({ stdout: "ok", stderr: "", exitCode: 0 });
+					if (scenario.mode === "os-exited-before-reap") {
+						expect(fakeChild.kill).not.toHaveBeenCalled();
+					} else {
+						expect(fakeChild.kill).toHaveBeenCalled();
+					}
+				}
+			} finally {
+				Object.defineProperty(process, "platform", { value: originalPlatform });
+				readSpy.mockRestore();
+				killSpy.mockRestore();
+				spawnSyncSpy.mockRestore();
+				spawnSpy.mockRestore();
+				vi.useRealTimers();
+			}
 		}
 	});
 });
@@ -424,5 +442,154 @@ describe("warnSubprocessFailure", () => {
 		expect(spy.mock.calls[0][0]).toContain("cppcheck");
 		expect(spy.mock.calls[0][0]).toContain("boom");
 		spy.mockRestore();
+	});
+});
+
+describe("hasProcessExited and hasChildExited", () => {
+	it("classifies Linux /proc stat states, ps fallback states, and ChildProcess exit states", () => {
+		const originalPlatform = process.platform;
+		const esrch = Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+		const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
+		const enoent = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+		const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+		const readSpy = vi.spyOn(fs, "readFileSync");
+		const spawnSyncSpy = vi.spyOn(childProcess, "spawnSync");
+
+		try {
+			Object.defineProperty(process, "platform", { value: "linux" });
+
+			readSpy.mockReturnValueOnce("123 (my ) app) Z 1 1");
+			expect(hasProcessExited(123)).toBe(true);
+
+			readSpy.mockReturnValueOnce("123 (app) R 1 1");
+			expect(hasProcessExited(123)).toBe(false);
+
+			readSpy.mockImplementationOnce(() => {
+				throw esrch;
+			});
+			expect(hasProcessExited(123)).toBe(true);
+
+			readSpy.mockImplementationOnce(() => {
+				throw enoent;
+			});
+			killSpy.mockReturnValueOnce(true).mockImplementationOnce(() => {
+				throw esrch;
+			});
+			expect(hasProcessExited(123)).toBe(true);
+
+			readSpy.mockImplementationOnce(() => {
+				throw enoent;
+			});
+			killSpy.mockReturnValueOnce(true).mockImplementationOnce(() => {
+				throw eperm;
+			});
+			expect(() => hasProcessExited(123)).toThrow("EPERM");
+
+			for (const fallbackStat of ["no-closing-paren", "123 (app)   "] as const) {
+				readSpy.mockReturnValueOnce(fallbackStat);
+				spawnSyncSpy.mockReturnValueOnce({
+					status: 0,
+					stdout: "Z+\n",
+					stderr: "",
+				} as ReturnType<typeof childProcess.spawnSync>);
+				expect(hasProcessExited(123)).toBe(true);
+			}
+
+			readSpy.mockImplementationOnce(() => {
+				throw enoent;
+			});
+			spawnSyncSpy.mockReturnValueOnce({
+				status: 0,
+				stdout: "S\n",
+				stderr: "",
+			} as ReturnType<typeof childProcess.spawnSync>);
+			expect(hasProcessExited(123)).toBe(false);
+
+			Object.defineProperty(process, "platform", { value: "darwin" });
+
+			spawnSyncSpy.mockReturnValueOnce({
+				status: 1,
+				stdout: "",
+				stderr: "",
+				error: new Error("ps spawn failed"),
+			} as ReturnType<typeof childProcess.spawnSync>);
+			expect(() => hasProcessExited(123)).toThrow("ps spawn failed");
+			expect(spawnSyncSpy).toHaveBeenLastCalledWith("ps", ["-o", "stat=", "-p", "123"], {
+				encoding: "utf-8",
+				timeout: 1000,
+				killSignal: "SIGKILL",
+			});
+
+			spawnSyncSpy.mockReturnValueOnce({
+				status: 1,
+				stdout: "",
+				stderr: "",
+			} as ReturnType<typeof childProcess.spawnSync>);
+			killSpy.mockReturnValueOnce(true).mockImplementationOnce(() => {
+				throw esrch;
+			});
+			expect(hasProcessExited(123)).toBe(true);
+
+			spawnSyncSpy.mockReturnValueOnce({
+				status: 1,
+				stdout: "",
+				stderr: "ps failed",
+			} as ReturnType<typeof childProcess.spawnSync>);
+			expect(() => hasProcessExited(123)).toThrow(
+				"ps state probe failed for live pid 123: ps failed",
+			);
+
+			spawnSyncSpy.mockReturnValueOnce({
+				status: 1,
+				stdout: "",
+				stderr: "",
+			} as ReturnType<typeof childProcess.spawnSync>);
+			expect(() => hasProcessExited(123)).toThrow("status=1");
+
+			spawnSyncSpy.mockReturnValueOnce({
+				status: 1,
+				stdout: "",
+				stderr: "",
+			} as ReturnType<typeof childProcess.spawnSync>);
+			killSpy.mockReturnValueOnce(true).mockImplementationOnce(() => {
+				throw eperm;
+			});
+			expect(() => hasProcessExited(123)).toThrow("EPERM");
+
+			killSpy.mockImplementationOnce(() => {
+				throw eperm;
+			});
+			expect(() => hasProcessExited(123)).toThrow("EPERM");
+
+			expect(
+				hasChildExited({ exitCode: 0, signalCode: null, pid: 123 } as unknown as ChildProcess),
+			).toBe(true);
+			expect(
+				hasChildExited({
+					exitCode: null,
+					signalCode: "SIGTERM",
+					pid: 123,
+				} as unknown as ChildProcess),
+			).toBe(true);
+			expect(
+				hasChildExited({
+					exitCode: null,
+					signalCode: null,
+					pid: undefined,
+				} as unknown as ChildProcess),
+			).toBe(false);
+
+			killSpy.mockImplementationOnce(() => {
+				throw eperm;
+			});
+			expect(
+				hasChildExited({ exitCode: null, signalCode: null, pid: 123 } as unknown as ChildProcess),
+			).toBe(false);
+		} finally {
+			Object.defineProperty(process, "platform", { value: originalPlatform });
+			spawnSyncSpy.mockRestore();
+			readSpy.mockRestore();
+			killSpy.mockRestore();
+		}
 	});
 });
