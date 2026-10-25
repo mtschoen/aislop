@@ -1,5 +1,5 @@
 import { findMissingTools, type ToolRequirement, withMissingTools } from "../missing-tools.js";
-import type { Diagnostic, Engine, EngineContext, EngineResult } from "../types.js";
+import type { Diagnostic, Engine, EngineContext, EngineFailure, EngineResult } from "../types.js";
 import { runBiomeFormat } from "./biome.js";
 import { hasClangFormatConfig, runClangFormat } from "./clang-format.js";
 import { runDotnetFormat } from "./dotnet-format.js";
@@ -33,30 +33,31 @@ export const formatEngine: Engine = {
 		const diagnostics: Diagnostic[] = [];
 		const { languages, installedTools } = context;
 
-		const promises: Promise<Diagnostic[]>[] = [];
+		const promises: Array<{ tool: string; run: Promise<Diagnostic[]> }> = [];
+		const add = (tool: string, run: Promise<Diagnostic[]>) => promises.push({ tool, run });
 
 		if (languages.includes("typescript") || languages.includes("javascript")) {
-			promises.push(runBiomeFormat(context));
+			add("biome", runBiomeFormat(context));
 		}
 
 		if (languages.includes("python") && installedTools.ruff) {
-			promises.push(runRuffFormat(context));
+			add("ruff", runRuffFormat(context));
 		}
 
 		if (languages.includes("go") && installedTools.gofmt) {
-			promises.push(runGofmt(context));
+			add("gofmt", runGofmt(context));
 		}
 
 		if (languages.includes("rust") && installedTools.cargo && installedTools.rustfmt) {
-			promises.push(runGenericFormatter(context, "rust"));
+			add("rustfmt", runGenericFormatter(context, "rust"));
 		}
 
 		if (languages.includes("ruby") && installedTools.rubocop) {
-			promises.push(runGenericFormatter(context, "ruby"));
+			add("rubocop", runGenericFormatter(context, "ruby"));
 		}
 
 		if (languages.includes("php") && installedTools["php-cs-fixer"]) {
-			promises.push(runGenericFormatter(context, "php"));
+			add("php-cs-fixer", runGenericFormatter(context, "php"));
 		}
 
 		if (
@@ -64,11 +65,11 @@ export const formatEngine: Engine = {
 			installedTools.dotnet &&
 			context.config.lint.csharp?.projectEvaluation === true
 		) {
-			promises.push(runDotnetFormat(context));
+			add("dotnet format", runDotnetFormat(context));
 		}
 
 		if (languages.includes("cpp") && installedTools["clang-format"]) {
-			promises.push(runClangFormat(context));
+			add("clang-format", runClangFormat(context));
 		}
 
 		// No formatter matched the detected languages/installed tools. Report this as
@@ -88,15 +89,15 @@ export const formatEngine: Engine = {
 			);
 		}
 
-		const results = await Promise.allSettled(promises);
-		const failures: string[] = [];
-		for (const result of results) {
+		const results = await Promise.allSettled(promises.map((entry) => entry.run));
+		const failures: EngineFailure[] = [];
+		for (const [index, result] of results.entries()) {
 			if (result.status === "fulfilled") {
 				diagnostics.push(...result.value);
 			} else {
-				failures.push(
-					result.reason instanceof Error ? result.reason.message : String(result.reason),
-				);
+				const reason =
+					result.reason instanceof Error ? result.reason.message : String(result.reason);
+				failures.push({ tool: promises[index].tool, target: ".", reason });
 			}
 		}
 
@@ -104,7 +105,12 @@ export const formatEngine: Engine = {
 		// shape the orchestrator gives a throwing engine), not as zero findings.
 		const failure =
 			failures.length > 0
-				? { skipped: true, failed: true, skipReason: failures.join("; ") }
+				? {
+						skipped: true,
+						failed: true,
+						failures,
+						skipReason: failures.map((entry) => entry.reason).join("; "),
+					}
 				: { skipped: false };
 		return withMissingTools(
 			{

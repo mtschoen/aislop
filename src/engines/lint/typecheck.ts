@@ -84,8 +84,10 @@ export const runTypecheck = async (context: EngineContext): Promise<Diagnostic[]
 				{ cwd: projectDir, timeout: TSC_TIMEOUT_MS },
 			);
 			output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-		} catch {
-			continue;
+		} catch (error) {
+			throw new Error(
+				`tsc failed for ${relativePosix(context.rootDirectory, tsconfig)}: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 
 		for (const rawLine of output.split("\n")) {

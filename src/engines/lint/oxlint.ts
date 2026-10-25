@@ -313,13 +313,16 @@ export const runOxlint = async (context: EngineContext): Promise<Diagnostic[]> =
 			timeout: 120000,
 		});
 
-		if (!result.stdout) return [];
-
-		let output: OxlintOutput;
+		let output: OxlintOutput | null;
 		try {
 			output = JSON.parse(result.stdout) as OxlintOutput;
 		} catch {
-			return [];
+			output = null;
+		}
+		if (!output || !Array.isArray(output.diagnostics)) {
+			throw new Error(
+				`oxlint exited with code ${result.exitCode} without parseable diagnostics: stdout: ${result.stdout.slice(0, 300)}; stderr: ${result.stderr.slice(0, 300)}`,
+			);
 		}
 
 		const seen = new Set<string>();

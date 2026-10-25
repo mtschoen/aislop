@@ -130,34 +130,35 @@ export const lintEngine: Engine = {
 		};
 		const { languages, installedTools } = context;
 
-		const promises: Promise<Diagnostic[]>[] = [];
+		const promises: Array<{ tool: string; run: Promise<Diagnostic[]> }> = [];
+		const add = (tool: string, run: Promise<Diagnostic[]>) => promises.push({ tool, run });
 
 		if (languages.includes("typescript") || languages.includes("javascript")) {
-			promises.push(runOxlint(context));
+			add("oxlint", runOxlint(context));
 			if (context.config.lint.typecheck) {
-				promises.push(runTypecheck(context));
+				add("tsc", runTypecheck(context));
 			}
 		}
 
 		if (context.frameworks.includes("expo") && context.config.lint.expoDoctor) {
 			// Expo Doctor may evaluate project config, so only run it when explicitly enabled.
-			promises.push(runExpoDoctor(context));
+			add("expo-doctor", runExpoDoctor(context));
 		}
 
 		if (languages.includes("python") && installedTools.ruff) {
-			promises.push(runRuffLint(context));
+			add("ruff", runRuffLint(context));
 		}
 
 		if (languages.includes("go") && installedTools["golangci-lint"]) {
-			promises.push(runGolangciLint(context));
+			add("golangci-lint", runGolangciLint(context));
 		}
 
 		if (languages.includes("rust") && installedTools.cargo) {
-			promises.push(runGenericLinter(context, "rust"));
+			add("clippy", runGenericLinter(context, "rust"));
 		}
 
 		if (languages.includes("ruby") && installedTools.rubocop) {
-			promises.push(runGenericLinter(context, "ruby"));
+			add("rubocop", runGenericLinter(context, "ruby"));
 		}
 
 		const cpp = resolveCppLintConfig(context);
@@ -184,7 +185,10 @@ export const lintEngine: Engine = {
 			if (wantJbCpp)
 				cppPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C++ Lint")));
 			if (cppPasses.length > 0)
-				promises.push(Promise.all(cppPasses).then((p) => dedupeCppDiagnostics(p.flat())));
+				add(
+					"cpp",
+					Promise.all(cppPasses).then((p) => dedupeCppDiagnostics(p.flat())),
+				);
 		}
 
 		if (languages.includes("csharp")) {
@@ -195,7 +199,10 @@ export const lintEngine: Engine = {
 			if (wantJbCsharp)
 				csharpPasses.push(jbPromise.then((d) => d.filter((x) => x.category === "C# Lint")));
 			if (csharpPasses.length > 0)
-				promises.push(Promise.all(csharpPasses).then((p) => dedupeCsharpDiagnostics(p.flat())));
+				add(
+					"csharp",
+					Promise.all(csharpPasses).then((p) => dedupeCsharpDiagnostics(p.flat())),
+				);
 		}
 
 		// No linter matched the detected languages/installed tools. Report this as
@@ -225,10 +232,16 @@ export const lintEngine: Engine = {
 			);
 		}
 
-		const results = await Promise.allSettled(promises);
-		for (const result of results) {
+		const results = await Promise.allSettled(promises.map((entry) => entry.run));
+		const rejectedReasons: string[] = [];
+		for (const [index, result] of results.entries()) {
 			if (result.status === "fulfilled") {
 				diagnostics.push(...result.value);
+			} else {
+				const reason =
+					result.reason instanceof Error ? result.reason.message : String(result.reason);
+				rejectedReasons.push(reason);
+				failures.push({ tool: promises[index].tool, target: ".", reason });
 			}
 		}
 
@@ -239,6 +252,9 @@ export const lintEngine: Engine = {
 				elapsed: 0,
 				skipped: false,
 				...(failures.length > 0 ? { failures, failed: true } : {}),
+				...(rejectedReasons.length > 0
+					? { skipped: true, failed: true, skipReason: rejectedReasons.join("; ") }
+					: {}),
 				...(executions.length + notSelected.length > 0
 					? { executions: [...executions, ...notSelected] }
 					: {}),

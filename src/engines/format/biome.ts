@@ -73,7 +73,6 @@ export const runBiomeFormat = async (context: EngineContext): Promise<Diagnostic
 	const result = await runBiome(args, context.rootDirectory, 60000);
 	const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
 	if (!output) {
-		if (result.exitCode === 0) return [];
 		throw new Error(`biome format exited with code ${result.exitCode} and produced no output`);
 	}
 
