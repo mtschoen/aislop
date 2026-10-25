@@ -11,7 +11,7 @@ export interface ScanOptions {
 	printBrand?: boolean;
 	exclude?: string[];
 	include?: string[];
-	/** Used for telemetry to distinguish scan vs ci invocation */
+	/** Explicit command identity for telemetry and ci-only dependency resolution. */
 	command?: "scan" | "ci";
 }
 

@@ -42,6 +42,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 	security: {
 		audit: true,
 		auditTimeout: 25000,
+		resolvePythonRequirements: false,
 		acceptedAdvisories: [],
 	},
 	aiSlop: {

@@ -36,6 +36,10 @@ beforeEach(() => {
 // ─── parseConfig ──────────────────────────────────────────────────────────────
 
 describe("parseConfig", () => {
+	it.each([undefined, false, true])("issue 127: Python resolving opt-in %s", (value) => {
+		const configuration = parseConfig({ security: { resolvePythonRequirements: value } });
+		expect(configuration.security.resolvePythonRequirements).toBe(value ?? false);
+	});
 	it.each([undefined, false, true])(
 		"issue 146: project evaluation forces missing-tool failure over %s",
 		(failOnMissingTools) => {

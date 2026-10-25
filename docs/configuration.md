@@ -26,6 +26,7 @@ quality:
 security:
   audit: true
   auditTimeout: 25000
+  resolvePythonRequirements: false
   acceptedAdvisories: [] # reviewed dependency advisories (see Accepted advisories)
 
 aiSlop:
@@ -219,6 +220,25 @@ module, so a `package` on an entry names the Go module (for example
 
 With `ci.baseline` set, accepted and stale advisory findings are not counted as
 new findings and do not change the exit code.
+
+## Resolving Python requirements (CI only)
+
+By default, `pip-audit` audits `requirements.txt` only when every requirement is
+an exact `name==version` pin, using `--disable-pip --no-deps`. Loose requirements
+produce a `security/dependency-audit-skipped` warning, not a clean audit.
+
+Set `security.resolvePythonRequirements: true` to allow resolving loose files
+**only under `aislop ci`**. This runs `pip-audit --format=json -r requirements.txt`
+using pip's resolver, including extras, markers, constraints, `--find-links`,
+editable requirements and nested requirements files. The resolver can execute
+build code from the repository and the package index. Enable it only for trusted
+inputs in an appropriately isolated CI environment. Resolved versions depend on
+the index at run time, so results can change without the repository changing.
+
+`scan`, hooks and `fix` do not enable resolution, even with the flag set. Fully
+pinned files keep the fast pip-disabled mode. `security.auditTimeout` still
+applies (default 25000 milliseconds); timeouts and skipped dependencies remain
+incomplete audits, with any readable vulnerability findings preserved.
 
 ## Hardcoded user path roots
 

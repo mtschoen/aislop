@@ -83,9 +83,19 @@ describe("scan and ci report the same diagnostics", () => {
 			printBrand: false,
 		});
 		const scanOutput = written.join("");
+		expect(runEnginesWithProgress).toHaveBeenLastCalledWith(
+			expect.objectContaining({ invokingCommand: "scan" }),
+			expect.any(Object),
+			true,
+		);
 		written.length = 0;
 		await ciCommand(rootDirectory, config);
 		const ciOutput = written.join("");
+		expect(runEnginesWithProgress).toHaveBeenLastCalledWith(
+			expect.objectContaining({ invokingCommand: "ci" }),
+			expect.any(Object),
+			true,
+		);
 
 		const fromScan = diagnosticsOf(scanOutput);
 		const fromCi = diagnosticsOf(ciOutput);

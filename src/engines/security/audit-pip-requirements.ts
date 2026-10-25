@@ -3,7 +3,9 @@
 // and sdist requirements, which runs repository-controlled build code. Its `--disable-pip`
 // mode never invokes pip, and pip-audit refuses it unless `--no-deps` is also given
 // (RequirementSource._collect_from_files, checked against pip-audit 2.10.1). That mode only
-// understands exact `name==version` pins, so any other line makes the file unauditable here.
+// understands exact `name==version` pins. Other inputs are skipped unless the project
+// opts into resolving under aislop ci; that mode also executes package-index build code
+// and resolves versions against the index at run time, so results can change.
 
 // Options that cannot change what is installed or fetched when pip is disabled.
 const HARMLESS_OPTIONS = new Set([

@@ -90,6 +90,7 @@ export interface EngineContext {
 	readonly dependencyAuditFiles?: string[];
 	readonly dependencyAuditLanguages?: Language[];
 	readonly dependencyAuditScope?: "full" | "files";
+	readonly invokingCommand?: "ci" | "scan";
 	files?: string[];
 	testFiles?: string[];
 	projectFiles?: string[];
@@ -119,6 +120,7 @@ export interface EngineConfig {
 	security: {
 		audit: boolean;
 		auditTimeout: number;
+		resolvePythonRequirements?: boolean;
 		acceptedAdvisories?: AislopConfig["security"]["acceptedAdvisories"];
 	};
 	aiSlop?: {

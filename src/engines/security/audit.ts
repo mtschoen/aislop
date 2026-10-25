@@ -108,7 +108,11 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 		context.installedTools["pip-audit"] &&
 		hasPythonDependencyManifest(context.rootDirectory)
 	) {
-		promises.push(inspectPipAudit(context.rootDirectory, timeout));
+		const pipOptions = {
+			resolvePythonRequirements: context.config.security.resolvePythonRequirements,
+			invokingCommand: context.invokingCommand,
+		};
+		promises.push(inspectPipAudit(context.rootDirectory, timeout, pipOptions));
 	}
 
 	// govulncheck

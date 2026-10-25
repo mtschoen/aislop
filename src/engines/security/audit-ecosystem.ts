@@ -52,15 +52,12 @@ const skippedHelp = (tool: string, ecosystem: string, command: string): string =
 
 // Neither pip-audit nor cargo audit prints nothing on a clean project: both always
 // print their JSON report, so empty output is a failed run.
-const PIP_AUDIT_SKIPPED = skippedAuditDiagnostic(
-	"requirements.txt",
-	"pip-audit",
-	skippedHelp(
+const pipAuditSkipped = (arguments_: string[]): Diagnostic =>
+	skippedAuditDiagnostic(
+		"requirements.txt",
 		"pip-audit",
-		"Python",
-		"pip-audit --format=json --disable-pip --no-deps -r requirements.txt",
-	),
-);
+		skippedHelp("pip-audit", "Python", `pip-audit ${arguments_.join(" ")}`),
+	);
 const CARGO_AUDIT_SKIPPED = skippedAuditDiagnostic(
 	"Cargo.toml",
 	"cargo audit",
@@ -94,8 +91,8 @@ const PIP_REQUIREMENTS_FILE = "requirements.txt";
 // (https://pypi.org/project/pip-audit/: no input arguments means the environment), so the
 // project's own requirements file is passed with `-r`. A project without one is not
 // audited at all: auditing the wrong environment could report a clean result for a
-// vulnerable project. The file is repository-controlled, so pip-audit runs with pip disabled
-// (audit-pip-requirements.ts) and a file that needs pip to resolve is not audited.
+// vulnerable project. Pip stays disabled unless resolving repository-controlled inputs
+// is explicitly enabled under aislop ci (audit-pip-requirements.ts).
 const PIP_AUDIT_NO_REQUIREMENTS = skippedAuditDiagnostic(
 	PIP_REQUIREMENTS_FILE,
 	"pip-audit",
@@ -109,18 +106,28 @@ const PIP_AUDIT_ARGUMENTS = [
 	"-r",
 	PIP_REQUIREMENTS_FILE,
 ];
+const PIP_AUDIT_RESOLVING_ARGUMENTS = ["--format=json", "-r", PIP_REQUIREMENTS_FILE];
 
-const pipAuditNeedsPip = (unauditable: string): Diagnostic =>
+interface PipAuditOptions {
+	resolvePythonRequirements?: boolean;
+	invokingCommand?: "ci" | "scan";
+}
+
+const pipAuditNeedsPip = (unauditable: string, options: PipAuditOptions): Diagnostic =>
 	skippedAuditDiagnostic(
 		PIP_REQUIREMENTS_FILE,
 		"pip-audit",
-		`pip-audit was not run because requirements.txt contains \`${unauditable}\`, which is not an exact \`name==version\` pin. Auditing it would make pip resolve or build the requirement, which can run code from the repository. Pin every requirement (for example \`uv export --no-hashes -o requirements.txt\`) to enable the Python dependency audit.`,
+		`pip-audit was not run because requirements.txt contains \`${unauditable}\`, which is not an exact \`name==version\` pin. Auditing it would make pip resolve or build the requirement, which can run code from the repository and package index. ${options.resolvePythonRequirements && options.invokingCommand !== "ci" ? "The resolving audit runs only under `aislop ci`. " : ""}Pin every requirement (for example \`uv export --no-hashes -o requirements.txt\`) to enable the Python dependency audit.`,
 	);
 
-const auditPip = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+const auditPip = async (
+	rootDir: string,
+	timeout: number,
+	arguments_: string[],
+): Promise<AuditOutcome> => {
 	let result: Awaited<ReturnType<typeof runSubprocess>>;
 	try {
-		result = await runSubprocess("pip-audit", PIP_AUDIT_ARGUMENTS, {
+		result = await runSubprocess("pip-audit", arguments_, {
 			cwd: rootDir,
 			timeout,
 		});
@@ -164,7 +171,11 @@ const timedOutPipFindings = (error: unknown): Diagnostic[] => {
 	}
 };
 
-export const inspectPipAudit = async (rootDir: string, timeout: number): Promise<AuditOutcome> => {
+export const inspectPipAudit = async (
+	rootDir: string,
+	timeout: number,
+	options: PipAuditOptions = {},
+): Promise<AuditOutcome> => {
 	const requirementsPath = path.join(rootDir, PIP_REQUIREMENTS_FILE);
 	if (!fs.existsSync(requirementsPath)) {
 		return { diagnostics: [PIP_AUDIT_NO_REQUIREMENTS], completed: false };
@@ -173,12 +184,23 @@ export const inspectPipAudit = async (rootDir: string, timeout: number): Promise
 	try {
 		unauditable = findUnauditableRequirement(fs.readFileSync(requirementsPath, "utf8"));
 	} catch {
-		unauditable = "(requirements.txt could not be read)";
+		return {
+			diagnostics: [pipAuditNeedsPip("(requirements.txt could not be read)", options)],
+			completed: false,
+		};
 	}
-	if (unauditable !== undefined) {
-		return { diagnostics: [pipAuditNeedsPip(unauditable)], completed: false };
+	const resolving =
+		unauditable !== undefined &&
+		options.resolvePythonRequirements === true &&
+		options.invokingCommand === "ci";
+	if (unauditable !== undefined && !resolving) {
+		return { diagnostics: [pipAuditNeedsPip(unauditable, options)], completed: false };
 	}
-	return warnWhenIncomplete(await auditPip(rootDir, timeout), PIP_AUDIT_SKIPPED);
+	const arguments_ = resolving ? PIP_AUDIT_RESOLVING_ARGUMENTS : PIP_AUDIT_ARGUMENTS;
+	return warnWhenIncomplete(
+		await auditPip(rootDir, timeout, arguments_),
+		pipAuditSkipped(arguments_),
+	);
 };
 
 export const runPipAudit = async (rootDir: string, timeout: number): Promise<Diagnostic[]> =>

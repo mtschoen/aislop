@@ -140,6 +140,7 @@ const AcceptedAdvisorySchema = z.preprocess(
 const SecurityConfigSchema = z.object({
 	audit: z.boolean().default(true),
 	auditTimeout: z.number().positive().default(25000),
+	resolvePythonRequirements: z.boolean().default(false),
 	/**
 	 * Dependency-audit advisories the project has reviewed and accepted. A package
 	 * finding stops costing score only when every advisory behind it is listed here.
@@ -286,6 +287,7 @@ const AislopConfigSchema = z.object({
 	security: SecurityConfigSchema.default(() => ({
 		audit: true,
 		auditTimeout: 25000,
+		resolvePythonRequirements: false,
 		acceptedAdvisories: [],
 	})),
 	aiSlop: AiSlopConfigSchema.default(() => ({

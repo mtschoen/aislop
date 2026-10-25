@@ -223,6 +223,7 @@
 			"default": {
 				"audit": true,
 				"auditTimeout": 25000,
+				"resolvePythonRequirements": false,
 				"acceptedAdvisories": []
 			},
 			"type": "object",
@@ -235,6 +236,10 @@
 					"default": 25000,
 					"type": "number",
 					"exclusiveMinimum": 0
+				},
+				"resolvePythonRequirements": {
+					"default": false,
+					"type": "boolean"
 				},
 				"acceptedAdvisories": {
 					"default": [],

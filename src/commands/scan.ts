@@ -139,6 +139,7 @@ const runScanBody = async (prepared: PreparedScan, config: AislopConfig, options
 		prepared,
 		config,
 		machineOutput,
+		options.command ?? "scan",
 	);
 	if (suppressedCount > 0 && !machineOutput) {
 		log.muted(`Suppressed ${suppressedCount} finding(s) via aislop-ignore directives`);
@@ -165,10 +166,9 @@ const runScanBody = async (prepared: PreparedScan, config: AislopConfig, options
 		config.scoring.maxPerRule,
 	);
 	const scoreable = scanCoverage.scoreable;
-	const hasErrors = allDiagnostics.some((d) => d.severity === "error");
 	const missingTools = collectMissingTools(results);
 	const exitCode = computeScanExitCode({
-		hasErrors,
+		hasErrors: allDiagnostics.some((diagnostic) => diagnostic.severity === "error"),
 		hasEngineFailures,
 		scoreable,
 		score: scoreResult.score,

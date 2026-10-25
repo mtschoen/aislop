@@ -64,6 +64,7 @@ export const runScanEngines = async (
 	prepared: PreparedScan,
 	config: AislopConfig,
 	machineOutput: boolean,
+	invokingCommand: "ci" | "scan" = "scan",
 ): Promise<{ results: EngineResult[]; suppressedCount: number }> => {
 	const { resolvedDir, scanScope, projectInfo } = prepared;
 	const configDir = findConfigDir(resolvedDir);
@@ -87,6 +88,7 @@ export const runScanEngines = async (
 			dependencyAuditFiles: scanScope.dependencyAuditFiles,
 			dependencyAuditLanguages: prepared.dependencyAuditLanguages,
 			dependencyAuditScope: scanScope.dependencyAuditScope,
+			invokingCommand,
 			files: scanScope.files,
 			excludePatterns: prepared.excludePatterns,
 			includePatterns: config.include,
