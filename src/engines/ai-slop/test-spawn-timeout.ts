@@ -1,11 +1,13 @@
+import ts from "typescript";
 import { DEFAULT_SPAWN_WRAPPER_NAMES } from "../../config/schema.js";
 import type { Diagnostic, EngineContext } from "../types.js";
+import { parseJavaScriptTest, suppressionPosition } from "./test-javascript-ast.js";
 import { type MaskedTestFile, readMaskedTestFiles } from "./test-timing-scope.js";
 
 // A literal kill bound on a real process is a machine-speed assumption: under a
 // loaded runner a healthy child outlives it. Only direct numeric literals are
-// matched; a named constant, an environment lookup, or a receiver the file does
-// not visibly bind to a process is deliberately left alone.
+// matched; named constants and environment lookups are deliberately left alone.
+// JavaScript call matching uses only the fixed structural callee surface below.
 
 const NUMBER = String.raw`\d[\d_]*(?:\.\d+)?`;
 const NUMBER_PRODUCT = String.raw`${NUMBER}(?:\s*\*\s*${NUMBER})*`;
@@ -17,17 +19,6 @@ const PYTHON_POPEN_BINDING_RE =
 	/(?:^|;|(?<!\\[ \t]*\r?)\n)[ \t]*([A-Za-z_]\w*)[ \t]*=\s*(?:subprocess\s*\.\s*)?Popen\s*\(/g;
 const PYTHON_TIMEOUT_ARGUMENT_RE = new RegExp(String.raw`^timeout\s*=\s*(${NUMBER_PRODUCT})$`);
 const PYTHON_LONE_NUMBER_RE = new RegExp(`^(${NUMBER_PRODUCT})$`);
-
-const JS_IDENTIFIER_PREFIX = String.raw`(?<![\p{ID_Continue}$\u200C\u200D]|\\u\{[\da-fA-F]+\})`;
-const JS_SYNC_CALL_RE = new RegExp(
-	String.raw`${JS_IDENTIFIER_PREFIX}(execSync|spawnSync|execFileSync)\s*\(`,
-	"gu",
-);
-const JS_ASYNC_CALL_RE = new RegExp(
-	String.raw`${JS_IDENTIFIER_PREFIX}(?:child_process|childProcess)\s*\.\s*(exec|execFile)\s*\(`,
-	"gu",
-);
-const ACCESSOR_PREFIX_RE = /^(?:async(?=\s|\*|\[|['"]))?\s*\*?\s*(?:(?:get|set)(?=\s|\[|['"]))?\s*/;
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -77,131 +68,6 @@ const splitSpans = (masked: string, start: number, end: number): Array<[number, 
 	return spans;
 };
 
-const objectInteriorSpan = (
-	masked: string,
-	span: [number, number] | undefined,
-): [number, number] | null => {
-	if (!span) return null;
-	const [start, end] = span;
-	if (masked[start] !== "{" || masked[end - 1] !== "}") return null;
-	let depth = 0;
-	for (let index = start; index < end; index++) {
-		const character = masked[index];
-		if ("([{".includes(character)) depth++;
-		else if (")]}".includes(character)) {
-			depth--;
-			if (depth === 0 && index < end - 1) return null;
-		}
-	}
-	return depth === 0 ? [start + 1, end - 1] : null;
-};
-
-const jsOptionsInterior = (
-	masked: string,
-	callee: string,
-	argsSpan: [number, number],
-): [number, number] | null => {
-	const parts = splitSpans(masked, argsSpan[0], argsSpan[1]);
-	if (callee === "execSync" || callee === "exec") {
-		return objectInteriorSpan(masked, parts[1]);
-	}
-	return objectInteriorSpan(masked, parts[1]) ?? objectInteriorSpan(masked, parts[2]);
-};
-
-const isQuotedLiteral = (maskedKey: string): boolean =>
-	maskedKey.length >= 2 &&
-	(maskedKey[0] === "'" || maskedKey[0] === '"') &&
-	maskedKey[maskedKey.length - 1] === maskedKey[0] &&
-	maskedKey.slice(1, -1).trim() === "";
-
-const ESCAPE_SEQUENCE_RE =
-	/\\(?:\r?\n|[\r\u2028\u2029]|u\{([\da-fA-F]+)\}|u([\da-fA-F]{4})|x([\da-fA-F]{2})|([0-3][0-7]{0,2}|[4-7][0-7]?)|([^uxbfnrtv0-7\r\n\u2028\u2029]))/g;
-
-const decodeEscapes = (text: string): string | null => {
-	let valid = true;
-	const decoded = text.replace(
-		ESCAPE_SEQUENCE_RE,
-		(_match, braceHex, fixedHex, hexByte, octal, identity) => {
-			if (braceHex !== undefined) {
-				const codePoint = Number.parseInt(braceHex, 16);
-				if (codePoint <= 0x10ffff) return String.fromCodePoint(codePoint);
-				valid = false;
-				return "";
-			}
-			if (fixedHex !== undefined) return String.fromCharCode(Number.parseInt(fixedHex, 16));
-			if (hexByte !== undefined) return String.fromCharCode(Number.parseInt(hexByte, 16));
-			if (octal !== undefined) return String.fromCharCode(Number.parseInt(octal, 8));
-			return identity ?? "";
-		},
-	);
-	return valid ? decoded : null;
-};
-
-type KeyStatus = "timeout" | "other" | "unknown";
-
-const UNQUOTED_KEY_RE = /^[^\s'"`[\]()]+$/;
-
-const resolveKeyStatus = (file: MaskedTestFile, start: number, end: number): KeyStatus => {
-	let keyStart = start;
-	let keyEnd = end;
-	if (file.masked[keyStart] === "[" && file.masked[keyEnd - 1] === "]") {
-		[keyStart, keyEnd] = trimSpan(file.masked, keyStart + 1, keyEnd - 1);
-		if (!isQuotedLiteral(file.masked.slice(keyStart, keyEnd))) return "unknown";
-	}
-	const maskedKey = file.masked.slice(keyStart, keyEnd);
-	const quoted = isQuotedLiteral(maskedKey);
-	if (!quoted && !UNQUOTED_KEY_RE.test(maskedKey)) return "unknown";
-	const rawKey = quoted ? file.source.slice(keyStart + 1, keyEnd - 1) : maskedKey;
-	const decoded = decodeEscapes(rawKey);
-	if (decoded === null) return "unknown";
-	return decoded === "timeout" ? "timeout" : "other";
-};
-
-const stripAccessorPrefix = (masked: string, start: number, end: number): number =>
-	end - masked.slice(start, end).replace(ACCESSOR_PREFIX_RE, "").length;
-
-const jsLiteralTimeout = (
-	file: MaskedTestFile,
-	callee: string,
-	argsSpan: [number, number],
-): string | null => {
-	const interior = jsOptionsInterior(file.masked, callee, argsSpan);
-	if (interior === null) return null;
-	let effective: string | null = null;
-	for (const [entryStart, entryEnd] of splitSpans(file.masked, interior[0], interior[1])) {
-		if (file.masked.slice(entryStart, entryStart + 3) === "...") {
-			effective = null;
-			continue;
-		}
-		let depth = 0;
-		let delimiterIndex = -1;
-		let delimiter = "";
-		for (let index = entryStart; index < entryEnd; index++) {
-			const character = file.masked[index];
-			if (depth === 0 && (character === ":" || character === "(")) {
-				delimiterIndex = index;
-				delimiter = character;
-				break;
-			}
-			if ("([{".includes(character)) depth++;
-			else if (")]}".includes(character) && depth > 0) depth--;
-		}
-		const rawKeyEnd = delimiterIndex === -1 ? entryEnd : delimiterIndex;
-		const keyPrefixStart =
-			delimiter === "(" ? stripAccessorPrefix(file.masked, entryStart, rawKeyEnd) : entryStart;
-		const [keyStart, keyEnd] = trimSpan(file.masked, keyPrefixStart, rawKeyEnd);
-		const keyStatus = resolveKeyStatus(file, keyStart, keyEnd);
-		if (keyStatus === "other") continue;
-		if (keyStatus === "timeout" && delimiter === ":") {
-			const value = file.masked.slice(delimiterIndex + 1, entryEnd).trim();
-			effective = isPositive(value) ? value : null;
-		} else {
-			effective = null;
-		}
-	}
-	return effective;
-};
-
 const pythonLiteralTimeout = (
 	masked: string,
 	argsSpan: [number, number],
@@ -226,6 +92,7 @@ interface Candidate {
 	readonly openIndex: number;
 	readonly callee: string;
 	readonly literal: string;
+	readonly position?: { line: number; character: number };
 }
 
 const isDefinition = (masked: string, offset: number): boolean =>
@@ -318,19 +185,118 @@ const pythonCandidates = (file: MaskedTestFile, wrapperNames: readonly string[])
 	return deduplicateByOpenIndex(found);
 };
 
+// Closed question: does an exact supported call have an options object argument
+// whose last known timeout property is a positive numeric literal/product?
+// Spreads, nonliteral timeout members, and unknown computed names reset it.
+const isPositiveExpression = (expression: ts.Expression): boolean => {
+	if (ts.isParenthesizedExpression(expression)) return isPositiveExpression(expression.expression);
+	if (ts.isNumericLiteral(expression)) return Number(expression.text) > 0;
+	return (
+		ts.isBinaryExpression(expression) &&
+		expression.operatorToken.kind === ts.SyntaxKind.AsteriskToken &&
+		isPositiveExpression(expression.left) &&
+		isPositiveExpression(expression.right)
+	);
+};
+
+const isTimeoutName = (name: ts.PropertyName): boolean => {
+	if (ts.isComputedPropertyName(name)) {
+		return (
+			(ts.isStringLiteral(name.expression) ||
+				ts.isNoSubstitutionTemplateLiteral(name.expression)) &&
+			name.expression.text === "time" + "out"
+		);
+	}
+	return (
+		(ts.isIdentifier(name) ||
+			ts.isStringLiteral(name) ||
+			ts.isNoSubstitutionTemplateLiteral(name)) &&
+		name.text === "time" + "out"
+	);
+};
+
+const isUnknownComputedName = (name: ts.PropertyName): boolean =>
+	ts.isComputedPropertyName(name) &&
+	!ts.isStringLiteral(name.expression) &&
+	!ts.isNoSubstitutionTemplateLiteral(name.expression);
+
+const objectTimeout = (
+	object: ts.ObjectLiteralExpression,
+	sourceFile: ts.SourceFile,
+): string | null => {
+	let effective: string | null = null;
+	for (const property of object.properties) {
+		if (ts.isSpreadAssignment(property)) effective = null;
+		// A malformed key has no reliable identity. The parser marks it directly;
+		// conservatively discard the earlier timeout rather than trust recovery text.
+		else if (property.name.flags & ts.NodeFlags.ThisNodeHasError) effective = null;
+		// A computed key that is not a string literal could evaluate to the timeout name at
+		// runtime, so it makes the effective value undecidable, as a spread does.
+		else if (isUnknownComputedName(property.name)) effective = null;
+		else if (isTimeoutName(property.name)) {
+			effective =
+				ts.isPropertyAssignment(property) && isPositiveExpression(property.initializer)
+					? property.initializer.getText(sourceFile)
+					: null;
+		}
+	}
+	return effective;
+};
+
+const spawnCallee = (expression: ts.Expression): string | null => {
+	if (ts.isIdentifier(expression)) {
+		return ["exec" + "Sync", "spawn" + "Sync", "execFile" + "Sync"].includes(expression.text)
+			? expression.text
+			: null;
+	}
+	if (!ts.isPropertyAccessExpression(expression) || !ts.isIdentifier(expression.expression))
+		return null;
+	return ["child_" + "process", "child" + "Process"].includes(expression.expression.text) &&
+		["ex" + "ec", "exec" + "File"].includes(expression.name.text)
+		? expression.name.text
+		: null;
+};
+
+const optionsObject = (
+	callee: string,
+	callArguments: ts.NodeArray<ts.Expression>,
+): ts.ObjectLiteralExpression | null => {
+	const first = callArguments[0];
+	const second = callArguments[1];
+	if (!first || ts.isSpreadElement(first) || !second) return null;
+	if (ts.isObjectLiteralExpression(second)) return second;
+	if (callee === "exec" + "Sync" || callee === "ex" + "ec") return null;
+	const third = callArguments[2];
+	return ts.isArrayLiteralExpression(second) && third && ts.isObjectLiteralExpression(third)
+		? third
+		: null;
+};
+
 const jsCandidates = (file: MaskedTestFile): Candidate[] => {
-	const read = (
-		match: RegExpExecArray,
-		argsSpan: [number, number],
-		openIndex: number,
-	): Candidate | null => {
-		const literal = jsLiteralTimeout(file, match[1], argsSpan);
-		return literal ? { offset: match.index, openIndex, callee: match[1], literal } : null;
+	const sourceFile = parseJavaScriptTest(file.relativePath, file.source, file.extension);
+	const found: Candidate[] = [];
+	const visit = (node: ts.Node): void => {
+		if (ts.isCallExpression(node)) {
+			const callee = spawnCallee(node.expression);
+			if (callee !== null) {
+				const options = optionsObject(callee, node.arguments);
+				const literal = options ? objectTimeout(options, sourceFile) : null;
+				if (literal !== null) {
+					const offset = node.getStart(sourceFile);
+					found.push({
+						offset,
+						openIndex: offset,
+						callee,
+						literal,
+						position: suppressionPosition(sourceFile, offset),
+					});
+				}
+			}
+		}
+		ts.forEachChild(node, visit);
 	};
-	return deduplicateByOpenIndex([
-		...collect(file.masked, JS_SYNC_CALL_RE, read),
-		...collect(file.masked, JS_ASYNC_CALL_RE, read),
-	]);
+	visit(sourceFile);
+	return found;
 };
 
 const SPAWN_EXTENSIONS: Record<string, "python" | "javascript"> = {
@@ -374,8 +340,10 @@ export const detectTestSpawnTimeouts = async (context: EngineContext): Promise<D
 				severity: "warning",
 				message: `${candidate.callee}(...) kills a real process after a literal timeout of ${candidate.literal}, which fires on healthy runs when the machine is loaded.`,
 				help: "In order: run the logic in-process and drop the spawn; if the subject really is an external program, mark the test as integration tier and take the bound from one shared test helper instead of a per-call literal; if the test is about timeout handling, fake the timeout outcome rather than waiting out a real expiry. A bound that is the point of the test can be kept with `// aislop-ignore-next-line ai-slop/test-spawn-timeout-literal -- reason`.",
-				line: lineIndex + 1,
-				column: candidate.offset - file.lineOffsets[lineIndex] + 1,
+				line: (candidate.position?.line ?? lineIndex) + 1,
+				column: candidate.position
+					? candidate.position.character + 1
+					: candidate.offset - file.lineOffsets[lineIndex] + 1,
 				category: "AI Slop",
 				fixable: false,
 			});

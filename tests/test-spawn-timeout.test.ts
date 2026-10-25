@@ -113,12 +113,14 @@ describe("literal timeouts on real subprocesses in Python tests", () => {
 			]);
 			const originalIncludes = String.prototype.includes;
 			let visits = 0;
-			const spy = vi
-				.spyOn(String.prototype, "includes")
-				.mockImplementation(function (this: string, searchString: string, position?: number) {
-					if (this === "([{") visits++;
-					return originalIncludes.call(this, searchString, position);
-				});
+			const spy = vi.spyOn(String.prototype, "includes").mockImplementation(function (
+				this: string,
+				searchString: string,
+				position?: number,
+			) {
+				if (this === "([{") visits++;
+				return originalIncludes.call(this, searchString, position);
+			});
 			try {
 				await detectTestSpawnTimeouts(buildContext(["python"]));
 			} finally {
@@ -207,6 +209,13 @@ describe("literal timeouts on real subprocesses in Python tests", () => {
 			"    subprocess.run(['tool'], timeout=1)",
 		]);
 		expect(await findingLines(["python"])).toEqual([{ filePath: "tests/test_cli.py", line: 4 }]);
+		for (const separator of ["\u2028", "\u2029"]) {
+			writeFile("tests/test_cli.py", [
+				`text = '${separator}'`,
+				"subprocess.run(['tool'], timeout=5)  # aislop-ignore-line ai-slop/test-spawn-timeout-literal -- fixture",
+			]);
+			expect(await findingLines(["python"])).toEqual([]);
+		}
 	});
 });
 
@@ -247,7 +256,7 @@ describe("literal timeouts on real subprocesses in JavaScript and TypeScript tes
 			"  execSync('tool', { timeout: 5000, timeout: BOUND });",
 			"  execSync('tool', { timeout: 5000, timeout });",
 			"  execSync('tool', { timeout: 5000, 'timeout': 0 });",
-			'  execSync(\'tool\', { timeout: 5000, "timeout": 0 });',
+			"  execSync('tool', { timeout: 5000, \"timeout\": 0 });",
 			String.raw`  execSync('tool', { timeout: 5000, time\u006fut: 0 });`,
 			String.raw`  execSync('tool', { timeout: 5000, \u{74}imeout: 0 });`,
 			String.raw`  execSync('tool', { timeout: 5000, 'time\157ut': 0 });`,
@@ -354,4 +363,150 @@ describe("registration", () => {
 		expect(labelForRule(RULE)).toBe("Literal timeout on a real process in a test");
 		expect(descriptionForRule(RULE)).toContain("literal timeout");
 	});
+});
+
+describe("issue126 structural JavaScript spawn calls", () => {
+	it.each([
+		...[
+			"execSync",
+			"spawnSync",
+			"execFileSync",
+			"child_process.exec",
+			"child_process.execFile",
+			"childProcess.exec",
+			"childProcess.execFile",
+		].map((callee) => [`${callee}('tool', {timeout: 10});`, 1]),
+		["execSync('tool', {timeout: (10 * (1000))});", 1],
+		["execSync('tool', {timeout: (10) * 1000});", 1],
+		["execSync('tool', {timeout: 10, [`time${suffix}`]: 0});", 0],
+		["execSync('tool', {[`time${suffix}`]: 0, timeout: 10});", 1],
+		["execSync('tool', {[key]: 0, timeout: 10});", 1],
+		["execSync('tool', {timeout: 5, 'timeout': 0});", 0],
+		["execSync('tool', {timeout});", 0],
+		["execSync('tool', {get timeout() {return 5;}});", 0],
+		["execSync('tool', {timeout: 5, timeout() {return 0;}});", 0],
+		["execSync('tool', {timeout: 5, set timeout(value) {}});", 0],
+		["execSync('tool', {timeout: 0});", 0],
+		["execSync('tool', {timeout: -5});", 0],
+		["execSync('tool', {timeout: 10 * 0});", 0],
+		["execSync('tool', {timeout: '5'});", 0],
+		["execSync('tool', {timeout: `5`});", 0],
+		["execSync('tool', {timeout: process.env.X ?? 5});", 0],
+		["cp.execSync('tool', {timeout: 5});", 0],
+		["execSync({timeout: 10});", 0],
+		["execSync('tool', {}, {timeout: 10});", 0],
+		["spawnSync('tool', ['arg'], {timeout: 10});", 1],
+		["execFileSync('tool', ['arg'], {timeout: 10});", 1],
+		["child_process.execFile('tool', ['arg'], {timeout: 10}, () => {});", 1],
+		["spawnSync('tool', {}, {timeout: 10});", 0],
+		["const options = {}; spawnSync('tool', options, {timeout: 10});", 0],
+		["execFileSync('tool', [], {}, {timeout: 10});", 0],
+		["execFileSync('tool', () => {}, {timeout: 10});", 0],
+		["child_process.exec('tool', () => {}, {timeout: 10});", 0],
+		["child_process.execFile('tool', () => {}, {timeout: 10});", 0],
+		["childProcess.execFile('tool', function () {}, {timeout: 10});", 0],
+		["child_process.execFile('tool', [], () => {}, {timeout: 10});", 0],
+		["execSync(...['tool', {}], {timeout: 10});", 0],
+		["spawnSync(...['tool', [], {}], {timeout: 10});", 0],
+		["execFileSync(...['tool', [], {}], {timeout: 10});", 0],
+		["child_process.exec(...['tool', {}, () => {}], {timeout: 10});", 0],
+		["childProcess.exec(...['tool', {}, () => {}], {timeout: 10});", 0],
+		["child_process.execFile(...['tool', [], {}, () => {}], {timeout: 10});", 0],
+		["childProcess.execFile(...['tool', [], {}, () => {}], {timeout: 10});", 0],
+		["execSync('tool', {timeout: 10, [key]: 0});", 0],
+		["execSync('tool', {timeout: 10, get [key]() {return 0;}});", 0],
+		["execSync('tool', {timeout: 0, timeout: 10});", 1],
+		["execSync('tool', {...overrides, timeout: 10});", 1],
+		["execSync('tool', {[`timeout`]: 10});", 1],
+		["execSync('tool', {['timeout']: 10});", 1],
+		["execSync('tool', {timeout: 10, timeout: 0});", 0],
+		["execSync('tool', {timeout: 10, ...overrides});", 0],
+		["execSync('tool', {timeout: 10, timeout});", 0],
+		["execSync('tool', {timeout: 10, get timeout() {return 0;}});", 0],
+		["execSync('tool', {timeout: BOUND});", 0],
+		["execSync('tool', {timeout: process.env.BOUND});", 0],
+		...[
+			"xexecSync",
+			"execSyncLonger",
+			"$execSync",
+			"a\u200cexecSync",
+			String.raw`\u0061execSync`,
+			"other.execSync",
+			"child_process.spawnSync",
+			"child_process['exec']",
+			"nested.child_process.exec",
+		].map((callee) => [`${callee}('tool', {timeout: 10});`, 0]),
+	] as const)("issue126 %s", async (source, count) => {
+		writeFile("src/cli.test.ts", [source]);
+		expect(await detectTestSpawnTimeouts(buildContext(["typescript"]))).toHaveLength(count);
+	});
+	it.each(["ts", "tsx", "js", "jsx", "mjs", "cjs"])(
+		"parses .%s unmasked source",
+		async (extension) => {
+			writeFile(`src/cli.test.${extension}`, [
+				"// execSync('tool', {timeout: 10})",
+				"const text = `execSync('tool', {timeout: 10})`;",
+				"  childProcess.execFile(",
+				"    'tool', [], {timeout: 10 * 1000}",
+				"  );",
+			]);
+			expect(await detectTestSpawnTimeouts(buildContext(["typescript", "javascript"]))).toEqual([
+				expect.objectContaining({
+					line: 3,
+					column: 3,
+					message: expect.stringContaining("10 * 1000"),
+				}),
+			]);
+		},
+	);
+});
+
+it.each([
+	["LF", "\n", 2, 3],
+	["CRLF", "\r\n", 2, 3],
+	["CR", "\r", 1, 20],
+	["line separator", "\u2028", 1, 20],
+	["paragraph separator", "\u2029", 1, 20],
+] as const)("uses suppression positions for %s", async (_label, separator, line, column) => {
+	writeFile("src/cli.test.ts", [
+		`const value = 0;${separator}  execSync('tool', {timeout: 5}); // aislop-ignore-line ai-slop/test-spawn-timeout-literal -- fixture`,
+	]);
+	const diagnostics = await detectTestSpawnTimeouts(buildContext(["typescript"]));
+	expect(diagnostics).toHaveLength(1);
+	const { results, suppressedCount } = applySuppressions(
+		[{ engine: "ai-slop", diagnostics, elapsed: 0, skipped: false }],
+		tmpDir,
+	);
+	expect(results[0].diagnostics).toEqual([]);
+	expect(suppressedCount).toBe(1);
+	expect(diagnostics).toEqual([expect.objectContaining({ line, column })]);
+
+	const countNewlineSearches = async (findingCount: number): Promise<number> => {
+		writeFile(
+			"src/cli.test.ts",
+			Array.from({ length: findingCount }, () => "  execSync('tool', {timeout: 5});"),
+		);
+		const originalIndexOf = String.prototype.indexOf;
+		let searches = 0;
+		const spy = vi.spyOn(String.prototype, "indexOf").mockImplementation(function (
+			this: string,
+			searchString: string,
+			position?: number,
+		) {
+			if (searchString === "\n") searches++;
+			return originalIndexOf.call(this, searchString, position);
+		});
+		try {
+			const scaled = await detectTestSpawnTimeouts(buildContext(["typescript"]));
+			expect(scaled).toHaveLength(findingCount);
+			expect(scaled.at(-1)).toEqual(expect.objectContaining({ line: findingCount, column: 3 }));
+		} finally {
+			spy.mockRestore();
+		}
+		return searches;
+	};
+	const searches100 = await countNewlineSearches(100);
+	const searches200 = await countNewlineSearches(200);
+	expect(searches100).toBeLessThanOrEqual(105);
+	expect(searches200 / searches100).toBeLessThan(2.2);
 });

@@ -240,9 +240,9 @@ The rules that make aislop unique. These catch the patterns AI assistants leave 
 | `ai-slop/rust-non-test-unwrap` | warning | Rust `.unwrap()` in production code where errors should be handled or documented |
 | `ai-slop/rust-todo-stub` | warning | Rust `todo!()` stubs in production code |
 | `ai-slop/hallucinated-import` | error | JS/TS and Python imports without matching manifest declarations or recognized module evidence |
-| `ai-slop/tautological-test` | warning | A single assertion that cannot fail: JavaScript/TypeScript `expect(true).toBe(true)`-style comparisons of equal fixed literals, `assert.ok(true)`, `expect(true).toBeTruthy()`; Python `assert True` or `assert 1` (optionally with a message) and `self.assertTrue(True)`; C# `Assert.True(true, ...)` and `Assert.IsTrue(true, ...)`. Judged per assertion, never from the rest of the test (see the bounds below the table) |
+| `ai-slop/tautological-test` | warning | A single assertion that cannot fail: JavaScript/TypeScript `expect(true).toBe(true)`-style comparisons of equal fixed literals, `assert.ok(true)`, `expect(true).toBeTruthy()`, decided on the TypeScript AST; Python `assert True` or `assert 1` (optionally with a message) and `self.assertTrue(True)`; C# `Assert.True(true, ...)` and `Assert.IsTrue(true, ...)`. Judged per assertion, never from the rest of the test (see the bounds below the table) |
 | `ai-slop/test-sleep` | warning | A fixed-duration delay written directly inside a test file, outside any loop (see the bounds below the table) |
-| `ai-slop/test-spawn-timeout-literal` | warning | A numeric literal timeout bounding a real subprocess in a Python or JavaScript/TypeScript test file (see the bounds below the table) |
+| `ai-slop/test-spawn-timeout-literal` | warning | A numeric literal timeout bounding a real subprocess in a Python or JavaScript/TypeScript test file; the JavaScript/TypeScript arm is decided on the TypeScript AST (see the bounds below the table) |
 | `ai-slop/test-wall-clock-assertion` | warning | A test assertion whose value comes from the real clock (see the bounds below the table) |
 | `ai-slop/csharp-not-implemented` | warning | C# `throw new NotImplementedException()` stubs the agent forgot to fill in |
 | `ai-slop/csharp-redundant-doc-comment` | warning | C# XML-doc `<summary>` that just restates the member (`Gets or sets the X`) without adding information |
@@ -310,9 +310,11 @@ Supported JS/TS properties have static identifier, string, or numeric names. Sup
 
 ### Vacuous assertions (`ai-slop/tautological-test`)
 
-Reported per assertion, one line at a time, on test files only. The spellings are a closed list;
-each is matched with string and comment interiors blanked, so an example quoted in a string or
-comment is ignored.
+Reported per assertion on test files only. The JavaScript/TypeScript arm is decided on the
+TypeScript AST of the unmasked source, including assertions split across multiple lines, and
+reports on the line where the outer assertion call starts. Python and C# keep their line-based
+behavior with string and comment interiors blanked. Examples quoted in strings or comments
+are ignored.
 
 | Language | Reported spellings |
 | --- | --- |
@@ -320,11 +322,24 @@ comment is ignored.
 | Python | `assert True`, `assert 1` (either may carry `, <message>`), `self.assertTrue(True)` |
 | C# | `Assert.True(true, ...)`, `Assert.IsTrue(true, ...)` |
 
+**JavaScript/TypeScript accepted shapes.** A call to `expect(<L>).toBe(<R>)` has exactly one
+argument in each call, and equal fixed literals on both sides. Calls to `assert.equal(<L>, <R>)`
+and `assert.strictEqual(<L>, <R>)` have at least two arguments, with equal fixed literals in the
+first two positions. The other accepted calls are `expect(true).toBeTruthy()` with exactly one
+inner argument and no outer arguments, `assert(true, ...)`, and `assert.ok(true, ...)`. Receivers
+must be the identifiers `expect` or `assert`, and methods must be property accesses with exactly
+the named method. Fixed literals are booleans, `null`, the identifier `undefined`, numeric literals
+(optionally under unary minus), strings, and templates without substitutions. Equality requires
+the same literal category and `Object.is` on the decoded values: `1` equals `1.0`, differently
+quoted strings can be equal, and negative zero differs from zero.
+
 **Deliberate non-detections.** The rule does not look at the rest of the test: a test whose only
 assertion is vacuous is not distinguished from one with other assertions, and "must not raise"
-smoke tests are not recognised. An assertion split across multiple lines is not reported.
+smoke tests are not recognised. Python and C# assertions split across multiple lines are not
+reported.
 `assert x == x` and other identifier self-comparisons are not reported, and neither are Java, Go,
-or Ruby spellings.
+or Ruby spellings. JavaScript/TypeScript does not track aliases or `require(...)` bindings, and
+does not report other callee names, non-literal values, or templates with substitutions.
 
 ```python
 # aislop-ignore-next-line ai-slop/tautological-test -- placeholder until the harness lands
@@ -345,6 +360,22 @@ red for a reason unrelated to the change.
 | Python | `subprocess.run/check_output/check_call/call(..., timeout=<number>)`; a call to a configured wrapper name carrying `timeout=<number>`; `communicate(timeout=<number>)` and `wait(<number>)` / `wait(timeout=<number>)` on a name the same file assigns from `Popen(...)` |
 | JavaScript/TypeScript | `execSync`, `spawnSync`, `execFileSync` with `{ timeout: <number> }`; `child_process.exec` / `execFile` (also `childProcess.`) with the same option |
 
+**JavaScript/TypeScript accepted shapes.** The TypeScript AST of the unmasked source decides
+calls whose callee is exactly the identifier `execSync`, `spawnSync`, or `execFileSync`, or a
+property access named `exec` or `execFile` on the identifier `child_process` or `childProcess`.
+When the first argument is not a spread, the second argument is checked when it is an object
+literal; for `spawnSync`, `execFileSync`, and `execFile`, the third argument is checked when the
+second argument is an array literal and the third argument is an object literal. Its effective `timeout` is determined in
+property order: identifier, string, and template-without-substitutions keys named `timeout`
+are accepted, including computed string and template literal keys. The last matching key wins
+across all key forms. A property assignment accepts a positive numeric literal (including numeric
+separators), a recursively nested product of accepted numeric literals, or parentheses around
+either shape. A matching shorthand property, method, getter, setter, or other value replaces the
+effective value with a non-literal. A spread after the last matching key makes the value
+undecidable; a spread before a later matching key does not matter. A computed key that is not a plain
+string or template literal, appearing after the last matching key, makes the value undecidable
+and nothing is reported; one before a later matching key does not matter. Findings use the line and column of the call's start and preserve the literal source text.
+
 **Configuration.** `aiSlop.testSpawnTimeout.wrapperNames` (default `run_captured`,
 `run_command`, `_run`) names the Python wrappers treated as process spawns; setting it replaces
 the default list. `aiSlop.testSpawnTimeout.helperPaths` lists path substrings; a test file whose
@@ -352,11 +383,16 @@ repository-relative path contains one is skipped, which is how a shared test-sid
 owns the bound stays quiet.
 
 **Deliberate non-detections.** A named constant (`timeout=BOUND`), an environment lookup with a
-literal default, `None`, and any expression that is not a plain number are not reported; neither is
-a JS/TS `timeout` property that a later spread or duplicate property in the same options object can
-replace. A method call on a receiver the file does not visibly assign as a bare name from
-`Popen(...)` at statement level is not reported, nor is a `timeout` argument on a non-process call
-such as an HTTP client. Other languages are not covered.
+literal default, `None`, and expressions outside the accepted literal or product shapes above are
+not reported; neither is
+a JS/TS `timeout` property whose effective value is non-literal or has a later spread. The JS/TS
+arm does not track aliases or `require(...)` bindings, and does not report `cp.execSync`,
+identifiers that are not exactly the named callee, options arguments preceded by a spread
+argument, third-position options when the second argument is not an array literal (such as a
+second-position callback or an opaque identifier/call), non-literal values, zero, negative values,
+or templates with substitutions. A method call on a receiver the file does not visibly assign
+as a bare name from `Popen(...)` at statement level is not reported, nor is a `timeout` argument
+on a non-process call such as an HTTP client. Other languages are not covered.
 
 **Fix, in order.** Run the logic in-process and delete the spawn; otherwise mark the test as
 integration tier and take the bound from one shared helper; for a test about timeout handling,

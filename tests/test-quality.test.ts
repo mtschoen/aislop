@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiSlopEngine } from "../src/engines/ai-slop/index.js";
+import { detectTautologicalTests } from "../src/engines/ai-slop/test-quality.js";
 import type { EngineContext } from "../src/engines/types.js";
 import { applySuppressions } from "../src/utils/suppress.js";
 
@@ -247,5 +248,155 @@ describe("tautological test assertions", () => {
 		expect(results[0].diagnostics.filter((d) => d.rule === "ai-slop/tautological-test")).toEqual(
 			[],
 		);
+
+		for (const separator of ["\u2028", "\u2029"]) {
+			writeFile(
+				"tests/PipelineTests.cs",
+				`string text = "${separator}";\nAssert.True(true); // aislop-ignore-line ai-slop/tautological-test -- fixture\n`,
+			);
+			const diagnostics = await detectTautologicalTests(buildContext(["csharp"]));
+			expect(diagnostics).toEqual([expect.objectContaining({ line: 2 })]);
+			const suppressed = applySuppressions(
+				[{ engine: "ai-slop", diagnostics, elapsed: 0, skipped: false }],
+				tmpDir,
+			);
+			expect(suppressed.results[0].diagnostics).toEqual([]);
+		}
 	});
+});
+
+describe("issue126 structural JavaScript tautologies", () => {
+	it.each([
+		["true", "true", 1],
+		["false", "false", 1],
+		["null", "null", 1],
+		["undefined", "undefined", 1],
+		["1.0", "1", 1],
+		["-2", "-2", 1],
+		["-0", "-0", 1],
+		["-0", "0", 0],
+		["1", "'1'", 0],
+		["true", "false", 0],
+		["null", "undefined", 0],
+		["value", "value", 0],
+		[String.raw`"\u0041"`, "'A'", 1],
+		["`ok`", "'ok'", 1],
+		["`one`", "`two`", 0],
+		["`value${value}`", "`value${value}`", 0],
+		["1", "2", 0],
+		["false", "0", 0],
+	] as const)("issue126 compares %s and %s", async (left, right, count) => {
+		writeFile(
+			"src/value.test.ts",
+			`expect(${left}).toBe(${right}); assert.equal(${left}, ${right}, 'message'); assert.strictEqual(${left}, ${right});`,
+		);
+		const diagnostics = await detectTautologicalTests(buildContext(["typescript"]));
+		expect(
+			diagnostics.filter((diagnostic) => diagnostic.rule === "ai-slop/tautological-test"),
+		).toHaveLength(count * 3);
+	});
+	it.each([
+		["expect(true).toBe(true, extra);", 0],
+		["expect(true, extra).toBe(true);", 0],
+		["expect(true).toBeTruthy(extra);", 0],
+		["assert.ok(true, 'message');", 1],
+		["assert(true, 'message');", 1],
+		["expect(true).toBeTruthy();", 1],
+		...[
+			"xexpect",
+			"expectLonger",
+			"$expect",
+			"a\u200cexpect",
+			String.raw`\u0061expect`,
+			"object.expect",
+		].map((callee) => [`${callee}(true).toBe(true);`, 0]),
+		["object.assert.equal(1, 1);", 0],
+		["assert['equal'](1, 1);", 0],
+	] as const)("issue126 callee and arity %s", async (source, count) => {
+		writeFile("src/value.test.ts", source);
+		const diagnostics = await detectTautologicalTests(buildContext(["typescript"]));
+		expect(
+			diagnostics.filter((diagnostic) => diagnostic.rule === "ai-slop/tautological-test"),
+		).toHaveLength(count);
+	});
+	it.each(["ts", "tsx", "js", "jsx", "mjs", "cjs"])(
+		"reports multiline .%s assertions at outer call start",
+		async (extension) => {
+			writeFile(
+				`src/value.test.${extension}`,
+				"  expect(\n true\n).toBe(\n true\n);\nassert.equal(\n 1, 1, 'message'\n);",
+			);
+			const diagnostics = await detectTautologicalTests(buildContext(["typescript", "javascript"]));
+			expect(
+				diagnostics.filter((diagnostic) => diagnostic.rule === "ai-slop/tautological-test"),
+			).toEqual([
+				expect.objectContaining({ line: 1, column: 3 }),
+				expect.objectContaining({ line: 6, column: 1 }),
+			]);
+		},
+	);
+});
+
+it.each([
+	["LF", "\n", 2, 3],
+	["CRLF", "\r\n", 2, 3],
+	["CR", "\r", 1, 20],
+	["line separator", "\u2028", 1, 20],
+	["paragraph separator", "\u2029", 1, 20],
+] as const)(
+	"uses suppression assertion positions for %s",
+	async (_label, separator, line, column) => {
+		writeFile(
+			"src/value.test.ts",
+			`const value = 0;${separator}  expect(true).toBe(true); // aislop-ignore-line ai-slop/tautological-test -- fixture\n`,
+		);
+		const diagnostics = await detectTautologicalTests(buildContext(["typescript"]));
+		expect(diagnostics).toHaveLength(1);
+		const { results, suppressedCount } = applySuppressions(
+			[{ engine: "ai-slop", diagnostics, elapsed: 0, skipped: false }],
+			tmpDir,
+		);
+		expect(results[0].diagnostics).toEqual([]);
+		expect(suppressedCount).toBe(1);
+		expect(diagnostics).toEqual([expect.objectContaining({ line, column })]);
+
+		const countNewlineSearches = async (findingCount: number): Promise<number> => {
+			writeFile(
+				"src/value.test.ts",
+				Array.from({ length: findingCount }, () => "  expect(true).toBe(true);").join("\n"),
+			);
+			const originalIndexOf = String.prototype.indexOf;
+			let searches = 0;
+			const spy = vi.spyOn(String.prototype, "indexOf").mockImplementation(function (
+				this: string,
+				searchString: string,
+				position?: number,
+			) {
+				if (searchString === "\n") searches++;
+				return originalIndexOf.call(this, searchString, position);
+			});
+			try {
+				const scaled = await detectTautologicalTests(buildContext(["typescript"]));
+				expect(scaled).toHaveLength(findingCount);
+				expect(scaled.at(-1)).toEqual(expect.objectContaining({ line: findingCount, column: 3 }));
+			} finally {
+				spy.mockRestore();
+			}
+			return searches;
+		};
+		const searches100 = await countNewlineSearches(100);
+		const searches200 = await countNewlineSearches(200);
+		expect(searches100).toBeLessThanOrEqual(105);
+		expect(searches200 / searches100).toBeLessThan(2.2);
+	},
+);
+
+it.each(["jsx", "tsx"])("distinguishes .%s text from expression assertions", async (extension) => {
+	writeFile(
+		`src/value.test.${extension}`,
+		"const element = <div>expect(true).toBe(true){expect(true).toBe(true)}</div>;",
+	);
+	expect(await detectTautologicalTests(buildContext(["typescript", "javascript"]))).toEqual([
+		expect.objectContaining({ line: 1, column: 46 }),
+	]);
 });
