@@ -14,6 +14,9 @@ import { lintEngine } from "../src/engines/lint/index.js";
 import type { EngineContext, EngineResult } from "../src/engines/types.js";
 import { buildJsonOutput } from "../src/output/json.js";
 import { buildSarifLog } from "../src/output/sarif.js";
+import { projectEvidenceOutput } from "./helpers/dotnet-solution-list.js";
+
+// Kept together for execution-record, serialization, and indexed-resolution regression fixtures.
 
 const { subprocess } = vi.hoisted(() => ({ subprocess: vi.fn() }));
 vi.mock("../src/utils/subprocess.js", async (importOriginal) => ({
@@ -87,7 +90,7 @@ describe("C# pass execution record", () => {
 		};
 		subprocess.mockImplementation(async (command: string, arguments_: string[]) => {
 			fs.writeFileSync(outputFlag(arguments_), command === "jb" ? JB_REPORT : "<Roslynator />");
-			return { stdout: "", stderr: "", exitCode: 0 };
+			return { stdout: projectEvidenceOutput(command, arguments_[1]), stderr: "", exitCode: 0 };
 		});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 	});
@@ -123,6 +126,7 @@ describe("C# pass execution record", () => {
 			'<Report><Issues><Project Name="DisplayName"></Project><Project Name="Two"></Project><Project Name="App"></Project><Project Name="Collide"></Project></Issues></Report>',
 			["App.csproj", "Managed/Managed.csproj", "One/One.csproj", "Two/Two.csproj"],
 			["App.csproj", "Managed/Managed.csproj", "One/One.csproj", "Two/Two.csproj"],
+			"ran",
 		],
 		[
 			"single-quoted .slnx (issue 118 finding 4)",
@@ -132,6 +136,7 @@ describe("C# pass execution record", () => {
 			'<Report><Issues><Project Name="DisplayName"></Project><Project Name="Two"></Project></Issues></Report>',
 			["One/One.csproj", "Two/Two.csproj"],
 			["One/One.csproj", "Two/Two.csproj"],
+			"ran",
 		],
 		[
 			"cross-index display-name and basename collision in .sln (issue 118 finding 6)",
@@ -148,6 +153,7 @@ describe("C# pass execution record", () => {
 			'<Report><Issues><Project Name="One"></Project><Project Name="App"></Project></Issues></Report>',
 			["A/Different.csproj", "B/App.csproj", "One/One.csproj"],
 			["A/Different.csproj", "B/App.csproj", "One/One.csproj"],
+			"ran",
 		],
 		[
 			"whitespace around equals, XML numeric entities, supplementary code points, and escaped attributes in .slnx (issue 118 findings 5, 6, 7, 8, 9, 10, 11)",
@@ -175,6 +181,7 @@ describe("C# pass execution record", () => {
 				].join("\n");
 			},
 			'<Report><Issues><Project Name="DisplayName"></Project><Project Name="Two"></Project><Project Name="Esc&amp;App"></Project><Project Name="RocketDec"></Project><Project Name="RocketHex"></Project><Project Name="EscapedIntroducer"></Project><Project Name="NumericAmpDec"></Project><Project Name="NumericAmpHex"></Project></Issues></Report>',
+			["One/One.csproj", "Two/Two.csproj"],
 			[
 				"&#x41;Dir/App.csproj",
 				"&amp;Dec/App.csproj",
@@ -185,26 +192,17 @@ describe("C# pass execution record", () => {
 				"\u{1F680}Dec/App.csproj",
 				"\u{1F680}Hex/App.csproj",
 			],
-			[
-				"&#x41;Dir/App.csproj",
-				"&amp;Dec/App.csproj",
-				"&amp;Hex/App.csproj",
-				"A&B/App.csproj",
-				"One/One.csproj",
-				"Two/Two.csproj",
-				"\u{1F680}Dec/App.csproj",
-				"\u{1F680}Hex/App.csproj",
-			],
+			"failed",
 		],
 	])(
-		"records a successful zero with targets and analyzed projects for %s",
-		async (_label, solutionFilename, getSolutionContent, jbReportXml, expectedJbAnalyzed, expectedRoslynatorAnalyzed) => {
+		"records targets and evidence-backed analyzed projects for %s",
+		async (_label, solutionFilename, getSolutionContent, jbReportXml, expectedJbAnalyzed, expectedRoslynatorAnalyzed, expectedJbStatus) => {
 			if (fs.existsSync(path.join(root, "App.sln"))) fs.unlinkSync(path.join(root, "App.sln"));
 			if (fs.existsSync(path.join(root, "App.slnx"))) fs.unlinkSync(path.join(root, "App.slnx"));
 			fs.writeFileSync(path.join(root, solutionFilename), getSolutionContent(root));
 			subprocess.mockImplementation(async (command: string, arguments_: string[]) => {
 				fs.writeFileSync(outputFlag(arguments_), command === "jb" ? jbReportXml : "<Roslynator />");
-				return { stdout: "", stderr: "", exitCode: 0 };
+				return { stdout: projectEvidenceOutput(command, arguments_[1]), stderr: "", exitCode: 0 };
 			});
 
 			const result = await lintEngine.run(context);
@@ -214,14 +212,15 @@ describe("C# pass execution record", () => {
 			expect(jb).toEqual(
 				expect.objectContaining({
 					tool: "jb inspectcode",
-					status: "ran",
+					status: expectedJbStatus,
 					targets: [solutionFilename],
 					analyzedProjects: expectedJbAnalyzed,
 					excludedProjects: [],
 					elapsed: expect.any(Number),
 				}),
 			);
-			expect(jb).not.toHaveProperty("reason");
+			if (expectedJbStatus === "ran") expect(jb).not.toHaveProperty("reason");
+			else expect(jb?.reason).toContain("duplicate project file names");
 
 			const roslynator = toolRecord(result, "roslynator");
 			expect(roslynator?.status).toBe("ran");
@@ -380,7 +379,11 @@ describe("C# pass execution record", () => {
 				} else {
 					fs.writeFileSync(outputFlag(arguments_), "<Roslynator />");
 				}
-				return { stdout: "", stderr: "", exitCode: command === "jb" ? exitCode : 0 };
+				return {
+					stdout: projectEvidenceOutput(command, arguments_[1]),
+					stderr: "",
+					exitCode: command === "jb" ? exitCode : 0,
+				};
 			});
 			return lintEngine.run(context);
 		};
@@ -486,7 +489,7 @@ describe("C# pass execution record", () => {
 		subprocess.mockImplementation(async (command: string, arguments_: string[]) => {
 			if (command !== "jb") {
 				fs.writeFileSync(outputFlag(arguments_), "<Roslynator />");
-				return { stdout: "", stderr: "", exitCode: 0 };
+				return { stdout: projectEvidenceOutput(command, arguments_[1]), stderr: "", exitCode: 0 };
 			}
 			const target = arguments_[1].replace(/\\/g, "/");
 			if (target.endsWith("A/App.csproj")) {
@@ -611,16 +614,19 @@ describe("C# pass execution record", () => {
 						? '<Report><Issues><Project Name="App"></Project></Issues></Report>'
 						: "<Roslynator />",
 				);
-				return { stdout: "", stderr: "", exitCode: 0 };
+				return { stdout: projectEvidenceOutput(command, arguments_[1]), stderr: "", exitCode: 0 };
 			});
 
 			const result = await lintEngine.run(context);
 			const jb = toolRecord(result, "jb inspectcode");
 			expect(jb?.targets).toEqual(["App.sln"]);
 			expect(jb?.excludedProjects).toContain(expectedExcluded);
-			// Membership comes from the solution index, so an ambiguous report name
-			// "App" cannot hide a visible member or credit an excluded one.
-			expect(jb?.analyzedProjects).toContain(expectedVisible);
+			// Excluded solution members are still inspected by jb on the solution target,
+			// so a shared project file name cannot establish that the visible member was inspected.
+			expect(jb?.status).toBe("failed");
+			expect(jb?.reason).toContain("duplicate project file names");
+			expect(jb?.reason).toContain(expectedVisible);
+			expect(jb?.analyzedProjects).not.toContain(expectedVisible);
 			expect(jb?.analyzedProjects).not.toContain(expectedExcluded);
 
 			const roslynator = toolRecord(result, "roslynator");

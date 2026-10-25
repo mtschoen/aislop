@@ -17,15 +17,17 @@ import type {
 	EngineContext,
 	EngineFailure,
 } from "../types.js";
-import { checkSolutionCoverage } from "./csharp-coverage.js";
 import {
 	buildExecution,
 	type CsharpProjectInventory,
 	createCsharpProjectInventory,
-	getSolutionIndex,
 	isSolutionTarget,
 	toRelative,
 } from "./csharp-execution.js";
+import {
+	checkSolutionProjectEvidence,
+	parseRoslynatorProjectEvidence,
+} from "./csharp-project-evidence.js";
 import { unrestoredProjectFailures } from "./csharp-strict-evaluation.js";
 import { decodeEntities } from "./xml-entities.js";
 
@@ -110,7 +112,7 @@ const completedWithoutDiagnostics = (result: { stdout: string; exitCode: number 
 	result.exitCode === 0 && ZERO_DIAGNOSTICS_SUMMARY.test(result.stdout);
 
 type AnalyzeResult =
-	| { diagnostics: Diagnostic[]; failed: false }
+	| { diagnostics: Diagnostic[]; failed: false; stdout: string }
 	| { diagnostics: Diagnostic[]; failed: true; reason: string; timedOut: boolean };
 
 const analyzeTarget = async (
@@ -124,6 +126,7 @@ const analyzeTarget = async (
 		outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-roslynator-"));
 		const outputPath = path.join(outputDirectory, "report.xml");
 		const analyzeArgs = ["analyze", target, "--output", outputPath];
+		if (isSolutionTarget(target)) analyzeArgs.push("--verbosity", "detailed");
 		if (analyzerAssemblies.length > 0) {
 			analyzeArgs.push("--analyzer-assemblies", ...analyzerAssemblies);
 		}
@@ -137,13 +140,17 @@ const analyzeTarget = async (
 		// a nonzero exit, a count with no file) means analysis never completed.
 		if (!fs.existsSync(outputPath)) {
 			if (completedWithoutDiagnostics(result)) {
-				return { diagnostics: [], failed: false };
+				return { diagnostics: [], failed: false, stdout: result.stdout };
 			}
 			const detail = truncateFailureDetail(result.stderr || result.stdout || "no output");
 			throw new Error(`no report written (exit code ${result.exitCode}): ${detail}`);
 		}
 		const xml = fs.readFileSync(outputPath, "utf-8");
-		return { diagnostics: parseRoslynatorXml(xml, context.rootDirectory), failed: false };
+		return {
+			diagnostics: parseRoslynatorXml(xml, context.rootDirectory),
+			failed: false,
+			stdout: result.stdout,
+		};
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
 		return { diagnostics: [], failed: true, reason, timedOut: /timed out/i.test(reason) };
@@ -204,25 +211,19 @@ export const runDotnetLint = async (
 		diagnostics.push(...result.diagnostics);
 		if (!result.failed) {
 			if (isSolutionTarget(target)) {
-				const solution = getSolutionIndex(csharpInventory, target);
-				const memberProjects = solution.csharpProjects
-					.map((project) => project.relativePath)
-					.filter((project) =>
-						csharpInventory.visibleProjectsSet
-							? csharpInventory.visibleProjectsSet.has(project)
-							: csharpInventory.visibleProjects.includes(project),
-					);
-				analyzedProjects.push(...memberProjects);
-				const incomplete = await checkSolutionCoverage({
-					tool: ROSLYNATOR_TOOL,
-					rootDirectory: context.rootDirectory,
-					solutionPath: target,
-					inventory: csharpInventory,
-					analyzedProjects,
-					excludePatterns: context.excludePatterns,
-					requireRestoreEvidence: context.config.lint.csharp?.projectEvaluation === true,
-				});
-				if (incomplete) failures.push(incomplete);
+				const coverage = await checkSolutionProjectEvidence(
+					{
+						tool: ROSLYNATOR_TOOL,
+						rootDirectory: context.rootDirectory,
+						solutionPath: target,
+						inventory: csharpInventory,
+						excludePatterns: context.excludePatterns,
+						requireRestoreEvidence: context.config.lint.csharp?.projectEvaluation === true,
+					},
+					parseRoslynatorProjectEvidence(result.stdout, context.rootDirectory),
+				);
+				analyzedProjects.push(...coverage.analyzedProjects);
+				if (coverage.failure) failures.push(coverage.failure);
 			} else {
 				analyzedProjects.push(toRelative(context, target));
 			}

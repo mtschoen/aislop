@@ -36,7 +36,7 @@ vi.mock("../src/utils/tooling.js", async (importOriginal) => ({
 	resolveBundledAnalyzerAssemblies: () => [],
 }));
 
-const CLEAN_RUN = { stdout: "0 diagnostics found", stderr: "", exitCode: 0 };
+const CLEAN_RUN = { stdout: "Analyze 'One' 1/1\n0 diagnostics found", stderr: "", exitCode: 0 };
 const dotnetAvailable = spawnSync("dotnet", ["--version"], { stdio: "ignore" }).status === 0;
 
 const members =
@@ -177,7 +177,10 @@ describe("dotnet sln list member reader", () => {
 	it.each([
 		["a nonzero exit", { stdout: "", stderr: "boom", exitCode: 1 }],
 		["unrecognized output", { stdout: "something else entirely", stderr: "", exitCode: 0 }],
-		["dashed garbage without heading (finding 1)", { stdout: "garbage\n----------\n", stderr: "", exitCode: 0 }],
+		[
+			"dashed garbage without heading (finding 1)",
+			{ stdout: "garbage\n----------\n", stderr: "", exitCode: 0 },
+		],
 		[
 			"misleading empty-solution prefix (finding 2)",
 			{ stdout: "No projects found but not a recognized SDK message", stderr: "", exitCode: 0 },

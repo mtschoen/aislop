@@ -13,7 +13,6 @@ import type {
 	Severity,
 } from "../types.js";
 import { resolveCppLintConfig } from "./cppcheck.js";
-import { checkSolutionCoverage } from "./csharp-coverage.js";
 import {
 	buildExecution,
 	type CsharpProjectInventory,
@@ -22,6 +21,7 @@ import {
 	isSolutionTarget,
 	toRelative,
 } from "./csharp-execution.js";
+import { checkSolutionProjectEvidence, parseJbProjectEvidence } from "./csharp-project-evidence.js";
 import { unrestoredProjectFailures } from "./csharp-strict-evaluation.js";
 import { decodeEntities, xmlAttribute } from "./xml-entities.js";
 
@@ -193,7 +193,7 @@ const analyzeJbTarget = async (
 	includeCsharp: boolean,
 	includeCpp: boolean,
 	target: string,
-): Promise<AnalyzerRunResult> => {
+): Promise<AnalyzerRunResult & { stdout?: string }> => {
 	// Fresh caches every run: jb's result cache survives config edits and a cold
 	// cache yields partial reports. Removed in the finally block.
 	let cachesHome: string | undefined;
@@ -244,6 +244,7 @@ const analyzeJbTarget = async (
 		return {
 			diagnostics: parseJbXml(xml, context.rootDirectory, parseOptions),
 			failures: [],
+			stdout: result.stdout,
 		};
 	} catch (error) {
 		return {
@@ -361,35 +362,27 @@ export const runJbLint = async (
 		failures.push(...result.failures);
 		if (result.failures.length === 0) {
 			if (isSolutionTarget(target)) {
-				// jb reports only finding-bearing projects, so a solution pass records
-				// the solution's declared members (restricted to the --project scope
-				// and to visible projects), as the roslynator pass does.
 				const solution = getSolutionIndex(csharpInventory, target);
-				for (const project of solution.csharpProjects) {
-					if (
-						csharpInventory.visibleProjectsSet.has(project.relativePath) &&
-						projectNameInScope(project.name, projectScope)
-					) {
-						analyzedProjects.push(project.relativePath);
-					}
-				}
 				if (options.includeCsharp) {
-					const incomplete = await checkSolutionCoverage({
-						tool: JB_TOOL,
-						rootDirectory: context.rootDirectory,
-						solutionPath: target,
-						inventory: csharpInventory,
-						analyzedProjects,
-						excludePatterns: context.excludePatterns,
-						requireRestoreEvidence: context.config.lint.csharp?.projectEvaluation === true,
-						inScope: (projectPath) =>
-							(
-								solution.byPath.get(projectPath)?.map((project) => project.name) ?? [
-									path.posix.basename(projectPath, path.posix.extname(projectPath)),
-								]
-							).some((name) => projectNameInScope(name, projectScope)),
-					});
-					if (incomplete) failures.push(incomplete);
+					const coverage = await checkSolutionProjectEvidence(
+						{
+							tool: JB_TOOL,
+							rootDirectory: context.rootDirectory,
+							solutionPath: target,
+							inventory: csharpInventory,
+							excludePatterns: context.excludePatterns,
+							requireRestoreEvidence: context.config.lint.csharp?.projectEvaluation === true,
+							inScope: (projectPath) =>
+								(
+									solution.byPath.get(projectPath)?.map((project) => project.name) ?? [
+										path.posix.basename(projectPath, path.posix.extname(projectPath)),
+									]
+								).some((name) => projectNameInScope(name, projectScope)),
+						},
+						parseJbProjectEvidence(result.stdout ?? ""),
+					);
+					analyzedProjects.push(...coverage.analyzedProjects);
+					if (coverage.failure) failures.push(coverage.failure);
 				}
 			} else if (projectNameInScope(path.basename(target, path.extname(target)), projectScope)) {
 				// jb names a project after its project file; --project scopes this run too.
