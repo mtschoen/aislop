@@ -244,7 +244,7 @@ describe("runScopedScan", () => {
 		);
 		fs.mkdirSync(path.join(root, "src"), { recursive: true });
 		const changedFile = path.join(root, "src/launch.ts");
-		fs.writeFileSync(changedFile, 'const tool = "/home/example/project/tool";\n');
+		fs.writeFileSync(changedFile, 'consume("/home/example/project/tool");\n');
 
 		const result = await runScopedScan(root, [changedFile]);
 

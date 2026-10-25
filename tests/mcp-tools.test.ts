@@ -118,7 +118,7 @@ describe("aislop_scan tool", () => {
 				"      - /home/example",
 			].join("\n"),
 		);
-		writeFile("src/launch.ts", 'const tool = "/home/example/project/tool";\n');
+		writeFile("src/launch.ts", 'consume("/home/example/project/tool");\n');
 
 		const result = await withCwd(tmpDir, () => handleAislopScan({ path: "." }));
 

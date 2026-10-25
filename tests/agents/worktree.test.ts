@@ -84,7 +84,7 @@ describe("agent worktrees", () => {
 		const before = existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "";
 
 		// .native() to match readAgentRoot's canonicalization: it expands 8.3 short names, so a
-		// short-form TEMP (e.g. CI's C:\Users\RUNNER~1\...) resolves to the same long path.
+		// short-form TEMP (e.g. a CI `RUNNER~1` 8.3 segment) resolves to the same long path.
 		await expect(readAgentRoot(root)).resolves.toEqual({ root: realpathSync.native(root) });
 
 		const after = existsSync(excludePath) ? readFileSync(excludePath, "utf-8") : "";

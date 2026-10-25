@@ -685,14 +685,41 @@ Each configured root must be absolute (a POSIX `/...` root, a Windows drive root
 see [docs/configuration.md](configuration.md#hardcoded-user-path-roots) for the exact forms
 accepted and what happens to a non-absolute entry.
 
-**Placeholder names are not reported.** Under the standard shapes these user name segments are
-never reported, matched case-insensitively: `runner`, `runneradmin`, `root`, `user`, `username`,
-`default`, `defaultuser`, `example`, `public`, `shared`, `someone`, `me`, `your-name`, `yourname`,
-and anything starting with `runner~`. Use `example` in fixtures and docs (for example
-`/home/example/project` or `C:\Users\example\project`). Every other name is reported, including
-`alice`, because it is plausibly a real account. The list is planned to shrink to `example`,
-`someone` and `me` (see
-[issue 140](https://gitea.fleet.sticktoitive.net/schoen/aislop/issues/140)).
+The built-in placeholder names are exactly `example`, `someone`, and `me`,
+matched case-insensitively. Use `example` in fixtures and documentation.
+`allowedPlaceholders` adds project-specific names for standard home shapes;
+it does not exempt explicitly configured `bannedRoots` outside allowed locations.
+
+Data configuration files allow hardcoded defaults: `.json`, `.jsonc`, `.yaml`,
+`.yml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.env`, and basenames `.env` or
+`.env.*`. Filename comparison is case-insensitive. Code-shaped configuration
+files such as `tool.config.ts` and `tool.config.js` use the code policy.
+
+In selected JS/TS sources (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), a
+direct source-file-level, non-exported `const` identifier declaration may
+initialize a plain string literal or no-substitution template literal. Type
+annotations and multiple declarators are permitted. Export modifiers, local
+export specifiers (including renamed/default specifiers), and direct identifier
+export assignments prevent that allowance. CommonJS-exporting files
+(`module.exports` or `exports` member assignments and
+`Object.defineProperty`/`defineProperties`/`assign` calls on unbound `exports`
+or `module.exports`, independent of `require(...)` calls or locally bound
+`exports`/`module` variables) receive no const allowance. The decision uses the
+TypeScript parser and compiler symbols.
+
+Only the literal's matched contents are exempt: calls and comments on the same
+line are still checked. Inline arguments, getenv fallbacks, nullish defaults,
+function-local consts, nested declarations, destructuring, tagged/interpolated
+templates, concatenation, and wrapped initializers are not allowed locations.
+Both home-shape and configured-root matches use this location policy.
+
+C# and Python retain their existing fixed-shape detection without a structural
+const allowance. A private C# field is not a module-level declaration; Python
+structural analysis waits for a bundled grammar. The rule does not trace
+arbitrary exported object graphs or transitive aliases. Invalid JS/TS syntax
+receives no const allowance. Shared source enumeration is unchanged; the data
+filename allowance is explicit even though ordinary source enumeration already
+omits most data files.
 
 **Escape hatches for a legitimate literal path.** Pick the narrowest that fits:
 
@@ -713,11 +740,13 @@ sound syntactic answer across every language aislop scans. Restricting the match
 `bannedRoots` makes the question finite and avoids growing an exclusion list to guess at routes.
 
 **Known non-detections.** Deliberately not reported: WSL mounts (`/mnt/c/Users/<name>`), `~user`
-spellings, `/root` (it is not a `/home/<name>` shape), the legacy Windows `Documents and Settings` root, user names containing whitespace (names end at whitespace like every other path token, so
-`C:/Users/Alice Doe/` is read as `Alice`), UNC homes unless listed in
+spellings, `/root` (it is not a `/home/<name>` shape), the legacy Windows `Documents and Settings` root, UNC homes unless listed in
 `bannedRoots`, template or glob names (`/home/$USER`, `/home/*`, `<name>`), and relative paths or
 home-like suffixes inside another token. Add a root to `bannedRoots` to catch a non-standard
-shape. Examples outside the rule:
+shape. Usernames end at whitespace in the fixed shape matcher. A path whose first
+username word is non-placeholder is still reported, but a spaced username whose
+first word is `example`, `someone`, or `me` can be missed. Literal-span allowances
+do not change this boundary. Explicit banned roots can cover these names. Examples outside the rule:
 
 ```text
 home/example/project
@@ -734,7 +763,7 @@ has no sound way to tell them apart.
 
 ```ts
 // aislop-ignore-next-line ai-slop/hardcoded-user-path -- historical path retained in migration fixture
-const historicalPath = "C:\\Users\\alice\\project";
+loadHistoricalPath("C:\\Users\\alice\\project");
 ```
 
 ### Systemd unbounded start timeouts (`ai-slop/systemd-timeout`)

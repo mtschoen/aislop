@@ -246,10 +246,11 @@ incomplete audits, with any readable vulnerability findings preserved.
 ## Hardcoded user path roots
 
 `ai-slop/hardcoded-user-path` flags hardcoded home-directory paths (see
-[docs/rules.md](rules.md#hardcoded-user-paths-ai-slophardcoded-user-path)). It always flags the
-standard home shapes `/home/<name>/`, `/Users/<name>/` and `<drive>:\Users\<name>\` (and their
-`file:` forms) for any user name other than the placeholders listed in docs/rules.md (`example` is the one to use
-in fixtures and docs, e.g. `/home/example/project`). Two keys adjust that:
+[docs/rules.md](rules.md#hardcoded-user-paths-ai-slophardcoded-user-path)). The rule flags standard home shapes outside the allowed data-file and JS/TS
+const-literal locations documented in the rules reference. Built-in placeholder
+names are `example`, `someone`, and `me`. `bannedRoots` extends the matched roots;
+the location allowances still apply. `allowedPlaceholders` extends only the
+shape-name exemptions and remains case-insensitive. Two keys adjust that:
 
 - `bannedRoots` adds home roots of a non-standard shape, for example `/mnt/data/<name>`.
 - `allowedPlaceholders` lists user-name segments (beyond the built-in placeholders) that are not flagged under the standard
@@ -271,6 +272,13 @@ path-boundary requirement and flag ordinary identifiers instead of hardcoded pat
 entry is dropped and reported by path and value; valid entries and all other valid configuration
 fields remain in effect. An `allowedPlaceholders` entry containing `/` or `\` is rejected the same
 way.
+
+Consumers adopting this policy should replace fictional `runner`, `runneradmin`,
+`root`, `user`, `username`, `default`, `defaultuser`, `public`, `shared`,
+`your-name`, `yourname`, and `runner~`-prefixed home usernames with `example`, or
+explicitly configure legitimate project placeholders. `/root` remains outside
+the standard home shapes. A consumer pin bump must account for newly reportable
+inline fixture paths; do not lower score gates to accommodate fixture names.
 
 File length counts every physical line, including blank and comment lines. `.tsx`, `.jsx`, and `.go` files get 1.5x `maxFileLoc`, Rust and C/C++ files 2.5x, and `.d.ts` and data-only files are skipped. Function length runs from the signature to the closing brace, minus lines inside multi-line template literals. Python counts only the logical body code (no signature, docstrings, comments, or blank lines). React components get 2x `maxFunctionLoc`, and Rust functions 1.5x.
 

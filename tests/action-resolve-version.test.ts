@@ -58,6 +58,6 @@ describe.skipIf(process.platform === "win32")("action CLI version resolution", (
 		expect(resolve("", actionDir("v1"))).toBe("latest");
 		expect(resolve("", actionDir("main"))).toBe("latest");
 		expect(resolve("", actionDir(SHA))).toBe("latest");
-		expect(resolve("", "/home/runner/work/aislop/aislop")).toBe("latest");
+		expect(resolve("", "/home/example/work/aislop/aislop")).toBe("latest");
 	});
 });
