@@ -135,7 +135,7 @@ export const runDependencyAudit = async (context: EngineContext): Promise<Diagno
 		context.installedTools.dotnet &&
 		context.config.lint.csharp?.projectEvaluation === true
 	) {
-		promises.push(inspectDotnetAudit(context.rootDirectory, timeout));
+		promises.push(inspectDotnetAudit(context, timeout));
 	}
 
 	const results = await Promise.allSettled(promises);

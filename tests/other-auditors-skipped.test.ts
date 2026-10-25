@@ -12,9 +12,15 @@ vi.mock("../src/utils/subprocess.js", async (importOriginal) => {
 });
 
 const { runDependencyAudit } = await import("../src/engines/security/audit.js");
-const { inspectCargoAudit, inspectDotnetAudit, inspectPipAudit } = await import(
-	"../src/engines/security/audit-ecosystem.js"
-);
+const {
+	inspectCargoAudit,
+	inspectDotnetAudit: inspectDotnetProjects,
+	inspectPipAudit,
+} = await import("../src/engines/security/audit-ecosystem.js");
+
+// Keep the shared auditor contract cases scoped to one C# project.
+const inspectDotnetAudit = (rootDirectory: string, timeout: number) =>
+	inspectDotnetProjects({ rootDirectory, dependencyAuditFiles: ["App.csproj"] }, timeout);
 
 const projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-other-auditors-"));
 fs.writeFileSync(path.join(projectDirectory, "requirements.txt"), "requests==2.0.0\n");
@@ -31,6 +37,7 @@ const respondWith = (stdout: string, exitCode = 0): void => {
 const TOOLS = [
 	{
 		name: "pip-audit",
+		helpCommand: "pip-audit",
 		inspect: inspectPipAudit,
 		manifest: "requirements.txt",
 		message: "Dependency audit did not complete (pip-audit)",
@@ -41,6 +48,7 @@ const TOOLS = [
 	},
 	{
 		name: "cargo audit",
+		helpCommand: "cargo audit",
 		inspect: inspectCargoAudit,
 		manifest: "Cargo.toml",
 		message: "Dependency audit did not complete (cargo audit)",
@@ -49,9 +57,10 @@ const TOOLS = [
 	},
 	{
 		name: "dotnet list package",
+		helpCommand: 'dotnet list "App.csproj" package',
 		inspect: inspectDotnetAudit,
-		manifest: "*.csproj",
-		message: "Dependency audit did not complete (dotnet list package)",
+		manifest: "App.csproj",
+		message: "Dependency audit did not complete (dotnet list package for App.csproj)",
 		cleanReport: JSON.stringify({ version: 1, projects: [] }),
 		notItsReport: JSON.stringify({ unrelated: true }),
 	},
@@ -88,7 +97,7 @@ describe.each(TOOLS)("$name audit that did not run to a report", (tool) => {
 			filePath: tool.manifest,
 			message: tool.message,
 		});
-		expect(outcome.diagnostics[0].help).toContain(tool.name);
+		expect(outcome.diagnostics[0].help).toContain(tool.helpCommand);
 	});
 
 	it("reports a clean audit only when the tool printed its own clean report", async () => {
@@ -410,6 +419,7 @@ describe("runDependencyAudit: an audit tool that does not apply is not a failed 
 		installedTools: EngineContext["installedTools"],
 	): EngineContext => ({
 		rootDirectory: dir,
+		dependencyAuditFiles: ["App.csproj"],
 		languages,
 		frameworks: [],
 		installedTools,

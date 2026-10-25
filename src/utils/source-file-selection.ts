@@ -26,7 +26,7 @@ const DECLARATION_EXCLUDED_DIRECTORIES = EXCLUDED_SOURCE_DIRECTORIES.filter(
 	(directory) => !GENERATED_DECLARATION_DIRECTORIES.has(directory),
 );
 const DEPENDENCY_AUDIT_INPUT_FILE_RE =
-	/(?:^|\/)(?:package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements(?:\.[\w-]+)?\.txt|pyproject\.toml|Pipfile|Pipfile\.lock|poetry\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|[\w.-]+\.csproj|packages\.lock\.json|Directory\.Packages\.props)$/i;
+	/(?:^|\/)(?:package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements(?:\.[\w-]+)?\.txt|pyproject\.toml|Pipfile|Pipfile\.lock|poetry\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|[^/]+\.csproj|packages\.lock\.json|Directory\.Packages\.props)$/i;
 
 export const isDependencyAuditInputFile = (filePath: string): boolean =>
 	DEPENDENCY_AUDIT_INPUT_FILE_RE.test(filePath);

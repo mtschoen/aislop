@@ -200,10 +200,16 @@ Which identifier each audit source provides:
 |---|---|---|
 | `npm audit`, `bun audit` | GHSA id, taken from the advisory url | none (no CVE id is reported) |
 | `pnpm audit` | GHSA id (`github_advisory_id`, or the advisory url) | CVE ids when the pnpm release reports `cves` |
-| `dotnet list package --vulnerable` | GHSA id, taken from the advisory url | none |
+| `dotnet list <project.csproj> package --no-restore --vulnerable --include-transitive --format json` | GHSA id, taken from the advisory url | none |
 | `pip-audit` | the vulnerability id (`PYSEC-...` or `GHSA-...`) | the reported aliases (CVE, GHSA) |
 | `cargo audit` | `RUSTSEC-...` | the reported aliases (CVE, GHSA) |
 | `govulncheck` | the Go vulnerability id (`GO-YYYY-NNNN`) | the aliases of the OSV message (CVE, GHSA) |
+
+The NuGet audit runs per `.csproj` in scan scope, honoring include and exclude
+patterns. A solution member the dotnet CLI cannot evaluate (such as a `.vcxproj`)
+does not fail the whole audit. A `.csproj` whose assets are not restored is
+reported as `security/dependency-audit-skipped` by its project path; findings
+from the other projects are still kept.
 
 An advisory the audit source reports without any identifier is listed as
 `unidentified` and can never be accepted. Go (`govulncheck`) reports only

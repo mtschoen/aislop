@@ -523,6 +523,7 @@ describe("stale entries are only reported for audit sources that completed", () 
 
 	const contextFor = (language: EngineContext["languages"][number]): EngineContext => ({
 		rootDirectory: directory,
+		dependencyAuditFiles: ["App.csproj"],
 		languages: [language],
 		frameworks: [],
 		installedTools: { "pip-audit": true, "cargo-audit": true, govulncheck: true, dotnet: true },
@@ -669,6 +670,7 @@ describe("a failed audit run never counts as completed", () => {
 		},
 	): EngineContext => ({
 		rootDirectory: directory,
+		dependencyAuditFiles: ["App.csproj"],
 		languages,
 		frameworks: [],
 		installedTools,

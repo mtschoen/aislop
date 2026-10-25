@@ -505,7 +505,10 @@ describe("L4: output printed before a timeout is kept", () => {
 		};
 		runSubprocess.mockRejectedValue(timeout(JSON.stringify(report)));
 
-		const outcome = await inspectDotnetAudit(projectDirectory, 1000);
+		const outcome = await inspectDotnetAudit(
+			{ rootDirectory: projectDirectory, dependencyAuditFiles: ["App.csproj"] },
+			1000,
+		);
 
 		expect(outcome.completed).toBe(false);
 		expect(rules(outcome.diagnostics)).toEqual([SKIPPED_RULE, "security/vulnerable-dependency"]);
