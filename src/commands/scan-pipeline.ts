@@ -2,7 +2,6 @@ import path from "node:path";
 import { type AislopConfig, findConfigDir, RULES_FILE } from "../config/index.js";
 import { shouldRunDependencyAudit } from "../engines/security/audit.js";
 import type { EngineConfig, EngineResult } from "../engines/types.js";
-import { applyRuleSeverities } from "../scoring/rule-severity.js";
 import {
 	detectManifestLanguages,
 	detectSourceLanguages,
@@ -102,11 +101,6 @@ export const runScanEngines = async (
 		machineOutput,
 	);
 
-	const severityAdjusted = rawResults.map((result) => ({
-		...result,
-		diagnostics: config.overrides.length
-			? result.diagnostics
-			: applyRuleSeverities(result.diagnostics, config.rules),
-	}));
-	return applySuppressions(severityAdjusted, resolvedDir);
+	// Rule severities were already applied per file inside runEngines.
+	return applySuppressions(rawResults, resolvedDir);
 };

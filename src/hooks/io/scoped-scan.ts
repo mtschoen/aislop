@@ -4,7 +4,6 @@ import { findConfigDir, loadConfig, RULES_FILE } from "../../config/index.js";
 import { runEngines } from "../../engines/orchestrator.js";
 import type { Diagnostic, EngineContext, EngineName } from "../../engines/types.js";
 import { calculateScore } from "../../scoring/index.js";
-import { applyRuleSeverities } from "../../scoring/rule-severity.js";
 import { discoverProject } from "../../utils/discover.js";
 import {
 	filterEnumeratedProjectFiles,
@@ -146,10 +145,7 @@ export const runScopedScan = async (
 	};
 
 	const results = await runEngines(context, enabled);
-	const diagnostics = applyRuleSeverities(
-		results.flatMap((result) => result.diagnostics),
-		config.overrides.length ? {} : config.rules,
-	);
+	const diagnostics = results.flatMap((result) => result.diagnostics);
 	const { score } = calculateScore(
 		diagnostics,
 		config.scoring.weights,

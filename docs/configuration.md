@@ -114,7 +114,7 @@ files retain the top-level policy. Supported fields are `quality.maxFileLoc`,
 
 Quality overrides feed the existing complexity checks: language multipliers,
 exemptions, and the existing line-count tolerance still apply. Rule severity is
-resolved before scoring and reporting; `off` suppresses that rule's diagnostic,
+resolved (top-level `rules` plus matching overrides, with or without an `overrides` block) before the comment-overlap dedupe, scoring, and reporting; `off` suppresses that rule's diagnostic,
 not the entire file or an external formatter. Overrides do not grant an exclusion
 from mutating fix tools; use `exclude` when generated files must never be rewritten.
 The policy is also used by hook/MCP scans and post-fix verification. No LLM or
