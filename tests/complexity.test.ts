@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { analyzeFunctions, checkComplexity } from "../src/engines/code-quality/complexity.js";
+import { analyzeCsharpFunctions } from "../src/engines/code-quality/complexity-csharp-ast.js";
 import type { EngineContext } from "../src/engines/types.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -436,10 +437,7 @@ describe("checkComplexity — too many parameters", () => {
 		expect(paramDiags[0].detail).toContain("8 params");
 	});
 
-	it("counts a positional record's component list toward too-many-params like any parameter list", async () => {
-		// A 9-component `readonly record struct` is still a call-site parameter
-		// list - construction with 9 positionals is a real complexity signal, so
-		// the record form gets no exemption from the rule.
+	it("does not count a positional record struct's components toward too-many-params (PR 171)", async () => {
 		const content =
 			"public readonly record struct BrokerFrame(\n" +
 			"    BrokerFrameKind Kind,\n" +
@@ -457,27 +455,27 @@ describe("checkComplexity — too many parameters", () => {
 		const filePath = writeFile("BrokerFrame.cs", content);
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
 		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
-		expect(paramDiags).toHaveLength(1);
-		expect(paramDiags[0].detail).toContain("9 params");
+		expect(paramDiags).toEqual([]);
 	});
 
-	it("counts a positional record class primary constructor toward too-many-params as well", async () => {
-		// A bare `;`-terminated record declaration has no body, so the brace-based
-		// function-boundary detection treats it like a prototype and skips it
-		// (same as a C++ declaration) - give it a body so the counting logic is
-		// actually exercised.
-		const content =
-			"public record class Big(int A, int B, int C, int D, int E, int F, int G) { }\n";
-		const filePath = writeFile("Big.cs", content);
-		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
-		const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
-		expect(paramDiags).toHaveLength(1);
-		expect(paramDiags[0].detail).toContain("7 params");
-	});
+	it.each(["record", "record class", "record struct"])(
+		"does not count positional %s components toward too-many-params (PR 171)",
+		async (declaration) => {
+			const content = [
+				`public ${declaration} Big(int A, int B, int C, int D, int E, int F, int G) { }`,
+				"public record Commented(int A, /* c1 */ int B, /* c2 */ int C, /* c3 */ int D) { }",
+				"public class WithParams(int a, int b, int c, int d, int e, params string[] values) { }",
+			].join("\n");
+			const filePath = writeFile("Big.cs", content);
+			const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
+			const paramDiags = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
+			expect(paramDiags).toEqual([]);
+		},
+	);
 
 	it("still flags a plain constructor with too many params inside a struct", async () => {
 		// A hand-written constructor is a method param list, not a record component
-		// list - the same counted-not-exempt policy applies to it too.
+		// list, so its parameters still count toward the limit.
 		const content =
 			"public readonly struct UsnJournalEntry {\n" +
 			"    internal UsnJournalEntry(ulong recordNumber, ulong parentRecordNumber,\n" +
@@ -976,18 +974,18 @@ describe("checkComplexity: C++ header nesting coverage", () => {
 describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection", () => {
 	const names = (src: string, ext: string) => analyzeFunctions(src, ext).map((f) => f.name);
 
-	it("detects a C# constructor (no return type)", () => {
+	it("detects a C# constructor (no return type)", async () => {
 		const src = "class C {\n  public C(int a, int b) {\n    if (a) { work(); }\n  }\n}";
-		const fns = analyzeFunctions(src, ".cs");
+		const fns = await analyzeCsharpFunctions(src);
 		const ctor = fns.find((f) => f.name === "C");
 		expect(ctor).toBeDefined();
 		expect(ctor?.paramCount).toBe(2);
 	});
 
-	it("detects a C# method with multiple modifiers and a generic return type", () => {
+	it("detects a C# method with multiple modifiers and a generic return type", async () => {
 		const src =
 			"class C {\n  public async Task<int> DoAsync(int a) {\n    if (a) { return a; }\n    return 0;\n  }\n}";
-		expect(names(src, ".cs")).toContain("DoAsync");
+		expect((await analyzeCsharpFunctions(src)).map((f) => f.name)).toContain("DoAsync");
 	});
 
 	// Regression: a statement-position multi-line awaited call
@@ -996,7 +994,7 @@ describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection"
 	// swallowed the rest of the enclosing method - misreporting the real method as
 	// too long. The call must not register as a function, and the enclosing
 	// method's length must stay correct.
-	it("does not treat a multi-line awaited call as a C# function definition", () => {
+	it("does not treat a multi-line awaited call as a C# function definition", async () => {
 		const src = [
 			"class C",
 			"{",
@@ -1019,15 +1017,15 @@ describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection"
 			"    }",
 			"}",
 		].join("\n");
-		const fns = analyzeFunctions(src, ".cs");
+		const fns = await analyzeCsharpFunctions(src);
 		expect(fns.map((f) => f.name)).toEqual(["StopAsync", "After"]);
 		const stop = fns.find((f) => f.name === "StopAsync");
 		expect(stop?.lineCount).toBe(12);
 	});
 
-	it("detects a C# method with a multi-line (wrapped) signature", () => {
+	it("detects a C# method with a multi-line (wrapped) signature", async () => {
 		const src = "class C {\n  public int Foo(\n    int a,\n    int b) {\n    return a;\n  }\n}";
-		const foo = analyzeFunctions(src, ".cs").find((f) => f.name === "Foo");
+		const foo = (await analyzeCsharpFunctions(src)).find((f) => f.name === "Foo");
 		expect(foo).toBeDefined();
 		expect(foo?.paramCount).toBe(2);
 	});
@@ -1044,12 +1042,17 @@ describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection"
 	});
 
 	it("detects a C# too-many-params method", async () => {
-		const src =
-			"class C {\n  public void Many(int a, int b, int c, int d, int e, int f, int g) {\n    work();\n  }\n}";
+		const src = [
+			"class C {",
+			"  public void Many(int a, int b, int c, int d, int e, int f, int g) { work(); }",
+			"  public void Commented(int a, /* c1 */ int b, /* c2 */ int c, /* c3 */ int d) { work(); }",
+			"  public void WithParams(int a, int b, int c, int d, int e, params string[] values) { work(); }",
+			"}",
+		].join("\n");
 		const filePath = writeFile("Many.cs", src);
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxParams: 6 }));
 		const params = diagnostics.filter((d) => d.rule === "complexity/too-many-params");
-		expect(params.find((d) => d.detail?.includes("Many"))).toBeDefined();
+		expect(params.map((d) => d.detail)).toEqual(["Many · 7 params"]);
 	});
 
 	it("detects C++ out-of-line scoped method, constructor, and destructor", () => {
@@ -1069,24 +1072,24 @@ describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection"
 		expect(compute?.paramCount).toBe(2);
 	});
 
-	it("does NOT count C# method calls or control-flow as functions", () => {
+	it("does NOT count C# method calls or control-flow as functions", async () => {
 		const src =
 			"class C {\n  void M() {\n    Console.WriteLine(x);\n    DoThing(a, b);\n    if (a) { }\n    foreach (var x in y) { }\n  }\n}";
-		expect(names(src, ".cs")).toEqual(["M"]);
+		expect((await analyzeCsharpFunctions(src)).map((f) => f.name)).toEqual(["M"]);
 	});
 
-	it("does NOT count a C# field initializer or property as a function", () => {
+	it("does NOT count a C# field initializer or property as a function", async () => {
 		const src =
 			"class C {\n  public static readonly int[] V = Build(x);\n  public int Count { get; set; }\n}";
-		expect(analyzeFunctions(src, ".cs")).toHaveLength(0);
+		expect(await analyzeCsharpFunctions(src)).toHaveLength(0);
 	});
 
-	it("does NOT count C# P/Invoke extern declarations as function definitions", () => {
+	it("does NOT count C# P/Invoke extern declarations as function definitions", async () => {
 		const src = [
 			"static class MFTLibNative",
 			"{",
 			'    [DllImport("MFTLibNative", EntryPoint = "ParseMFTRecords", CallingConvention = CallingConvention.Cdecl,',
-			'        CharSet = CharSet.Unicode)]',
+			"        CharSet = CharSet.Unicode)]",
 			"    static extern IntPtr _parseMftRecords(SafeHandle volumeHandle, string? filter, MatchFlags matchFlags,",
 			"        uint bufferSizeRecords);",
 			"",
@@ -1099,7 +1102,7 @@ describe("analyzeFunctions: C#/C++ constructor & multi-line signature detection"
 			"    }",
 			"}",
 		].join("\n");
-		expect(names(src, ".cs")).toEqual(["ResetToDefaults"]);
+		expect((await analyzeCsharpFunctions(src)).map((f) => f.name)).toEqual(["ResetToDefaults"]);
 	});
 
 	it("does NOT count a C++ static-call statement as a function", () => {
@@ -1208,7 +1211,7 @@ describe("analyzeFunctions: C++ member-initializer lists", () => {
 		expect(ctor?.lineCount).toBe(5);
 	});
 
-	it("leaves a C# base-constructor initializer unchanged", () => {
+	it("leaves a C# base-constructor initializer unchanged", async () => {
 		const src = [
 			"class C {",
 			"  public C(int a)",
@@ -1219,7 +1222,7 @@ describe("analyzeFunctions: C++ member-initializer lists", () => {
 			"  }",
 			"}",
 		].join("\n");
-		const ctor = analyzeFunctions(src, ".cs").find((f) => f.name === "C");
+		const ctor = (await analyzeCsharpFunctions(src)).find((f) => f.name === "C");
 		expect(ctor?.lineCount).toBe(6);
 	});
 
@@ -1333,7 +1336,9 @@ describe("checkComplexity: size messages", () => {
 		const filePath = writeFile("big.ts", makeLines(15, "const x = 1;"));
 		const diagnostics = await checkComplexity(makeContext([filePath], { maxFileLoc: 10 }));
 		const finding = diagnostics.find((d) => d.rule === "complexity/file-too-large");
-		expect(finding?.message).toBe("File too large (flagged above 11 lines; limit 10 plus 10% tolerance)");
+		expect(finding?.message).toBe(
+			"File too large (flagged above 11 lines; limit 10 plus 10% tolerance)",
+		);
 	});
 
 	it("fires exactly above the line count the message states", async () => {

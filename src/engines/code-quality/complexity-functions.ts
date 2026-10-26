@@ -1,11 +1,7 @@
 import { maskStringsAndComments } from "../../utils/source-masker.js";
 import { CPP_SOURCE_EXTENSIONS } from "../cpp-targets.js";
 import { CPP_FUNCTION_PATTERNS, type FunctionPattern } from "./complexity-cpp.js";
-import {
-	CSHARP_FUNCTION_PATTERNS,
-	logicalSignatureLine,
-	MULTILINE_SIGNATURE_EXTS,
-} from "./complexity-csharp.js";
+import { logicalSignatureLine, MULTILINE_SIGNATURE_EXTS } from "./complexity-csharp.js";
 import {
 	countPythonBodyCodeLines,
 	countPythonParams,
@@ -53,13 +49,12 @@ const FUNCTION_PATTERNS: FunctionPattern[] = [
 		// rejects them before \w+ can consume the keyword.
 		regex:
 			/^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:(?!(?:return|if|for|while|switch|do|else|throw|delete|new|break|continue|goto|try|catch)\b)\w+\s+)(\w+)\s*\(([^)]*)\)/,
-		// C# (.cs), the full C++ source set (.c/.cc/.cpp/.cxx and the
+		// the full C++ source set (.c/.cc/.cpp/.cxx and the
 		// .h/.hh/.hpp/.hxx headers where inline and class-member bodies live),
 		// plus Java and PHP. Header coverage relies on findBraceFunctionEnd's
 		// declaration guard to skip prototypes (`void foo(int x);`) with no body.
-		langFilter: [".java", ".php", ".cs", ...CPP_SOURCE_EXTENSIONS],
+		langFilter: [".java", ".php", ...CPP_SOURCE_EXTENSIONS],
 	},
-	...CSHARP_FUNCTION_PATTERNS,
 	...CPP_FUNCTION_PATTERNS,
 ];
 
@@ -137,7 +132,7 @@ export const analyzeFunctions = (content: string, ext: string): FunctionInfo[] =
 	const functions: FunctionInfo[] = [];
 
 	for (let i = 0; i < lines.length; i++) {
-		// For C#/C++ match against the masked (string/comment-blanked) source so a
+		// For C/C++ match against the masked (string/comment-blanked) source so a
 		// wrapped signature is joined on balanced parens and literals never skew it.
 		const matchLine = MULTILINE_SIGNATURE_EXTS.has(ext)
 			? logicalSignatureLine(maskedLines, i)

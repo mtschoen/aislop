@@ -8,6 +8,7 @@ import { CPP_SOURCE_EXTENSIONS } from "../cpp-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 import { CPP_FILE_LOC_MULTIPLIERS, CPP_FILE_TOO_LARGE_HELP } from "./complexity-cpp.js";
 import { CSHARP_FILE_TOO_LARGE_HELP } from "./complexity-csharp.js";
+import { analyzeCsharpFunctions } from "./complexity-csharp-ast.js";
 import {
 	analyzeFunctions,
 	type FunctionInfo,
@@ -16,6 +17,10 @@ import {
 } from "./complexity-functions.js";
 
 export { analyzeFunctions } from "./complexity-functions.js";
+
+const COMPLEXITY_ENGINE = "code-quality" as const;
+const COMPLEXITY_SEVERITY = "warning" as const;
+const COMPLEXITY_CATEGORY = "Complexity";
 
 interface QualityLimits {
 	maxFunctionLoc: number;
@@ -66,14 +71,14 @@ const checkFileDiagnostics = (
 	if (lineCount > triggerAt) {
 		results.push({
 			filePath: relativePath,
-			engine: "code-quality",
+			engine: COMPLEXITY_ENGINE,
 			rule: "complexity/file-too-large",
-			severity: "warning",
+			severity: COMPLEXITY_SEVERITY,
 			message: `File too large (flagged above ${triggerAt} lines; limit ${configuredMax} plus 10% tolerance)`,
 			help: fileTooLargeHelp(ext),
 			line: 0,
 			column: 0,
-			category: "Complexity",
+			category: COMPLEXITY_CATEGORY,
 			fixable: false,
 			detail: `${lineCount} lines`,
 		});
@@ -106,14 +111,14 @@ const checkFunctionDiagnostics = (
 	if (effectiveLineCount > fnTriggerAt) {
 		results.push({
 			filePath: relativePath,
-			engine: "code-quality",
+			engine: COMPLEXITY_ENGINE,
 			rule: "complexity/function-too-long",
-			severity: "warning",
+			severity: COMPLEXITY_SEVERITY,
 			message: `Function too long (limit: ${fnMax}, flagged above ${fnTriggerAt} lines)`,
 			help: "Consider breaking this function into smaller pieces",
 			line: fn.startLine,
 			column: 0,
-			category: "Complexity",
+			category: COMPLEXITY_CATEGORY,
 			fixable: false,
 			detail: `${fn.name} · ${fn.lineCount} lines`,
 		});
@@ -122,14 +127,14 @@ const checkFunctionDiagnostics = (
 	if (fn.maxNesting > limits.maxNesting) {
 		results.push({
 			filePath: relativePath,
-			engine: "code-quality",
+			engine: COMPLEXITY_ENGINE,
 			rule: "complexity/deep-nesting",
-			severity: "warning",
+			severity: COMPLEXITY_SEVERITY,
 			message: `Function nested too deeply (max: ${limits.maxNesting})`,
 			help: "Consider using early returns or extracting nested logic",
 			line: fn.startLine,
 			column: 0,
-			category: "Complexity",
+			category: COMPLEXITY_CATEGORY,
 			fixable: false,
 			detail: `${fn.name} · depth ${fn.maxNesting}`,
 		});
@@ -138,14 +143,14 @@ const checkFunctionDiagnostics = (
 	if (fn.paramCount > limits.maxParams) {
 		results.push({
 			filePath: relativePath,
-			engine: "code-quality",
+			engine: COMPLEXITY_ENGINE,
 			rule: "complexity/too-many-params",
-			severity: "warning",
+			severity: COMPLEXITY_SEVERITY,
 			message: `Function has too many parameters (max: ${limits.maxParams})`,
 			help: "Consider using an options object parameter",
 			line: fn.startLine,
 			column: 0,
-			category: "Complexity",
+			category: COMPLEXITY_CATEGORY,
 			fixable: false,
 			detail: `${fn.name} · ${fn.paramCount} params`,
 		});
@@ -154,11 +159,11 @@ const checkFunctionDiagnostics = (
 	return results;
 };
 
-const checkFileComplexity = (
+const checkFileComplexity = async (
 	filePath: string,
 	rootDirectory: string,
 	limits: QualityLimits,
-): Diagnostic[] => {
+): Promise<Diagnostic[]> => {
 	const relativePath = relativePosix(rootDirectory, filePath);
 	if (isExemptFromComplexity(relativePath)) return [];
 
@@ -172,7 +177,11 @@ const checkFileComplexity = (
 	const ext = path.extname(filePath).toLowerCase();
 	const diagnostics = checkFileDiagnostics(relativePath, content, limits);
 
-	for (const fn of analyzeFunctions(content, ext)) {
+	// C# members come from the syntax tree; a grammar that will not load throws
+	// rather than degrading to line patterns.
+	const functions =
+		ext === ".cs" ? await analyzeCsharpFunctions(content) : analyzeFunctions(content, ext);
+	for (const fn of functions) {
 		diagnostics.push(...checkFunctionDiagnostics(relativePath, fn, limits, ext));
 	}
 
@@ -189,7 +198,7 @@ export const checkComplexity = async (context: EngineContext): Promise<Diagnosti
 			context.config,
 			overrideRelativePath(context.rootDirectory, filePath),
 		);
-		diagnostics.push(...checkFileComplexity(filePath, context.rootDirectory, limits));
+		diagnostics.push(...(await checkFileComplexity(filePath, context.rootDirectory, limits)));
 	}
 
 	return diagnostics;

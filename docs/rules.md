@@ -179,10 +179,10 @@ Measures structural complexity, finds dead code, and detects unused dependencies
 
 | Rule | What it checks |
 |---|---|
-| `complexity/function-too-long` | Functions exceeding configurable line limit (default: 80). For Python, measured by logical body code: the signature, docstrings, comments, and blank lines do not count. For C#, C++, and brace-delimited languages, declarations and prototypes (such as P/Invoke extern methods or header prototypes ending in `;`) have no body and are skipped rather than treated as functions. Braces inside strings, comments, and regexes are ignored. `async def`/`async Task` and multi-line wrapped signatures are detected. |
+| `complexity/function-too-long` | Functions exceeding configurable line limit (default: 80). For Python, measured by logical body code: the signature, docstrings, comments, and blank lines do not count. For C#, measured from the bundled tree-sitter C# grammar over block-bodied methods, constructors, destructors, operators, conversion operators, local functions, and accessors (starting at the signature rather than leading attributes, comments, or preprocessor directives); type declarations (including C# 12 primary-constructor types) and expression-bodied members (`=>`) are deliberately not measured as functions, and a missing or unloadable C# grammar fails the `code-quality` engine rather than falling back to line patterns. For C++ and other brace-delimited languages, declarations and prototypes ending in `;` have no body and are skipped. Braces inside strings, comments, and regexes are ignored. `async def`/`async Task` and multi-line wrapped signatures are detected. |
 | `complexity/file-too-large` | Files exceeding configurable line limit (default: 400, counting every physical line). Both size rules report only past 10% over the limit; see [Quality thresholds](configuration.md#quality-thresholds) for how lines are counted. |
-| `complexity/deep-nesting` | Control-flow nesting beyond threshold (default: 5) |
-| `complexity/too-many-params` | Functions with too many parameters (default: 6). For Python, counts required parameters only: `self`/`cls`, `*args`/`**kwargs`, the `*` / `/` separators, and parameters with a default are not counted. |
+| `complexity/deep-nesting` | Control-flow nesting beyond threshold (default: 5). For C#, computed from each block-bodied member's AST body (`if`, `for`, `foreach`, `while`, `do`, `switch`, `try`, with `else if` remaining at the enclosing `if` depth). |
+| `complexity/too-many-params` | Functions with too many parameters (default: 6). For Python, counts required parameters only: `self`/`cls`, `*args`/`**kwargs`, the `*` / `/` separators, and parameters with a default are not counted. For C#, counts syntax-tree parameters on block-bodied members and on ordinary class/struct primary constructors, ignoring comments and attributes and counting a trailing `params` parameter once. Positional `record`, `record class`, and `record struct` component lists are deliberately excluded because they declare properties; explicit constructors and methods inside records are still checked. |
 | `code-quality/duplicate-block` | Repeated blocks of implementation code that should usually be extracted or shared |
 | `code-quality/repeated-chained-call` | Repeated long call chains on the same receiver that should usually be cached or factored |
 | `code-quality/unused-declaration` | Unused top-level declarations detected for safe removal |
@@ -484,10 +484,9 @@ clock. Both halves are closed lists:
 **C# is decided on the syntax tree, not on the line.** `.Elapsed*` is an ordinary property on
 most receivers and reads the machine clock only on a `System.Diagnostics.Stopwatch`, so the C#
 arm parses the file with the bundled tree-sitter C# grammar
-(`tools/grammars/tree-sitter-c_sharp.wasm`) and asks a structural question of the tree. The
-grammar is loaded once per process, the first time a C# test file is scanned; a project with no
-C# tests never loads it. When the grammar is missing or cannot be loaded, a warning is emitted
-to stderr (once per process) and the scan reports no C# findings rather than failing.
+(`tools/grammars/tree-sitter-c_sharp.wasm`) and asks a structural question of the tree. The grammar is loaded once per process, the first time a C# file is parsed; a project with no
+C# files never loads it. For `ai-slop/test-wall-clock-assertion`, when the grammar is missing or cannot be loaded, a warning is emitted
+to stderr (once per process) and the scan reports no C# findings rather than failing (whereas C# complexity checks in `code-quality` report an engine failure).
 
 
 An assertion is reported when a clock read appears anywhere inside an `Assert.<Name>(...)`

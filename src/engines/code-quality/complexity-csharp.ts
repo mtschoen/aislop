@@ -1,23 +1,7 @@
 import { CPP_SOURCE_EXTENSIONS } from "../cpp-targets.js";
-import type { FunctionPattern } from "./complexity-cpp.js";
 
-// C#-only function-boundary pattern, kept out of complexity.ts so that file
-// stays inside its own file-too-large budget.
-export const CSHARP_FUNCTION_PATTERNS: FunctionPattern[] = [
-	{
-		// C# methods and constructors the single-token pattern in complexity.ts
-		// misses: any run of access/async/etc. modifiers, then an arbitrary
-		// return type (which may be generic/array/qualified/nullable, or absent
-		// for a constructor), then the member name. A modifier is required so
-		// bare `Type name(...)` calls/declarations are not matched. `[^()=;{]`
-		// stops the lazy return-type run before a body brace, an
-		// expression-body `=>`, or a field initializer.
-		regex:
-			/^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|async|virtual|override|sealed|abstract|extern|unsafe|new|partial|readonly)\s+)+[^()=;{]*?(\w+)\s*\(([^)]*)\)/,
-		langFilter: [".cs"],
-	},
-];
-
+// C# function boundaries come from the syntax tree (complexity-csharp-ast.ts), not
+// from line patterns; only the file-size remediation text lives here.
 // C# has a language-native remediation: partial classes split a type across
 // files with no API or linkage cost, so point C# users at it directly.
 export const CSHARP_FILE_TOO_LARGE_HELP =
@@ -25,8 +9,8 @@ export const CSHARP_FILE_TOO_LARGE_HELP =
 
 // Extensions whose function signatures may wrap across multiple physical lines
 // and so need logical-signature joining before the patterns are applied. Scoped
-// to C#/C++ so Java/PHP detection stays byte-identical to the single-line path.
-export const MULTILINE_SIGNATURE_EXTS = new Set([".cs", ...CPP_SOURCE_EXTENSIONS]);
+// to C/C++ so Java/PHP detection stays byte-identical to the single-line path.
+export const MULTILINE_SIGNATURE_EXTS = new Set(CPP_SOURCE_EXTENSIONS);
 
 // A brace-language signature can span lines (wrapped parameter lists). When the
 // line at `startIndex` opens more parens than it closes, join following lines
