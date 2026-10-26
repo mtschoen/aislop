@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { projectRelativePosix } from "../../utils/paths.js";
+import { runSerializedMsbuildPass } from "../msbuild-serial.js";
 import { runSubprocess, truncateFailureDetail } from "../../utils/subprocess.js";
 import { resolveBundledJbSettings, resolveToolBinary } from "../../utils/tooling.js";
 import { findJbTargets, projectsSkippedNotice } from "../dotnet-targets.js";
@@ -223,7 +224,11 @@ const analyzeJbTarget = async (
 			args.push("--no-build");
 		}
 		// jb is slow (solution-wide, with build): allow up to 10 minutes.
-		const result = await runSubprocess(jb, args, { cwd: context.rootDirectory, timeout: 600000 });
+		const runJb = () => runSubprocess(jb, args, { cwd: context.rootDirectory, timeout: 600000 });
+		// The C# inspection builds the solution through MSBuild; C++ with --no-build does not.
+		const result = includeCsharp
+			? await runSerializedMsbuildPass(context.rootDirectory, runJb)
+			: await runJb();
 		if (!fs.existsSync(outputPath)) {
 			throw new Error(
 				`no report written (exit code ${result.exitCode}): ${truncateFailureDetail(result.stderr || result.stdout || "no output")}`,

@@ -5,6 +5,7 @@ import { normalizeExcludePatterns } from "../../utils/exclude.js";
 import { expandBraceLists } from "../../utils/globs.js";
 import { toPosix } from "../../utils/paths.js";
 import { runSubprocess } from "../../utils/subprocess.js";
+import { runSerializedMsbuildPass } from "../msbuild-serial.js";
 import { findDotnetTargets } from "../dotnet-targets.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 
@@ -132,19 +133,23 @@ const checkTarget = async (context: EngineContext, target: string): Promise<Diag
 	withReportPath(async (reportPath) => {
 		const scope = buildDotnetFormatExcludeScope(context.excludePatterns);
 		try {
-			await runSubprocess(
-				"dotnet",
-				[
-					"format",
-					"whitespace",
-					target,
-					"--no-restore",
-					...excludeOption(scope),
-					"--verify-no-changes",
-					"--report",
-					reportPath,
-				],
-				{ cwd: context.rootDirectory, timeout: 180000 },
+			// `dotnet format <project|solution>` loads it through MSBuildWorkspace even in
+			// whitespace mode, so it shares obj/ with the lint passes.
+			await runSerializedMsbuildPass(context.rootDirectory, () =>
+				runSubprocess(
+					"dotnet",
+					[
+						"format",
+						"whitespace",
+						target,
+						"--no-restore",
+						...excludeOption(scope),
+						"--verify-no-changes",
+						"--report",
+						reportPath,
+					],
+					{ cwd: context.rootDirectory, timeout: 180000 },
+				),
 			);
 			let json: string;
 			try {
@@ -194,10 +199,12 @@ export const fixDotnetFormat = async (
 	}
 	const { targets } = findDotnetTargets(context);
 	for (const target of targets) {
-		const result = await runSubprocess(
-			"dotnet",
-			["format", "whitespace", target, "--no-restore", ...excludeOption(scope)],
-			{ cwd: rootDirectory, timeout: 180000 },
+		const result = await runSerializedMsbuildPass(rootDirectory, () =>
+			runSubprocess(
+				"dotnet",
+				["format", "whitespace", target, "--no-restore", ...excludeOption(scope)],
+				{ cwd: rootDirectory, timeout: 180000 },
+			),
 		);
 		if (result.exitCode !== 0) {
 			throw new Error(

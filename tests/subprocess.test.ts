@@ -11,6 +11,8 @@ import {
 	isMissingToolError,
 	killActiveChildren,
 	runSubprocess,
+	SUBPROCESS_SHUTDOWN_GRACE_MS,
+	SubprocessTimeoutError,
 	warnSubprocessFailure,
 } from "../src/utils/subprocess.js";
 
@@ -62,7 +64,8 @@ describe("runSubprocess timeout", () => {
 			// afterwards covers the case where SIGTERM alone did not finish the
 			// tree.
 			vi.advanceTimersByTime(2000);
-			await expect(promise).rejects.toThrow(/timed out/);
+			const error = await promise.catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(SubprocessTimeoutError);
 			vi.advanceTimersByTime(1000);
 
 			expect(grandchildPid).toBeDefined();
@@ -79,6 +82,7 @@ describe("runSubprocess timeout", () => {
 				}
 				expect(isProcessAlive(grandchildPid)).toBe(false);
 			}
+			await (error as SubprocessTimeoutError).terminated;
 		} finally {
 			if (grandchildPid !== undefined) {
 				try {
@@ -238,19 +242,36 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 			{ mode: "kill-returns-false", platform: "win32" },
 			{ mode: "kill-returns-false", platform: "linux" },
 			{ mode: "stalled-ps-probe-pr-157", platform: "darwin" },
+			{ mode: "posix-persistent-group-probe-pr-169", platform: "linux" },
+			{ mode: "win32-taskkill-confirmed-pr-169", platform: "win32" },
+			{ mode: "win32-taskkill-error-surviving-worker-pr-169", platform: "win32" },
+			{ mode: "win32-taskkill-nonzero-exit-pr-169", platform: "win32" },
+			{ mode: "win32-taskkill-never-settling-pr-169", platform: "win32" },
 		] as const) {
-			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			vi.useFakeTimers({
+				toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+			});
 			Object.defineProperty(process, "platform", { value: scenario.platform });
+			const isWin32TaskkillScenario = scenario.mode.startsWith("win32-taskkill-");
 			const fakeChild = Object.assign(new EventEmitter(), {
 				pid: 999999,
 				exitCode: null as number | null,
 				signalCode: null as NodeJS.Signals | null,
-				kill: vi.fn(() => scenario.mode === "stalled-ps-probe-pr-157"),
+				kill: vi.fn(
+					() =>
+						scenario.mode === "stalled-ps-probe-pr-157" ||
+						scenario.mode === "posix-persistent-group-probe-pr-169" ||
+						isWin32TaskkillScenario,
+				),
 			}) as unknown as ChildProcess;
+			const fakeTaskkill = new EventEmitter() as unknown as ChildProcess;
 
 			const spawnSpy = vi
 				.spyOn(childProcess, "spawn")
-				.mockImplementation((_command, _arguments, spawnOptions) => {
+				.mockImplementation((command, _arguments, spawnOptions) => {
+					if (command === "taskkill") {
+						return fakeTaskkill;
+					}
 					const stdio = spawnOptions?.stdio as [unknown, number, number] | undefined;
 					if (stdio && typeof stdio[1] === "number") {
 						writeSync(stdio[1], "ok\n");
@@ -292,7 +313,75 @@ describe("runSubprocess timeout under event-loop starvation", () => {
 					});
 					expect(fakeChild.kill).toHaveBeenCalledWith("SIGTERM");
 					fakeChild.emit("close", null);
-					await expect(promise).rejects.toThrow(/timed out/);
+					await new Promise((resolve) => setImmediate(resolve));
+					killSpy.mockImplementation((pid) => {
+						if (pid < 0) throw esrch;
+						return true;
+					});
+					vi.advanceTimersByTime(20);
+					const error = await promise.catch((caught: unknown) => caught);
+					expect(error).toBeInstanceOf(SubprocessTimeoutError);
+					await (error as SubprocessTimeoutError).terminated;
+				} else if (scenario.mode === "posix-persistent-group-probe-pr-169") {
+					const error = await promise.catch((caught: unknown) => caught);
+					expect(error).toBeInstanceOf(SubprocessTimeoutError);
+					let terminated = false;
+					void (error as SubprocessTimeoutError).terminated.then(() => {
+						terminated = true;
+					});
+					fakeChild.emit("close", null);
+					await new Promise((resolve) => setImmediate(resolve));
+					expect(terminated).toBe(false);
+					vi.advanceTimersByTime(1000);
+					await new Promise((resolve) => setImmediate(resolve));
+					expect(terminated).toBe(false);
+					vi.advanceTimersByTime(SUBPROCESS_SHUTDOWN_GRACE_MS - 1000);
+					await (error as SubprocessTimeoutError).terminated;
+					expect(terminated).toBe(true);
+				} else if (isWin32TaskkillScenario) {
+					const error = await promise.catch((caught: unknown) => caught);
+					expect(error).toBeInstanceOf(SubprocessTimeoutError);
+					let terminated = false;
+					void (error as SubprocessTimeoutError).terminated.then(() => {
+						terminated = true;
+					});
+					await new Promise((resolve) => setImmediate(resolve));
+					expect(terminated).toBe(false);
+
+					if (scenario.mode === "win32-taskkill-confirmed-pr-169") {
+						fakeTaskkill.emit("close", 0);
+						fakeChild.emit("close", null);
+						await (error as SubprocessTimeoutError).terminated;
+						expect(terminated).toBe(true);
+						expect(fakeChild.kill).toHaveBeenCalledTimes(1);
+						expect(fakeChild.kill).toHaveBeenCalledWith(0);
+					} else if (scenario.mode === "win32-taskkill-error-surviving-worker-pr-169") {
+						fakeTaskkill.emit("error", new Error("missing taskkill"));
+						expect(fakeChild.kill).toHaveBeenCalledWith();
+						fakeChild.emit("close", null);
+						await new Promise((resolve) => setImmediate(resolve));
+						expect(terminated).toBe(false);
+						vi.advanceTimersByTime(SUBPROCESS_SHUTDOWN_GRACE_MS - 1);
+						await new Promise((resolve) => setImmediate(resolve));
+						expect(terminated).toBe(false);
+						vi.advanceTimersByTime(1);
+						await (error as SubprocessTimeoutError).terminated;
+						expect(terminated).toBe(true);
+					} else if (scenario.mode === "win32-taskkill-nonzero-exit-pr-169") {
+						fakeTaskkill.emit("close", 1);
+						expect(fakeChild.kill).toHaveBeenCalledWith();
+						await new Promise((resolve) => setImmediate(resolve));
+						expect(terminated).toBe(false);
+						vi.advanceTimersByTime(SUBPROCESS_SHUTDOWN_GRACE_MS);
+						await (error as SubprocessTimeoutError).terminated;
+						expect(terminated).toBe(true);
+					} else {
+						expect(fakeChild.kill).toHaveBeenCalledTimes(1);
+						vi.advanceTimersByTime(SUBPROCESS_SHUTDOWN_GRACE_MS);
+						expect(fakeChild.kill).toHaveBeenCalledWith();
+						await (error as SubprocessTimeoutError).terminated;
+						expect(terminated).toBe(true);
+					}
 				} else {
 					fakeChild.exitCode = 0;
 					fakeChild.emit("close", 0);

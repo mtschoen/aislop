@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { projectRelativePosix } from "../../utils/paths.js";
+import { runSerializedMsbuildPass } from "../msbuild-serial.js";
 import { runSubprocess, truncateFailureDetail } from "../../utils/subprocess.js";
 import { resolveBundledAnalyzerAssemblies, resolveToolBinary } from "../../utils/tooling.js";
 import {
@@ -130,10 +131,12 @@ const analyzeTarget = async (
 		if (analyzerAssemblies.length > 0) {
 			analyzeArgs.push("--analyzer-assemblies", ...analyzerAssemblies);
 		}
-		const result = await runSubprocess(roslynator, analyzeArgs, {
-			cwd: context.rootDirectory,
-			timeout: ANALYZE_TIMEOUT_MS,
-		});
+		const result = await runSerializedMsbuildPass(context.rootDirectory, () =>
+			runSubprocess(roslynator, analyzeArgs, {
+				cwd: context.rootDirectory,
+				timeout: ANALYZE_TIMEOUT_MS,
+			}),
+		);
 		// roslynator writes --output only when analysis found at least one diagnostic,
 		// so a clean run leaves no file: it exits 0 after printing its zero summary.
 		// Any other missing report (a crash at solution load under a newer .NET SDK,

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import childProcess, { type ChildProcess } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,6 +48,83 @@ export const chunkFilePaths = (
 	return chunks;
 };
 
+const SIGKILL_ESCALATION_MS = 1000;
+const POSIX_TREE_POLL_INTERVAL_MS = 20;
+export const SUBPROCESS_SHUTDOWN_GRACE_MS = 2000;
+
+const waitForExit = (child: ChildProcess): Promise<void> =>
+	new Promise((resolve) => {
+		child.once("close", () => resolve());
+		child.once("error", () => resolve());
+	});
+
+const isProcessGroupAlive = (pid: number): boolean => {
+	try {
+		process.kill(-pid, 0);
+		return true;
+	} catch (error) {
+		return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+	}
+};
+
+const waitForWindowsTreeExit = (
+	child: ChildProcess,
+	taskkill: ChildProcess,
+	hasFallbackFired: () => boolean,
+	killDirectChild: () => void,
+): Promise<void> =>
+	new Promise<void>((resolve) => {
+		let taskkillSucceeded = false;
+		let childExited = false;
+		const finish = () => {
+			clearTimeout(graceTimer);
+			resolve();
+		};
+		const finishIfConfirmed = () => {
+			if (taskkillSucceeded && childExited) finish();
+		};
+		const graceTimer = setTimeout(() => {
+			if (!taskkillSucceeded) killDirectChild();
+			finish();
+		}, SUBPROCESS_SHUTDOWN_GRACE_MS);
+		taskkill.once("close", (code) => {
+			if (code !== 0 || hasFallbackFired()) return;
+			taskkillSucceeded = true;
+			finishIfConfirmed();
+		});
+		void waitForExit(child).then(() => {
+			childExited = true;
+			finishIfConfirmed();
+		});
+	});
+
+const waitForPosixTreeExit = (
+	child: ChildProcess,
+	pid: number,
+	sigkillTimer: NodeJS.Timeout,
+): Promise<void> =>
+	new Promise<void>((resolve) => {
+		let settled = false;
+		let poll: NodeJS.Timeout | undefined;
+		const finish = () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(sigkillTimer);
+			clearTimeout(graceTimer);
+			if (poll) clearInterval(poll);
+			resolve();
+		};
+		const graceTimer = setTimeout(finish, SUBPROCESS_SHUTDOWN_GRACE_MS);
+		sigkillTimer.ref();
+		void waitForExit(child).then(() => {
+			if (settled) return;
+			if (!isProcessGroupAlive(pid)) return finish();
+			poll = setInterval(() => {
+				if (!isProcessGroupAlive(pid)) finish();
+			}, POSIX_TREE_POLL_INTERVAL_MS);
+		});
+	});
+
 // A timed-out tool (e.g. cppcheck -j) can have spawned worker processes of its
 // own; killing only the direct child leaves those workers running as orphans.
 // This kills the whole tree instead and returns false when the direct child
@@ -54,14 +132,10 @@ export const chunkFilePaths = (
 // process groups, so it shells out to taskkill's /T (tree) flag; POSIX relies
 // on the child having been spawned detached (see below) so its pid doubles as
 // a process-group id.
-const killProcessTree = (child: ChildProcess): boolean => {
+const killProcessTree = (child: ChildProcess, terminations?: Promise<void>[]): boolean => {
 	if (process.platform === "win32") {
-		if (child.pid === undefined) {
-			return child.kill("SIGTERM");
-		}
-		if (!child.kill(0)) {
-			return false;
-		}
+		if (child.pid === undefined) return child.kill("SIGTERM");
+		if (!child.kill(0)) return false;
 		// taskkill walks the tree by parent pid, so the parent must still be
 		// alive when it runs - calling child.kill("SIGTERM") first would sever
 		// the walk and orphan the very workers this is meant to reap.
@@ -69,33 +143,46 @@ const killProcessTree = (child: ChildProcess): boolean => {
 			stdio: "ignore",
 			windowsHide: true,
 		});
-		// A missing taskkill binary must not crash the process; the timeout
-		// rejection still fires regardless of whether this succeeds.
-		taskkill.once("error", () => {});
+		let directChildKilled = false;
+		const killDirectChild = () => {
+			if (directChildKilled) return;
+			directChildKilled = true;
+			child.kill();
+		};
+		// A missing or failing taskkill binary must not crash the process or
+		// leave the direct child running; fall back to killing the direct child
+		// and keep tree termination unconfirmed until the shutdown grace expires.
+		taskkill.once("error", killDirectChild);
+		taskkill.once("close", (code) => {
+			if (code !== 0) killDirectChild();
+		});
+		terminations?.push(
+			waitForWindowsTreeExit(child, taskkill, () => directChildKilled, killDirectChild),
+		);
 		return true;
 	}
 
 	if (child.pid === undefined) {
 		if (!child.kill("SIGTERM")) return false;
-		setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+		setTimeout(() => child.kill("SIGKILL"), SIGKILL_ESCALATION_MS).unref();
 		return true;
 	}
-	if (!child.kill("SIGTERM")) {
-		return false;
-	}
+	if (!child.kill("SIGTERM")) return false;
 	const pid = child.pid;
 	try {
 		process.kill(-pid, "SIGTERM");
 	} catch {
 		// The direct child was already signaled via child.kill("SIGTERM") above.
 	}
-	setTimeout(() => {
+	const sigkillTimer = setTimeout(() => {
 		try {
 			process.kill(-pid, "SIGKILL");
 		} catch {
 			child.kill("SIGKILL");
 		}
-	}, 1000).unref();
+	}, SIGKILL_ESCALATION_MS);
+	sigkillTimer.unref();
+	if (terminations) terminations.push(waitForPosixTreeExit(child, pid, sigkillTimer));
 	return true;
 };
 
@@ -184,17 +271,27 @@ export const truncateFailureDetail = (detail: string): string => {
 		: `${trimmed.slice(0, MAXIMUM_FAILURE_DETAIL_LENGTH)}... [truncated ${trimmed.length - MAXIMUM_FAILURE_DETAIL_LENGTH} characters]`;
 };
 
+const activeTimeoutTerminations = new AsyncLocalStorage<Set<Promise<void>>>();
+
+export const trackSubprocessTimeouts = <T>(
+	terminations: Set<Promise<void>>,
+	task: () => Promise<T>,
+): Promise<T> => activeTimeoutTerminations.run(terminations, task);
+
 // A timed-out command still printed whatever it had written before it was killed. The
 // error carries that output so a caller can keep readable findings and still report the
-// run as incomplete.
+// run as incomplete, plus a `terminated` promise that settles once the killed process
+// tree has finished exiting.
 export class SubprocessTimeoutError extends Error {
 	constructor(
 		message: string,
 		readonly stdout: string,
 		readonly stderr: string,
+		readonly terminated: Promise<void> = Promise.resolve(),
 	) {
 		super(message);
 		this.name = "SubprocessTimeoutError";
+		activeTimeoutTerminations.getStore()?.add(terminated);
 	}
 }
 
@@ -295,7 +392,8 @@ export const runSubprocess = (
 					// 'close' has fired, let 'close' resolve with the captured
 					// output instead of misreporting a timeout.
 					if (hasChildExited(child)) return;
-					if (!killProcessTree(child)) return;
+					const terminations: Promise<void>[] = [];
+					if (!killProcessTree(child, terminations)) return;
 					const stdout = readCapturedOutput(capture.stdoutPath);
 					const stderr = readCapturedOutput(capture.stderrPath);
 					finalize(() =>
@@ -304,6 +402,7 @@ export const runSubprocess = (
 								`Command timed out after ${options.timeout}ms: ${command}`,
 								stdout,
 								stderr,
+								Promise.all(terminations).then(() => {}),
 							),
 						),
 					);
