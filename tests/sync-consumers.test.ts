@@ -13,31 +13,70 @@ const HAND_EDITED_TITLE = "fix: hand-edited title";
 
 const FAKE_CURL = String.raw`#!/usr/bin/env bash
 # Minimal stand-in for the Gitea REST API used by sync_consumers.sh.
-method=GET; out=""; write_format=""; url=""
+method=GET; out=""; write_format=""; url=""; data=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	-X) method="$2"; shift 2 ;;
 	-o) out="$2"; shift 2 ;;
 	-w) write_format="$2"; shift 2 ;;
-	-H | --data-binary) shift 2 ;;
+	--data-binary) data="$2"; shift 2 ;;
+	-H) shift 2 ;;
 	-*) shift ;;
 	*) url="$1"; shift ;;
 	esac
 done
-echo "$method $url" >>"$FAKE_REQUEST_LOG"
+echo "$method $url $data" >>"$FAKE_REQUEST_LOG"
 status=200
-case "$method $url" in
-"GET "*/users/*) body='{"id":1}' ;;
-"GET "*/repos/search*) body='{"data":[{"name":"consumer","default_branch":"main","clone_url":"http://gitea.test/schoen/consumer.git"}]}' ;;
-"GET "*/contents/.aislop/fork-commit*) body="{\"content\":\"$(printf '%s\n' "$FAKE_OLD_PIN" | base64 | tr -d '\n')\"}" ;;
-"GET "*/pulls?state=open*) body="[{\"number\":7,\"title\":\"$FAKE_PR_TITLE\",\"head\":{\"ref\":\"chore/aislop-pin-bump\"},\"base\":{\"ref\":\"main\"}}]" ;;
-"POST "*/pulls) status="$FAKE_PR_CREATE_STATUS"; body='{"html_url":"http://gitea.test/schoen/consumer/pulls/7"}' ;;
-"PATCH "*/pulls/7) body='{"html_url":"http://gitea.test/schoen/consumer/pulls/7"}' ;;
-*) status=404; body='{}' ;;
+failure=0
+case "$FAKE_FAILURE_OPERATION $method $url" in
+"label-lookup GET "*/schoen/consumer/labels\?*) failure=1 ;;
+"label-create POST "*/schoen/consumer/labels) failure=1 ;;
+"label-apply POST "*/schoen/consumer/issues/*/labels) failure=1 ;;
+"merge POST "*/schoen/consumer/pulls/*/merge) failure=1 ;;
 esac
+if [ "$failure" = "1" ]; then
+	if [ "$FAKE_FAILURE_MODE" = "transport" ]; then
+		echo "simulated $FAKE_FAILURE_OPERATION transport failure" >&2
+		exit 7
+	fi
+	status=500
+	body='{"message":"simulated failure"}'
+else
+	case "$method $url" in
+	"GET "*/api/v1/user) status="$FAKE_USER_STATUS"; body="$FAKE_USER_JSON" ;;
+	"GET "*/users/*) body='{"id":1}' ;;
+	"GET "*/repos/search*)
+		if [ "$FAKE_TWO_CONSUMERS" = "1" ]; then
+			body='{"data":[{"name":"consumer","default_branch":"main","clone_url":"http://gitea.test/schoen/consumer.git"},{"name":"consumer-two","default_branch":"main","clone_url":"http://gitea.test/schoen/consumer-two.git"}]}'
+		else
+			body='{"data":[{"name":"consumer","default_branch":"main","clone_url":"http://gitea.test/schoen/consumer.git"}]}'
+		fi
+		;;
+	"GET "*/contents/.aislop/fork-commit*) body="{\"content\":\"$(printf '%s\n' "$FAKE_OLD_PIN" | base64 | tr -d '\n')\"}" ;;
+	"GET "*/pulls?state=open*) body="[{\"number\":7,\"title\":\"$FAKE_PR_TITLE\",\"head\":{\"ref\":\"chore/aislop-pin-bump\"},\"base\":{\"ref\":\"main\"}}]" ;;
+	"POST "*/pulls) status="$FAKE_PR_CREATE_STATUS"; body='{"number":7,"html_url":"http://gitea.test/schoen/consumer/pulls/7"}' ;;
+	"GET "*/labels\?*) if [ "$FAKE_LABEL_EXISTS" = "1" ]; then body='[{"id":9,"name":"auto-bump"}]'; else body='[{"id":5,"name":"bug"}]'; fi ;;
+	"POST "*/issues/*/labels) body='[]' ;;
+	"POST "*/labels) status=201; body='{"id":77,"name":"auto-bump"}' ;;
+	"GET "*/branches/main) status="$FAKE_BRANCH_STATUS"; body="$FAKE_BRANCH" ;;
+	"POST "*/pulls/7/merge) status=201; body='{}' ;;
+	"PATCH "*/pulls/7) body='{"html_url":"http://gitea.test/schoen/consumer/pulls/7"}' ;;
+	*) status=404; body='{}' ;;
+	esac
+fi
 if [ -n "$out" ]; then printf '%s' "$body" >"$out"; else printf '%s' "$body"; fi
 if [ -n "$write_format" ]; then printf '%s' "$status"; fi
 `;
+
+const BOT_USER_JSON = '{"login":"claude-code","email":"claude-code@llamabox.internal"}';
+
+const BRANCH_RESPONSES = {
+	"all-checks": '{"name":"main","enable_status_check":true,"status_check_contexts":["*"]}',
+	"named-checks-only":
+		'{"name":"main","enable_status_check":true,"status_check_contexts":["ci/build","ci/test"]}',
+	"checks-disabled": '{"name":"main","enable_status_check":false,"status_check_contexts":["*"]}',
+	unreadable: '{"message":"forbidden"}',
+};
 
 let root: string;
 let bareDir: string;
@@ -105,6 +144,15 @@ interface ConcurrentRefUpdate {
 
 interface RunSyncOptions {
 	prCreateStatus?: number;
+	labelExists?: boolean;
+	twoConsumers?: boolean;
+	failure?: {
+		operation: "label-lookup" | "label-create" | "label-apply" | "merge";
+		mode: "http" | "transport";
+	};
+	userStatus?: number;
+	userJson?: string;
+	branch?: "all-checks" | "named-checks-only" | "checks-disabled" | "unreadable";
 	beforeUnshallow?: ConcurrentRefUpdate;
 	beforePush?: ConcurrentRefUpdate;
 }
@@ -186,6 +234,14 @@ const runSync = (options: RunSyncOptions = {}): SyncResult => {
 			FAKE_OLD_PIN: OLD_PIN,
 			FAKE_PR_TITLE: HAND_EDITED_TITLE,
 			FAKE_PR_CREATE_STATUS: String(options.prCreateStatus ?? 409),
+			FAKE_USER_STATUS: String(options.userStatus ?? 200),
+			FAKE_USER_JSON: options.userJson ?? BOT_USER_JSON,
+			FAKE_LABEL_EXISTS: options.labelExists === false ? "0" : "1",
+			FAKE_TWO_CONSUMERS: options.twoConsumers ? "1" : "0",
+			FAKE_FAILURE_OPERATION: options.failure?.operation ?? "",
+			FAKE_FAILURE_MODE: options.failure?.mode ?? "",
+			FAKE_BRANCH: BRANCH_RESPONSES[options.branch ?? "all-checks"],
+			FAKE_BRANCH_STATUS: options.branch === "unreadable" ? "403" : "200",
 			GIT_CONFIG_COUNT: "1",
 			GIT_CONFIG_KEY_0: `url.${bareUrl}.insteadOf`,
 			GIT_CONFIG_VALUE_0: "http://claude-code:test-token@gitea.test/schoen/",
@@ -407,4 +463,151 @@ describe("sync_consumers.sh pin-bump branch handling", () => {
 			expect(result.requests).not.toContain("PATCH");
 		},
 	);
+});
+
+describe("sync_consumers.sh auto-bump label and guarded auto-merge", () => {
+	const seedFixBranch = (): void => {
+		git(workDir, "checkout", "-q", "-b", BRANCH);
+		commitFile("src/fix.txt", "fix\n", "fix: consumer fix");
+		pushBranch();
+	};
+
+	const warningFailureCases = (
+		[
+			{ operation: "label-lookup", labelExists: true },
+			{ operation: "label-create", labelExists: false },
+			{ operation: "label-apply", labelExists: true },
+			{ operation: "merge", labelExists: true },
+		] as const
+	).flatMap(({ operation, labelExists }) =>
+		(["http", "transport"] as const).map((mode) => ({ operation, labelExists, mode })),
+	);
+
+	it("labels with the existing label and sends the new head sha in the auto-merge payload on the append path", () => {
+		seedFixBranch();
+
+		const result = runSync();
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("path=append");
+		expect(result.requests).toContain('issues/7/labels {"labels":[9]}');
+		expect(result.requests).not.toMatch(/POST \S+\/consumer\/labels /);
+		const mergeRequest = result.requests.split("\n").find((line) => line.includes("pulls/7/merge")) ?? "";
+		expect(JSON.parse(mergeRequest.slice(mergeRequest.indexOf("{")))).toEqual({
+			Do: "squash",
+			merge_when_checks_succeed: true,
+			delete_branch_after_merge: true,
+			head_commit_id: bareGit("rev-parse", BRANCH),
+		});
+		expect(result.output).toContain("auto-merge requested");
+	});
+
+	it("includes an existing label id in the pull request creation payload", () => {
+		const result = runSync({ prCreateStatus: 201 });
+
+		expect(result.status).toBe(0);
+		const labelLookup = result.requests.search(/GET \S+\/consumer\/labels\?/);
+		const pullCreate = result.requests.search(/POST \S+\/consumer\/pulls /);
+		expect(labelLookup).toBeGreaterThanOrEqual(0);
+		expect(pullCreate).toBeGreaterThan(labelLookup);
+		expect(result.requests).toMatch(/POST \S+\/consumer\/pulls \{[^\n]*"labels":\[9\]/);
+	});
+
+	it("creates the label when the repo lacks it and requests auto-merge for a newly opened pull request", () => {
+		const result = runSync({ prCreateStatus: 201, labelExists: false });
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("path=rebuild: PR opened");
+		expect(result.requests).toMatch(/POST \S+\/consumer\/labels \{"name":"auto-bump"/);
+		expect(result.requests).toContain("Opened by an automatic dependency bump; merges itself on green CI");
+		expect(result.requests).toContain('issues/7/labels {"labels":[77]}');
+		expect(result.requests).toMatch(/POST \S+\/consumer\/pulls \{[^\n]*"labels":\[77\]/);
+		const labelCreate = result.requests.search(/POST \S+\/consumer\/labels /);
+		const pullCreate = result.requests.search(/POST \S+\/consumer\/pulls /);
+		expect(labelCreate).toBeGreaterThanOrEqual(0);
+		expect(pullCreate).toBeGreaterThan(labelCreate);
+		expect(result.requests).toContain(`"head_commit_id":"${bareGit("rev-parse", BRANCH)}"`);
+	});
+
+	it("re-requests auto-merge with the rebuilt head when an open pull request is refreshed", () => {
+		git(workDir, "checkout", "-q", "-b", BRANCH);
+		commitFile(".aislop/fork-commit", `${"c".repeat(40)}\n`, "chore: bump aislop fork pin to cccccccccccc");
+		pushBranch();
+		const staleTip = bareGit("rev-parse", BRANCH);
+
+		const result = runSync();
+
+		expect(result.output).toContain("path=rebuild: PR already open");
+		expect(bareGit("rev-parse", BRANCH)).not.toBe(staleTip);
+		expect(result.requests).toContain('issues/7/labels {"labels":[9]}');
+		expect(result.requests).toContain(`"head_commit_id":"${bareGit("rev-parse", BRANCH)}"`);
+	});
+
+	it.each(["named-checks-only", "checks-disabled", "unreadable"] as const)(
+		"skips auto-merge and records it when the base branch is %s",
+		(branch) => {
+			const result = runSync({ prCreateStatus: 201, branch });
+
+			expect(result.status).toBe(0);
+			expect(result.output).toContain("auto-merge skipped");
+			if (branch !== "unreadable") {
+				expect(result.output).toContain("main does not require all status checks (*)");
+			}
+			expect(result.requests).toContain("issues/7/labels");
+			expect(result.requests).not.toContain("/merge");
+			expect(result.requests).not.toContain("branch_protections");
+		},
+	);
+
+	it.each(warningFailureCases)(
+		"records a warning and processes the second consumer after $operation $mode failure",
+		({ operation, labelExists, mode }) => {
+			const secondBare = path.join(root, "remote", "consumer-two.git");
+			git(root, "clone", "-q", "--bare", bareDir, secondBare);
+
+			const result = runSync({
+				prCreateStatus: 201,
+				labelExists,
+				twoConsumers: true,
+				failure: { operation, mode },
+			});
+
+			expect(result.status).toBe(0);
+			const warningRow = result.output.split("\n").find((line) => /^consumer\s+warning\s+/.test(line)) ?? "";
+			const expectedDetail =
+				operation === "merge"
+					? `warning: auto-merge request returned ${mode === "http" ? "500" : "curl-error"}`
+					: "warning: could not apply label auto-bump to PR #7";
+			expect(warningRow).toContain(expectedDetail);
+			expect(result.output).toMatch(/^consumer-two\s+auto-bump\s+/m);
+			expect(git(secondBare, "show", `${BRANCH}:.aislop/fork-commit`)).toBe(NEW_PIN);
+		},
+	);
+});
+
+describe("sync_consumers.sh bot commit identity", () => {
+	it("authors bump commits as the login and email read from /api/v1/user", () => {
+		const result = runSync({ prCreateStatus: 201 });
+
+		expect(result.status).toBe(0);
+		expect(result.requests).toContain("GET http://gitea.test/api/v1/user");
+		expect(bareGit("log", "-1", "--format=%an <%ae>", BRANCH)).toBe(
+			"claude-code <claude-code@llamabox.internal>",
+		);
+		expect(bareGit("log", "-1", "--format=%cn <%ce>", BRANCH)).toBe(
+			"claude-code <claude-code@llamabox.internal>",
+		);
+	});
+
+	it.each([
+		{ id: "request-fails", userStatus: 401, userJson: '{"message":"unauthorized"}' },
+		{ id: "email-missing", userStatus: 200, userJson: '{"login":"claude-code","email":""}' },
+	])("fails the run before any bump when the identity cannot be read ($id)", ({ userStatus, userJson }) => {
+		const result = runSync({ prCreateStatus: 201, userStatus, userJson });
+
+		expect(result.status).toBe(1);
+		expect(result.output).toContain("refusing to author bump commits");
+		expect(result.requests).not.toContain("POST");
+		expect(spawnSync("git", ["rev-parse", "--verify", BRANCH], { cwd: bareDir }).status).not.toBe(0);
+	});
 });

@@ -23,6 +23,18 @@
 # --force, leaving the open PR's title and body alone. The run summary names
 # the path ("rebuild" or "append") taken for each consumer.
 #
+# Every pull request this script opens or refreshes, on both the rebuild and
+# append paths, is labeled `auto-bump` (created per repo on first use) and
+# asked to merge its current head once all "*" checks pass (squash, delete
+# branch; re-requested whenever the head moves). Gitea ignores head_commit_id
+# when scheduling auto-merge, so the request does not pin the later merge to
+# the pushed head. Auto-merge is requested only when the base branch requires
+# all status checks (enable_status_check with the "*" context), because Gitea would otherwise
+# merge immediately or as soon as a few named checks pass; any other repo is
+# recorded as "auto-merge skipped". A failed label or merge
+# call is a "warning" row in the summary, never a failure of the fan-out. The
+# helpers live in scripts/auto_bump_pull_request.sh.
+#
 # Usage: sync_consumers.sh <new-sha>
 # Required env: GITEA_TOKEN
 # Optional env: GITEA_URL (default https://gitea.fleet.sticktoitive.net),
@@ -44,6 +56,10 @@ for tool in curl git jq base64; do
 	fi
 done
 
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./auto_bump_pull_request.sh
+source "$SCRIPT_DIRECTORY/auto_bump_pull_request.sh"
+
 BRANCH="chore/aislop-pin-bump"
 SHORT_SHA="${NEW_SHA:0:12}"
 SCRATCH="$(mktemp -d)"
@@ -52,6 +68,8 @@ trap 'rm -rf "$SCRATCH"' EXIT
 auth_header="Authorization: token $GITEA_TOKEN"
 attempted=0
 failed=0
+BOT_LOGIN=""
+BOT_EMAIL=""
 declare -a SUMMARY
 
 record() {
@@ -70,6 +88,21 @@ authed_url() {
 	local scheme="${url%%://*}"
 	local rest="${url#*://}"
 	printf '%s://claude-code:%s@%s' "$scheme" "$GITEA_TOKEN" "$rest"
+}
+
+resolve_bot_identity() {
+	# resolve_bot_identity: read the token owner's login and primary email from
+	# GET /api/v1/user into BOT_LOGIN and BOT_EMAIL, so bump commits are
+	# authored with an email Gitea maps to that account (author.login set).
+	# Returns 1 when either field is missing; there is no fallback identity.
+	local response status
+	response="$SCRATCH/bot_user.json"
+	status="$(curl -sS -o "$response" -w '%{http_code}' -H "$auth_header" \
+		"$GITEA_URL/api/v1/user")" || return 1
+	[ "$status" = "200" ] || return 1
+	BOT_LOGIN="$(jq -r '.login // empty' "$response" 2>/dev/null)" || return 1
+	BOT_EMAIL="$(jq -r '.email // empty' "$response" 2>/dev/null)" || return 1
+	[ -n "$BOT_LOGIN" ] && [ -n "$BOT_EMAIL" ]
 }
 
 resolve_owner_uid() {
@@ -118,15 +151,14 @@ fetch_current_pin() {
 	jq -r '.content' "$body_file" | tr -d '\n' | base64 -d | tr -d '[:space:]'
 }
 
-refresh_open_pull_request() {
-	# refresh_open_pull_request <repo> <base_branch> <title> <body>
-	# Finds the open pull request whose head branch is BRANCH and base
-	# branch is <base_branch>, then PATCHes its title and body to the given
-	# values. Lists open PRs (paginated) and filters with jq instead of
-	# relying on a by-base-head lookup endpoint, since the list+filter form
-	# works on every Gitea version. Echoes the PR html_url on success.
-	# Returns 1 if no matching PR is found or the PATCH does not succeed.
-	local repo="$1" base_branch="$2" title="$3" body="$4"
+find_open_pull_request_number() {
+	# find_open_pull_request_number <repo> <base_branch>
+	# Echoes the number of the open pull request whose head branch is BRANCH
+	# and base branch is <base_branch>. Lists open PRs (paginated) and filters
+	# with jq instead of relying on a by-base-head lookup endpoint, since the
+	# list+filter form works on every Gitea version. Returns 1 if no matching
+	# PR is found or the list cannot be read.
+	local repo="$1" base_branch="$2"
 	local list_file="$SCRATCH/open_prs.json"
 	local page=1
 	local limit=50
@@ -158,7 +190,14 @@ refresh_open_pull_request() {
 	if [ -z "$number" ]; then
 		return 1
 	fi
+	printf '%s' "$number"
+}
 
+refresh_pull_request_text() {
+	# refresh_pull_request_text <repo> <number> <title> <body>
+	# PATCHes the pull request's title and body to the given values. Echoes
+	# the PR html_url on success and returns 1 if the PATCH does not succeed.
+	local repo="$1" number="$2" title="$3" body="$4"
 	local patch_body patch_response patch_status
 	patch_body="$(jq -n --arg title "$title" --arg body "$body" '{title: $title, body: $body}')"
 	patch_response="$SCRATCH/pr_patch_response.json"
@@ -248,8 +287,8 @@ update_consumer() {
 	local nothing_to_commit=0
 	(
 		cd "$repo_dir" || exit 1
-		git config user.name claude-code
-		git config user.email claude-code@noreply.sticktoitive.net
+		git config user.name "$BOT_LOGIN"
+		git config user.email "$BOT_EMAIL"
 		if [ "$path" = "append" ]; then
 			git checkout --quiet -B "$BRANCH" "origin/$BRANCH"
 		else
@@ -282,10 +321,18 @@ update_consumer() {
 		return 1
 	fi
 
-	local pr_title pr_body_text pr_body pr_status pr_response
+	local pushed_head_sha
+	pushed_head_sha="$(git -C "$repo_dir" rev-parse HEAD)"
+
+	local pr_title pr_body_text pr_body pr_status pr_response label_id
 	pr_title="chore: bump aislop fork pin to $SHORT_SHA"
 	pr_body_text="Automated update of .aislop/fork-commit to $NEW_SHA by sync-consumers."
-	pr_body="$(jq -n --arg title "$pr_title" --arg head "$BRANCH" --arg base "$branch" --arg body "$pr_body_text" '{title: $title, head: $head, base: $base, body: $body}')"
+	label_id="$(ensure_auto_bump_label_id "$repo")" || label_id=""
+	if [ -n "$label_id" ]; then
+		pr_body="$(jq -cn --arg title "$pr_title" --arg head "$BRANCH" --arg base "$branch" --arg body "$pr_body_text" --argjson label_id "$label_id" '{title: $title, head: $head, base: $base, body: $body, labels: [$label_id]}')"
+	else
+		pr_body="$(jq -cn --arg title "$pr_title" --arg head "$BRANCH" --arg base "$branch" --arg body "$pr_body_text" '{title: $title, head: $head, base: $base, body: $body}')"
+	fi
 	pr_response="$SCRATCH/pr_response.json"
 	pr_status="$(curl -sS -o "$pr_response" -w '%{http_code}' -X POST \
 		-H "$auth_header" -H "Content-Type: application/json" \
@@ -295,20 +342,25 @@ update_consumer() {
 	case "$pr_status" in
 	200 | 201)
 		record "$repo" "updated" "path=$path: PR opened ($(jq -r '.html_url // "no url"' "$pr_response"))"
+		finalize_pull_request "$repo" "$branch" "$(jq -r '.number // empty' "$pr_response")" "$pushed_head_sha"
 		return 0
 		;;
 	409)
+		local open_number
+		open_number="$(find_open_pull_request_number "$repo" "$branch")" || open_number=""
 		if [ "$path" = "append" ]; then
 			if [ "$nothing_to_commit" -eq 1 ]; then
 				record "$repo" "updated" "path=append: $BRANCH already carries the new pin, nothing pushed, open PR left alone"
 			else
 				record "$repo" "updated" "path=append: pin commit pushed (fast-forward), open PR title/body left alone"
 			fi
+			finalize_pull_request "$repo" "$branch" "$open_number" "$pushed_head_sha"
 			return 0
 		fi
 		local refreshed_url
-		if refreshed_url="$(refresh_open_pull_request "$repo" "$branch" "$pr_title" "$pr_body_text")"; then
+		if [ -n "$open_number" ] && refreshed_url="$(refresh_pull_request_text "$repo" "$open_number" "$pr_title" "$pr_body_text")"; then
 			record "$repo" "updated" "path=rebuild: PR already open, force-push and title/body refreshed (${refreshed_url:-no url})"
+			finalize_pull_request "$repo" "$branch" "$open_number" "$pushed_head_sha"
 			return 0
 		fi
 		record "$repo" "failed" "PR already open but title/body refresh failed"
@@ -350,6 +402,11 @@ process_repo() {
 
 if ! OWNER_UID="$(resolve_owner_uid)" || [ -z "$OWNER_UID" ]; then
 	echo "sync_consumers.sh: could not resolve a Gitea user id for owner '$GITEA_OWNER'" >&2
+	exit 1
+fi
+
+if ! resolve_bot_identity; then
+	echo "sync_consumers.sh: could not read the token owner's login and email from $GITEA_URL/api/v1/user; refusing to author bump commits without an identity Gitea can attribute" >&2
 	exit 1
 fi
 
