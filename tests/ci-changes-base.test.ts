@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { fixCommand } from "../src/commands/fix.js";
 import { isPathInFixScope } from "../src/commands/fix-scope.js";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
@@ -10,6 +10,8 @@ import type { AislopConfig } from "../src/config/index.js";
 import type { EngineContext } from "../src/engines/types.js";
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+const gitOutput = (cwd: string, args: string[]): string =>
+	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
 const write = (root: string, rel: string, body: string) => {
 	const abs = path.join(root, rel);
@@ -38,31 +40,63 @@ const rulesOf = (stdout: string): string[] => {
 const SECRET = 'export const api_key = "abcdefghijklmnopqrstuvwxyz0";\n';
 const CLEAN = "export const sum = (a: number, b: number): number => a + b;\n";
 
+const posixRel = (root: string, rel: string): string =>
+	fs.readFileSync(path.join(root, ...rel.split("/")), "utf-8");
+
+// Build the two-commit Git seed repository once in beforeAll and copy it into a
+// fresh directory per test in beforeEach. Two tests in this suite mutate the
+// working tree and Git index/history, so per-test copies are required for
+// isolation. On Windows, the 10-command Git seed setup measured 196.69-214.37 ms
+// isolated and 968.96 ms under full-suite load, while fs.cpSync measured
+// 12.03-27.78 ms isolated and 52.17-114.65 ms under load with zero subprocesses;
+// 30_000 ms matches the repository's 30 s default testTimeout and provides >30x
+// headroom over the loaded Windows seed setup and 3x the default 10 s hook limit.
+const SEED_SETUP_TIMEOUT_MS = 30_000;
+
 describe("ci --changes --base", () => {
-	let tmpDir: string;
-	let baseSha: string;
+	let seedDirectory = "";
+	let tmpDir = "";
+	let baseSha = "";
+
+	beforeAll(() => {
+		seedDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-ci-base-seed-"));
+		try {
+			git(seedDirectory, ["init"]);
+			git(seedDirectory, ["config", "user.email", "test@example.com"]);
+			git(seedDirectory, ["config", "user.name", "test"]);
+			git(seedDirectory, ["config", "commit.gpgsign", "false"]);
+			write(seedDirectory, "tainted.ts", SECRET);
+			git(seedDirectory, ["add", "."]);
+			git(seedDirectory, ["commit", "-m", "base", "--no-verify"]);
+			baseSha = gitOutput(seedDirectory, ["rev-parse", "HEAD"]);
+			git(seedDirectory, ["checkout", "-b", "feature"]);
+			write(seedDirectory, "clean.ts", CLEAN);
+			git(seedDirectory, ["add", "."]);
+			git(seedDirectory, ["commit", "-m", "feat", "--no-verify"]);
+		} catch (error) {
+			fs.rmSync(seedDirectory, { recursive: true, force: true });
+			seedDirectory = "";
+			throw error;
+		}
+	}, SEED_SETUP_TIMEOUT_MS);
+
+	afterAll(() => {
+		if (seedDirectory) {
+			fs.rmSync(seedDirectory, { recursive: true, force: true });
+			seedDirectory = "";
+		}
+	});
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-ci-base-"));
-		git(tmpDir, ["init"]);
-		git(tmpDir, ["config", "user.email", "test@example.com"]);
-		git(tmpDir, ["config", "user.name", "test"]);
-		git(tmpDir, ["config", "commit.gpgsign", "false"]);
-		write(tmpDir, "tainted.ts", SECRET);
-		git(tmpDir, ["add", "."]);
-		git(tmpDir, ["commit", "-m", "base", "--no-verify"]);
-		baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
-			cwd: tmpDir,
-			encoding: "utf8",
-		}).trim();
-		git(tmpDir, ["checkout", "-b", "feature"]);
-		write(tmpDir, "clean.ts", CLEAN);
-		git(tmpDir, ["add", "."]);
-		git(tmpDir, ["commit", "-m", "feat", "--no-verify"]);
+		fs.cpSync(seedDirectory, tmpDir, { recursive: true });
 	});
 
 	afterEach(() => {
-		fs.rmSync(tmpDir, { recursive: true, force: true });
+		if (tmpDir) {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+			tmpDir = "";
+		}
 	});
 
 	it("scopes to files changed vs the base ref, skipping base-branch slop", () => {
@@ -109,6 +143,28 @@ describe("ci --changes --base", () => {
 		expect(fullDiag?.changeContext).toBeUndefined();
 		expect(stagedDiag?.changeContext).toBeUndefined();
 	});
+
+	it("gives each copy independent working tree and Git index state from the seed", () => {
+		write(tmpDir, "tainted.ts", `${SECRET}export const mutated = 1;\n`);
+		write(tmpDir, "untracked.ts", "export const stray = 2;\n");
+		git(tmpDir, ["add", "tainted.ts"]);
+
+		const secondCopyDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-ci-base-copy-"));
+		try {
+			fs.cpSync(seedDirectory, secondCopyDirectory, { recursive: true });
+			expect(posixRel(secondCopyDirectory, "tainted.ts")).toBe(SECRET);
+			expect(posixRel(secondCopyDirectory, "clean.ts")).toBe(CLEAN);
+			expect(fs.existsSync(path.join(secondCopyDirectory, "untracked.ts"))).toBe(false);
+			expect(gitOutput(secondCopyDirectory, ["status", "--porcelain"])).toBe("");
+			expect(gitOutput(secondCopyDirectory, ["diff", "--name-only", baseSha])).toBe("clean.ts");
+
+			expect(posixRel(tmpDir, "tainted.ts")).toBe(`${SECRET}export const mutated = 1;\n`);
+			expect(gitOutput(tmpDir, ["status", "--porcelain"])).toContain("M  tainted.ts");
+			expect(gitOutput(tmpDir, ["status", "--porcelain"])).toContain("?? untracked.ts");
+		} finally {
+			fs.rmSync(secondCopyDirectory, { recursive: true, force: true });
+		}
+	});
 });
 
 const UNUSED_IMPORT = 'import { leftover } from "./missing";\nexport const value = 1;\n';
@@ -146,9 +202,6 @@ const captureStdout = async (run: () => Promise<unknown>): Promise<string> => {
 		else process.env.CI = previousCi;
 	}
 };
-
-const posixRel = (root: string, rel: string): string =>
-	fs.readFileSync(path.join(root, ...rel.split("/")), "utf-8");
 
 describe("fix --changes --base", () => {
 	let tmpDir = "";
