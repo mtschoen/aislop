@@ -17,6 +17,7 @@ vi.mock("../src/utils/subprocess.js", async (importOriginal) => {
 
 const { inspectDotnetAudit } = await import("../src/engines/security/audit-dotnet.js");
 const { runDependencyAudit } = await import("../src/engines/security/audit.js");
+const { runSerializedMsbuildPass } = await import("../src/engines/msbuild-serial.js");
 const { handleAislopScan } = await import("../src/mcp/tools.js");
 const { SubprocessTimeoutError } = await import("../src/utils/subprocess.js");
 
@@ -85,11 +86,11 @@ const contextFor = (files: string[]): EngineContext => ({
 	},
 });
 
-const reportFor = (project: string): string =>
+const reportForRoot = (root: string, project: string): string =>
 	JSON.stringify({
 		projects: [
 			{
-				path: path.join(rootDirectory, project),
+				path: path.join(root, project),
 				frameworks: [
 					{
 						framework: "net8.0",
@@ -110,6 +111,21 @@ const reportFor = (project: string): string =>
 			},
 		],
 	});
+
+const reportFor = (project: string): string => reportForRoot(rootDirectory, project);
+
+// Lets every already-queued promise continuation run; ordering, not elapsed time.
+const flush = async (): Promise<void> => {
+	for (let round = 0; round < 20; round += 1) {
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	}
+};
+
+interface SubprocessStub {
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+}
 
 describe("per-project NuGet audits", () => {
 	beforeEach(() => {
@@ -302,6 +318,10 @@ describe("per-project NuGet audits", () => {
 	it("runs at most four projects at once", async () => {
 		const projects = Array.from({ length: 5 }, (_, index) => `Project${index}.csproj`);
 		const releases: Array<() => void> = [];
+		let signalFourthStarted: () => void;
+		const fourthStarted = new Promise<void>((resolve) => {
+			signalFourthStarted = resolve;
+		});
 		let signalFifthStarted: () => void;
 		const fifthStarted = new Promise<void>((resolve) => {
 			signalFifthStarted = resolve;
@@ -312,12 +332,16 @@ describe("per-project NuGet audits", () => {
 					releases.push(() =>
 						resolve({ stdout: reportFor(arguments_[1]), stderr: "", exitCode: 0 }),
 					);
+					if (releases.length === 4) signalFourthStarted();
 					if (releases.length === 5) signalFifthStarted();
 				}),
 		);
 
 		const pending = inspectDotnetAudit(contextFor(projects), 1000);
 
+		// The lock the audit group takes makes startup asynchronous, so wait for the
+		// fourth worker's own signal rather than asserting a synchronous fan-out.
+		await fourthStarted;
 		expect(runSubprocess).toHaveBeenCalledTimes(4);
 		// Release the first wave and wait for the next project without a real clock.
 		for (const release of releases) release();
@@ -327,5 +351,201 @@ describe("per-project NuGet audits", () => {
 		const outcome = await pending;
 		expect(outcome.completed).toBe(true);
 		expect(outcome.diagnostics.map((diagnostic) => diagnostic.filePath)).toEqual(projects);
+	});
+});
+
+describe("NuGet audit scheduling against the other MSBuild-loading C# passes", () => {
+	beforeEach(() => {
+		runSubprocess.mockReset();
+	});
+
+	it("keeps a root's whole audit group inside one lock turn", async () => {
+		const auditTimeout = 1000;
+		const projects = Array.from({ length: 6 }, (_, index) => `Sched${index}.csproj`);
+		const sortedProjects = [...projects].sort();
+		const gates = new Map<string, PromiseWithResolvers<SubprocessStub>>();
+		const started: string[] = [];
+		let signalFourthStarted: () => void;
+		const fourthStarted = new Promise<void>((resolve) => {
+			signalFourthStarted = resolve;
+		});
+		// Settles every stub, including one a worker starts after a failure, so the
+		// cleanup below can never leave the audit group hanging.
+		const releaseAll = Promise.withResolvers<SubprocessStub>();
+		runSubprocess.mockImplementation((_command, arguments_) => {
+			const project: string = arguments_[1];
+			started.push(project);
+			if (started.length === 4) signalFourthStarted();
+			const gate = Promise.withResolvers<SubprocessStub>();
+			gates.set(project, gate);
+			return Promise.race([gate.promise, releaseAll.promise]);
+		});
+
+		const predecessor = Promise.withResolvers<void>();
+		const holding = runSerializedMsbuildPass(rootDirectory, () => predecessor.promise);
+		const audit = inspectDotnetAudit(contextFor(projects), auditTimeout);
+		let followingStarted = false;
+		const followingPass = runSerializedMsbuildPass(rootDirectory, async () => {
+			followingStarted = true;
+		});
+		const settle = (project: string) =>
+			gates.get(project)?.resolve({ stdout: reportFor(project), stderr: "", exitCode: 0 });
+		try {
+			await flush();
+			// Neither the audit group nor the pass behind it may start early.
+			expect(started).toEqual([]);
+			expect(followingStarted).toBe(false);
+
+			predecessor.resolve();
+			await holding;
+			await fourthStarted;
+			expect(started).toHaveLength(4);
+			expect(followingStarted).toBe(false);
+
+			// Resolve out of order so the worker pool, not the project order, picks
+			// the next audit; the queued pass must not slip into a gap between waves.
+			for (const project of [projects[3], projects[0], projects[5], projects[1], projects[4]]) {
+				settle(project);
+				await flush();
+				expect(followingStarted).toBe(false);
+			}
+			expect(started).toHaveLength(6);
+
+			settle(projects[2]);
+			const outcome = await audit;
+			await followingPass;
+
+			expect(followingStarted).toBe(true);
+			expect(outcome.completed).toBe(true);
+			expect(outcome.diagnostics.map((diagnostic) => diagnostic.filePath)).toEqual(sortedProjects);
+			// Call order follows the pool, so compare by project: every audit keeps
+			// the caller's timeout and the unchanged command line.
+			const callsByProject = [...runSubprocess.mock.calls].sort((left, right) =>
+				left[1][1] < right[1][1] ? -1 : 1,
+			);
+			expect(callsByProject).toEqual(
+				sortedProjects.map((project) => [
+					"dotnet",
+					[
+						"list",
+						project,
+						"package",
+						"--no-restore",
+						"--vulnerable",
+						"--include-transitive",
+						"--format",
+						"json",
+					],
+					{ cwd: rootDirectory, timeout: auditTimeout },
+				]),
+			);
+		} finally {
+			predecessor.resolve();
+			releaseAll.resolve({ stdout: "", stderr: "", exitCode: 1 });
+			await Promise.allSettled([holding, audit, followingPass]);
+		}
+	});
+
+	it("audits a different root while another pass holds the first root", async () => {
+		const otherRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-audit-dotnet-other-"));
+		const otherProject = "Nested/Other.csproj";
+		const gate = Promise.withResolvers<void>();
+		const holding = runSerializedMsbuildPass(rootDirectory, () => gate.promise);
+		try {
+			const otherFullPath = path.join(otherRoot, otherProject);
+			fs.mkdirSync(path.dirname(otherFullPath), { recursive: true });
+			fs.writeFileSync(otherFullPath, "<Project />\n");
+			runSubprocess.mockImplementation(async (_command, arguments_) => ({
+				stdout: reportForRoot(otherRoot, arguments_[1]),
+				stderr: "",
+				exitCode: 0,
+			}));
+
+			const outcome = await inspectDotnetAudit(
+				{ ...contextFor([]), rootDirectory: otherRoot, dependencyAuditFiles: [otherFullPath] },
+				1000,
+			);
+
+			expect(outcome.completed).toBe(true);
+			expect(outcome.diagnostics.map((diagnostic) => diagnostic.filePath)).toEqual([otherProject]);
+			expect(runSubprocess).toHaveBeenCalledTimes(1);
+			expect(runSubprocess.mock.calls[0][2]).toEqual({ cwd: otherRoot, timeout: 1000 });
+		} finally {
+			gate.resolve();
+			await holding;
+			fs.rmSync(otherRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("holds the root lock until a timed-out audit subprocess tree terminates", async () => {
+		const termination = Promise.withResolvers<void>();
+		const releaseTimeout = Promise.withResolvers<void>();
+		runSubprocess.mockImplementation(async (_command, arguments_) => {
+			const project: string = arguments_[1];
+			if (project !== firstProject) {
+				return { stdout: reportFor(project), stderr: "", exitCode: 0 };
+			}
+			// Built inside the audit callback, so its termination promise registers
+			// with the lock this pass holds; a pre-built error would not.
+			const timedOut = new SubprocessTimeoutError(
+				"dotnet timed out",
+				reportFor(firstProject),
+				"",
+				termination.promise,
+			);
+			await releaseTimeout.promise;
+			throw timedOut;
+		});
+
+		const audit = inspectDotnetAudit(contextFor([firstProject, secondProject]), 1000);
+		let followingStarted = false;
+		const followingPass = runSerializedMsbuildPass(rootDirectory, async () => {
+			followingStarted = true;
+		});
+		try {
+			await flush();
+			expect(runSubprocess).toHaveBeenCalledTimes(2);
+			expect(followingStarted).toBe(false);
+
+			releaseTimeout.resolve();
+			await flush();
+			// The audit has its outcome, but the killed tree has not confirmed it is
+			// gone, so the queued pass still waits.
+			expect(followingStarted).toBe(false);
+
+			termination.resolve();
+			const outcome = await audit;
+			await followingPass;
+
+			expect(followingStarted).toBe(true);
+			expect(outcome.completed).toBe(false);
+			expect(outcome.diagnostics.filter((diagnostic) => diagnostic.rule === skippedRule)).toEqual([
+				expect.objectContaining({ filePath: firstProject, severity: "warning" }),
+			]);
+			expect(outcome.diagnostics.filter((diagnostic) => diagnostic.packageName)).toEqual(
+				[firstProject, secondProject].map((filePath) =>
+					expect.objectContaining({ filePath, packageName: "Vulnerable.Package" }),
+				),
+			);
+		} finally {
+			releaseTimeout.resolve();
+			termination.resolve();
+			await Promise.allSettled([audit, followingPass]);
+		}
+	});
+
+	it("resolves an empty audit scope without waiting for the held root lock", async () => {
+		const gate = Promise.withResolvers<void>();
+		const holding = runSerializedMsbuildPass(rootDirectory, () => gate.promise);
+		try {
+			await flush();
+			await expect(
+				inspectDotnetAudit({ ...contextFor([]), files: [firstProject] }, 1000),
+			).resolves.toEqual({ diagnostics: [], completed: false });
+			expect(runSubprocess).not.toHaveBeenCalled();
+		} finally {
+			gate.resolve();
+			await holding;
+		}
 	});
 });

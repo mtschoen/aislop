@@ -6,6 +6,7 @@ import { enumerateProjectFilesFromDisk } from "../../utils/project-file-list.js"
 import { WALK_PRUNE_DIRECTORIES } from "../../utils/source-file-policy.js";
 import { filterDependencyAuditFiles, listProjectFiles } from "../../utils/source-file-selection.js";
 import { runSubprocess, SubprocessTimeoutError } from "../../utils/subprocess.js";
+import { runSerializedMsbuildPass } from "../msbuild-serial.js";
 import type { Diagnostic, EngineContext } from "../types.js";
 import {
 	type AuditOutcome,
@@ -367,10 +368,17 @@ export const inspectDotnetAudit = async (
 	// Use the discovered manifest scope, resolving central package and lockfile inputs
 	// to their affected eligible projects. No audit means no substantiated completion.
 	const projects = selectDotnetProjects(context);
-	const outcomes = await mapWithConcurrencyLimit(projects, 4, async (project) =>
-		warnWhenIncomplete(
-			await auditDotnet(context.rootDirectory, project, timeout),
-			dotnetAuditSkipped(project),
+	// Each listing evaluates its project through MSBuild, so the whole group joins
+	// the same per-root queue as the other MSBuild-loading C# passes instead of
+	// contending with them for the machine while they build. An empty scope has
+	// nothing to evaluate, so it must not queue behind a pass it cannot contend with.
+	if (projects.length === 0) return { diagnostics: [], completed: false };
+	const outcomes = await runSerializedMsbuildPass(context.rootDirectory, () =>
+		mapWithConcurrencyLimit(projects, 4, async (project) =>
+			warnWhenIncomplete(
+				await auditDotnet(context.rootDirectory, project, timeout),
+				dotnetAuditSkipped(project),
+			),
 		),
 	);
 	return {

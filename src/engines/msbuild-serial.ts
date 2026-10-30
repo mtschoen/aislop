@@ -13,10 +13,24 @@ import {
 // the coverage gate correctly reports as a project that was not analyzed. The
 // engines run concurrently, so each pass takes this lock around its tool process.
 //
+// The per-project NuGet audit (`dotnet list <project.csproj> package`) queues
+// here too, but for contention rather than a shared output file: it evaluates
+// each project through MSBuild without necessarily writing the files above, and
+// four of those evaluations running while jb inspectcode compiles the solution
+// across every core starved the audits past their timeout, reporting projects as
+// unaudited. Waiting in the queue does not consume a subprocess's own timeout -
+// each project audit gets its full budget once it starts - and a pass that times
+// out still holds the lock only until its killed tree confirms termination, or
+// the shutdown grace expires. Serialization bounds the contention; it does not
+// make an unreachable package index or a genuinely slow evaluation succeed.
+//
 // Granularity is the resolved scan root: projects can be shared between several
 // solutions under one root, so a per-solution key would still let two passes
 // touch the same obj directory. Different roots never block each other, and
-// passes that do not load MSBuild never take the lock.
+// passes that do not load MSBuild never take the lock. The audit takes the lock
+// once around its whole group of up to four concurrent project audits, not once
+// per project: this lock is not reentrant, and a per-project turn would let an
+// unrelated pass interleave between two audits of one solution.
 
 const tails = new Map<string, Promise<void>>();
 
