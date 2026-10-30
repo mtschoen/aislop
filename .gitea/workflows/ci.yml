@@ -93,8 +93,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
       - name: Detect toolchain baked into the runner image
         id: baked
         shell: bash
@@ -110,7 +108,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --prefer-offline --frozen-lockfile
 
       - name: Measure coverage
         run: pnpm test:coverage --testTimeout=${{ env.VITEST_TEST_TIMEOUT_MS }}
@@ -134,15 +132,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --prefer-offline --frozen-lockfile
 
       - name: Typecheck
         run: pnpm typecheck
@@ -236,8 +232,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
       - name: Detect toolchain baked into the runner image
         id: baked
         shell: bash
@@ -250,7 +244,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --prefer-offline --frozen-lockfile
 
       - name: Build
         run: pnpm build
@@ -364,8 +358,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
       - name: Detect toolchain baked into the runner image
         id: baked
         shell: bash
@@ -378,7 +370,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --prefer-offline --frozen-lockfile
 
       # The .NET SDK and roslynator come from the fleet Linux image (schoen-lab#4135).
       - name: Print baked .NET SDK and roslynator versions
