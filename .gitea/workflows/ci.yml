@@ -156,13 +156,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify host Node satisfies the engines.node floor
+      - name: Verify host Node satisfies the engines.node supported range
         shell: pwsh
         run: |
-          node --version
-          $major = [int](node -e "console.log(process.versions.node.split('.')[0])")
-          if ($major -lt 20) {
-            Write-Error "Host Node is < 20 (aislop's package.json engines.node floor); the preinstalled runner Node needs upgrading."
+          $ErrorActionPreference = "Stop"
+          $detectedVersion = node --version
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "node --version failed with exit code $LASTEXITCODE; cannot verify package.json engines.node."
+            exit 1
+          }
+          $detectedVersion = "$detectedVersion".Trim()
+          Write-Host $detectedVersion
+          $nodeVersion = [System.Management.Automation.SemanticVersion]($detectedVersion.TrimStart("v"))
+          $requiredRange = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).engines.node
+          # Keep these bounded intervals aligned with package.json and its manifest drift test.
+          $supported = -not $nodeVersion.PreReleaseLabel -and (
+            ($nodeVersion -ge [semver]'22.18.0' -and $nodeVersion -lt [semver]'23.0.0') -or
+            $nodeVersion -ge [semver]'24.11.0'
+          )
+          if (-not $supported) {
+            Write-Error "Host Node $detectedVersion does not satisfy package.json engines.node '$requiredRange'; the preinstalled runner Node needs upgrading."
             exit 1
           }
 
