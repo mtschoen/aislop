@@ -385,17 +385,141 @@ jobs:
       - name: Install dependencies
         run: pnpm install --prefer-offline --frozen-lockfile
 
-      # The .NET SDK and roslynator come from the fleet Linux image (schoen-lab#4135).
-      - name: Print baked .NET SDK and roslynator versions
+      # The .NET SDK, jb, and roslynator come from the fleet Linux image (schoen-lab#4135).
+      - name: Print baked .NET SDK and analyzer versions
         run: |
           dotnet --version
+          jb inspectcode --version
           roslynator --version
 
       - name: Build
         run: pnpm build
 
-      - name: Scan sample C# project and assert dotnet diagnostics appear
+      # Reject an unrestored control, then require both analyzers to run the restored
+      # fixture and emit its exact diagnostic. Findings may make a valid scan exit 1.
+      - name: Validate C# analyzer execution
         run: |
-          node dist/cli.js scan tests/fixtures/dotnet/sample-project --json > scan.json || true
-          cat scan.json
-          grep -q '"dotnet/' scan.json
+          node --input-type=commonjs <<'NODE'
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const { spawnSync } = require("node:child_process");
+
+          const projectRoot = "tests/fixtures/dotnet/sample-project";
+          const projectFile = `${projectRoot}/Sample.csproj`;
+          const assetsFile = `${projectRoot}/obj/project.assets.json`;
+          const tools = ["jb inspectcode", "roslynator"];
+
+          const run = (phase, command, arguments_) => {
+            console.log(`\n[${phase}] ${command} ${arguments_.join(" ")}`);
+            const result = spawnSync(command, arguments_, { encoding: "utf8" });
+            if (result.stdout) process.stdout.write(result.stdout);
+            if (result.stderr) process.stderr.write(result.stderr);
+            console.log(`\n[${phase}] exit status: ${result.status}; signal: ${result.signal ?? "none"}`);
+            assert.ifError(result.error);
+            assert.equal(result.signal, null, `${phase}: process terminated by signal`);
+            assert.notEqual(result.status, null, `${phase}: process produced no exit status`);
+            return result;
+          };
+
+          const scan = (phase) => {
+            const result = run(phase, process.execPath, [
+              "dist/cli.js",
+              "scan",
+              projectRoot,
+              "--json",
+            ]);
+            assert.equal(typeof result.stdout, "string", `${phase}: missing stdout`);
+            assert.ok(result.stdout.trim(), `${phase}: empty JSON report`);
+            let report;
+            try {
+              report = JSON.parse(result.stdout);
+            } catch (error) {
+              assert.fail(`${phase}: invalid JSON report: ${error.message}`);
+            }
+            return { result, report };
+          };
+
+          const validatePositive = (result, report) => {
+            assert.ok(result.status === 0 || result.status === 1, `unexpected scan exit ${result.status}`);
+            assert.ok(report && typeof report === "object" && !Array.isArray(report));
+            assert.equal(report.schemaVersion, "2");
+            assert.ok(report.engines && typeof report.engines === "object" && !Array.isArray(report.engines));
+            for (const [name, engine] of Object.entries(report.engines)) {
+              assert.ok(engine && typeof engine === "object" && !Array.isArray(engine), `${name}: invalid engine`);
+              assert.notEqual(engine.failed, true, `${name}: engine failed`);
+              for (const field of ["failures", "missingTools"]) {
+                assert.ok(
+                  engine[field] === undefined || (Array.isArray(engine[field]) && engine[field].length === 0),
+                  `${name}: nonempty or invalid ${field}`,
+                );
+              }
+            }
+
+            const lint = report.engines.lint;
+            assert.ok(lint && typeof lint === "object" && !Array.isArray(lint), "missing lint engine");
+            assert.equal(lint.skipped, false);
+            assert.notEqual(lint.failed, true);
+            assert.ok(Array.isArray(lint.executions), "missing analyzer executions");
+            assert.equal(lint.executions.length, 2);
+            for (const tool of tools) {
+              const matching = lint.executions.filter((execution) => execution.tool === tool);
+              assert.equal(matching.length, 1, `${tool}: expected one execution record`);
+              const execution = matching[0];
+              assert.equal(execution.status, "ran", `${tool}: ${execution.reason ?? execution.status}`);
+              for (const field of ["targets", "analyzedProjects", "excludedProjects"]) {
+                assert.ok(Array.isArray(execution[field]), `${tool}: missing ${field}`);
+              }
+              assert.ok(execution.targets.includes("Sample.csproj"), `${tool}: fixture not targeted`);
+              assert.ok(execution.analyzedProjects.includes("Sample.csproj"), `${tool}: fixture not analyzed`);
+              assert.ok(!execution.excludedProjects.includes("Sample.csproj"), `${tool}: fixture excluded`);
+            }
+            assert.ok(Array.isArray(report.diagnostics), "missing diagnostics");
+            assert.ok(
+              report.diagnostics.some((diagnostic) =>
+                diagnostic.engine === "lint" && diagnostic.filePath === "Bad.cs" &&
+                diagnostic.rule === "dotnet/AsyncFixer03"
+              ),
+              "expected dotnet/AsyncFixer03 in Bad.cs",
+            );
+          };
+
+          assert.equal(fs.existsSync(assetsFile), false, `${assetsFile} must be absent before the negative control`);
+          const negative = scan("pre-restore");
+          assert.equal(negative.result.status, 1, "unrestored scan must exit 1");
+          assert.equal(negative.report.schemaVersion, "2");
+          const negativeLint = negative.report.engines?.lint;
+          assert.ok(negativeLint && typeof negativeLint === "object", "negative control missing lint engine");
+          assert.equal(negativeLint.skipped, false);
+          assert.equal(negativeLint.failed, true, "unrestored lint engine must fail");
+          assert.ok(Array.isArray(negativeLint.executions), "negative control missing executions");
+          assert.equal(negativeLint.executions.length, 2);
+          for (const tool of tools) {
+            const matching = negativeLint.executions.filter((execution) => execution.tool === tool);
+            assert.equal(matching.length, 1, `${tool}: expected one negative execution record`);
+            assert.equal(matching[0].status, "not-selected", `${tool}: unrestored analyzer must not run`);
+            assert.ok(Array.isArray(matching[0].analyzedProjects), `${tool}: missing analyzedProjects`);
+            assert.equal(matching[0].analyzedProjects.length, 0, `${tool}: unrestored project analyzed`);
+          }
+          assert.ok(Array.isArray(negative.report.diagnostics), "negative control missing diagnostics");
+          assert.ok(
+            negative.report.diagnostics.some((diagnostic) =>
+              diagnostic.engine === "lint" && diagnostic.rule === "dotnet/projects-skipped"
+            ),
+            "negative control missing projects-skipped advisory",
+          );
+          assert.throws(
+            () => validatePositive(negative.result, negative.report),
+            "positive acceptance unexpectedly passed the unrestored report",
+          );
+          console.log("[pre-restore] positive acceptance rejected the unrestored report");
+
+          const restore = run("locked restore", "dotnet", ["restore", projectFile, "--locked-mode"]);
+          assert.equal(restore.status, 0, "dotnet restore failed");
+          const build = run("no-restore build", "dotnet", ["build", projectFile, "--no-restore"]);
+          assert.equal(build.status, 0, "dotnet build failed");
+          assert.equal(fs.existsSync(assetsFile), true, `${assetsFile} missing after restore`);
+
+          const positive = scan("post-build");
+          validatePositive(positive.result, positive.report);
+          console.log("[post-build] both analyzers ran Sample.csproj and emitted dotnet/AsyncFixer03");
+          NODE
