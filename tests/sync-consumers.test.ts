@@ -3,7 +3,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it as baseIt, vi } from "vitest";
+
+interface InheritedGitOverrides {
+	forRoot: (temporaryRoot: string) => NodeJS.ProcessEnv;
+}
+
+const it = baseIt.extend<{ inheritedGitOverrides: InheritedGitOverrides }>({
+	inheritedGitOverrides: { forRoot: () => ({}) },
+});
 
 const SCRIPT = path.resolve("scripts/sync_consumers.sh");
 const OLD_PIN = "a".repeat(40);
@@ -81,10 +89,22 @@ const BRANCH_RESPONSES = {
 let root: string;
 let bareDir: string;
 let workDir: string;
+let trapDir: string;
 let requestLog: string;
+let emptyConfigurationPath: string;
+
+// Remove caller overrides before applying fixture-owned settings so Git cannot
+// redirect repository operations or replace commit identities.
+const controlledGitEnvironment = (): NodeJS.ProcessEnv => ({
+	...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.toUpperCase().startsWith("GIT_"))),
+	GIT_CONFIG_NOSYSTEM: "1",
+	GIT_CONFIG_GLOBAL: emptyConfigurationPath,
+	GIT_ALLOW_PROTOCOL: "file",
+	GIT_TERMINAL_PROMPT: "0",
+});
 
 const git = (cwd: string, ...args: string[]): string => {
-	const result = spawnSync("git", args, { cwd, encoding: "utf-8" });
+	const result = spawnSync("git", args, { cwd, encoding: "utf-8", env: controlledGitEnvironment() });
 	if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
 	return result.stdout.trim();
 };
@@ -100,7 +120,16 @@ const commitFile = (relativePath: string, content: string, message: string): voi
 const bareGit = (...args: string[]): string => git(bareDir, ...args);
 
 const isAncestor = (ancestor: string, descendant: string): boolean =>
-	spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd: bareDir }).status === 0;
+	spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+		cwd: bareDir,
+		env: controlledGitEnvironment(),
+	}).status === 0;
+
+const hasBranch = (branch: string): boolean =>
+	spawnSync("git", ["--git-dir", bareDir, "rev-parse", "--verify", branch], {
+		cwd: root,
+		env: controlledGitEnvironment(),
+	}).status === 0;
 
 interface SyncResult {
 	status: number | null;
@@ -196,10 +225,10 @@ const runSync = (options: RunSyncOptions = {}): SyncResult => {
 		fs.writeFileSync(hookOnceFile, "1");
 	}
 	installWindowsJqShim(binDir);
-	// Windows spells the variable `Path`; spreading process.env and then adding `PATH`
-	// would leave two keys and the child may see the original, so drop every casing.
+	// Windows spells the variable `Path`; adding `PATH` without removing every
+	// inherited casing would leave two keys and the child may see the original.
 	const inheritedEnvironment = Object.fromEntries(
-		Object.entries(process.env).filter(([name]) => name.toUpperCase() !== "PATH"),
+		Object.entries(controlledGitEnvironment()).filter(([name]) => name.toUpperCase() !== "PATH"),
 	);
 	// Git for Windows' bash puts its own /usr/bin (with a real curl) ahead of the
 	// inherited PATH, so a PATH entry alone is not enough. BASH_ENV is sourced after
@@ -251,11 +280,19 @@ const runSync = (options: RunSyncOptions = {}): SyncResult => {
 	return { status: result.status, output: `${result.stdout}${result.stderr}`, requests };
 };
 
-beforeEach(() => {
+it.beforeEach(({ inheritedGitOverrides }) => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-sync-consumers-"));
 	bareDir = path.join(root, "remote", "consumer.git");
 	workDir = path.join(root, "work");
+	trapDir = path.join(root, "trap-remote", "consumer.git");
 	requestLog = path.join(root, "requests.log");
+	emptyConfigurationPath = path.join(root, "empty-git-config");
+	fs.writeFileSync(emptyConfigurationPath, "");
+	for (const [name, value] of Object.entries(inheritedGitOverrides.forRoot(root))) {
+		if (value !== undefined) vi.stubEnv(name, value);
+	}
+	fs.mkdirSync(trapDir, { recursive: true });
+	git(trapDir, "init", "-q", "--bare", "--initial-branch=main");
 	fs.mkdirSync(bareDir, { recursive: true });
 	git(bareDir, "init", "-q", "--bare", "--initial-branch=main");
 	git(root, "init", "-q", "--initial-branch=main", workDir);
@@ -266,13 +303,85 @@ beforeEach(() => {
 	git(workDir, "push", "-q", "origin", "main");
 });
 
-afterEach(() => {
+it.afterEach(() => {
+	vi.unstubAllEnvs();
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
 const pushBranch = (): void => {
 	git(workDir, "push", "-q", "--force", "origin", `HEAD:refs/heads/${BRANCH}`);
 };
+
+describe("sync_consumers.sh inherited Git configuration (issue 180)", () => {
+	it("filters override names regardless of casing", () => {
+		vi.stubEnv("git_config_parameters", "inherited");
+		vi.stubEnv("Git_Dir", "inherited");
+
+		const environment = controlledGitEnvironment();
+
+		expect(environment).not.toHaveProperty("git_config_parameters");
+		expect(environment).not.toHaveProperty("Git_Dir");
+	});
+
+	describe("counted configuration", () => {
+		it.override("inheritedGitOverrides", {
+			forRoot: (temporaryRoot) => ({
+				GIT_CONFIG_COUNT: "3",
+				GIT_CONFIG_KEY_0: "remote.origin.pushurl",
+				GIT_CONFIG_VALUE_0: pathToFileURL(path.join(temporaryRoot, "trap-remote", "consumer.git")).href,
+				GIT_CONFIG_KEY_1: "user.name",
+				GIT_CONFIG_VALUE_1: "inherited-user",
+				GIT_CONFIG_KEY_2: "user.email",
+				GIT_CONFIG_VALUE_2: "inherited@example.invalid",
+			}),
+		});
+
+		it("keeps fixture seeding and helper pushes in the intended bare repository", () => {
+			expect(hasBranch("main")).toBe(true);
+			commitFile("src/fix.txt", "fix\n", "fix: consumer fix");
+			pushBranch();
+
+			expect(isAncestor(git(workDir, "rev-parse", "HEAD"), BRANCH)).toBe(true);
+			expect(git(trapDir, "for-each-ref", "--format=%(refname)")).toBe("");
+		});
+	});
+
+	describe("legacy configuration parameters", () => {
+		it.override("inheritedGitOverrides", {
+			forRoot: (temporaryRoot) => ({
+				GIT_CONFIG_PARAMETERS: `'url.${pathToFileURL(path.join(temporaryRoot, "trap-remote", "consumer.git")).href}.insteadOf=http://claude-code:test-token@gitea.test/schoen/consumer.git'`,
+			}),
+		});
+
+		it("preserves the script's fixture-owned URL mapping", () => {
+			const result = runSync({ prCreateStatus: 201 });
+
+			expect(result.status).toBe(0);
+			expect(bareGit("show", `${BRANCH}:.aislop/fork-commit`)).toBe(NEW_PIN);
+			expect(git(trapDir, "for-each-ref", "--format=%(refname)")).toBe("");
+		});
+	});
+
+	describe("repository selection", () => {
+		it.override("inheritedGitOverrides", {
+			forRoot: (temporaryRoot) => ({
+				GIT_DIR: path.join(temporaryRoot, "trap-remote", "consumer.git"),
+				GIT_WORK_TREE: path.join(temporaryRoot, "work"),
+				GIT_INDEX_FILE: path.join(temporaryRoot, "injected-index"),
+			}),
+		});
+
+		it("uses the requested fixture repositories and index", () => {
+			expect(hasBranch("main")).toBe(true);
+			expect(fs.existsSync(path.join(root, "injected-index"))).toBe(false);
+			commitFile("src/fix.txt", "fix\n", "fix: consumer fix");
+			pushBranch();
+
+			expect(hasBranch(BRANCH)).toBe(true);
+			expect(git(trapDir, "for-each-ref", "--format=%(refname)")).toBe("");
+		});
+	});
+});
 
 describe("sync_consumers.sh pin-bump branch handling", () => {
 	it("appends a pin commit without force when the branch holds fixes, and leaves the PR alone", () => {
@@ -586,11 +695,22 @@ describe("sync_consumers.sh auto-bump label and guarded auto-merge", () => {
 });
 
 describe("sync_consumers.sh bot commit identity", () => {
-	it("authors bump commits as the login and email read from /api/v1/user", () => {
+	it.override("inheritedGitOverrides", {
+		forRoot: () => ({
+			GIT_AUTHOR_NAME: "inherited-author",
+			GIT_AUTHOR_EMAIL: "inherited-author@example.invalid",
+			GIT_COMMITTER_NAME: "inherited-committer",
+			GIT_COMMITTER_EMAIL: "inherited-committer@example.invalid",
+		}),
+	});
+
+	it("authors fixture and bump commits with their controlled identities (issue 180)", () => {
 		const result = runSync({ prCreateStatus: 201 });
 
 		expect(result.status).toBe(0);
 		expect(result.requests).toContain("GET http://gitea.test/api/v1/user");
+		expect(bareGit("log", "-1", "--format=%an <%ae>", "main")).toBe("tester <tester@example.invalid>");
+		expect(bareGit("log", "-1", "--format=%cn <%ce>", "main")).toBe("tester <tester@example.invalid>");
 		expect(bareGit("log", "-1", "--format=%an <%ae>", BRANCH)).toBe(
 			"claude-code <claude-code@llamabox.internal>",
 		);
@@ -608,6 +728,6 @@ describe("sync_consumers.sh bot commit identity", () => {
 		expect(result.status).toBe(1);
 		expect(result.output).toContain("refusing to author bump commits");
 		expect(result.requests).not.toContain("POST");
-		expect(spawnSync("git", ["rev-parse", "--verify", BRANCH], { cwd: bareDir }).status).not.toBe(0);
+		expect(hasBranch(BRANCH)).toBe(false);
 	});
 });
