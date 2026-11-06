@@ -29,6 +29,7 @@ done
 missing_prerequisites=()
 completed_steps=()
 have() { command -v "$1" >/dev/null 2>&1; }
+aislop_runnable() { have aislop && aislop --version >/dev/null 2>&1; }
 
 echo "Checking prerequisites..."
 if have node; then
@@ -46,12 +47,13 @@ else
 fi
 
 if have aislop; then
-    printf '  %-20s %s\n' "aislop" "$(aislop --version 2>/dev/null)"
-    aislop_available=1
+    if aislop_runnable; then
+        printf '  %-20s %s\n' "aislop" "$(aislop --version 2>/dev/null)"
+    else
+        printf '  %-20s %s\n' "aislop" "on PATH, not runnable yet (agent files only)"
+    fi
 else
     printf '  %-20s %s\n' "aislop" "missing (agent files only)"
-    missing_prerequisites+=("aislop (agent files only) - see docs/installation.md")
-    aislop_available=0
 fi
 
 if ! have node || ! have pnpm; then
@@ -65,7 +67,18 @@ echo "Restoring packages..."
 pnpm install --frozen-lockfile --ignore-scripts
 completed_steps+=("Packages restored")
 
-if [ "$aislop_available" -eq 1 ]; then
+# Build before the agent instruction files: the documented fleet installation
+# runs `aislop` through scripts/wrappers/aislop, which needs this checkout's
+# dist/cli.js. Building last left the wrapper unusable at the hook step, so the
+# restore failed before the build that would have fixed it.
+if [ "$build_requested" -eq 1 ]; then
+    echo
+    echo "Building aislop..."
+    pnpm build
+    completed_steps+=("Build output restored")
+fi
+
+if aislop_runnable; then
     echo
     echo "Restoring agent instruction files..."
     aislop hook install claude --project
@@ -80,10 +93,16 @@ if [ "$aislop_available" -eq 1 ]; then
             echo "Normalized line endings in .claude/settings.json."
         fi
     fi
+elif have aislop; then
+    echo
+    echo "Skipping agent instruction files: aislop is on PATH but not runnable."
+    echo "Build it (./init.sh --build), then run: aislop hook install claude --project"
+    missing_prerequisites+=("aislop (agent files only) - on PATH but not runnable")
 else
     echo
     echo "Skipping agent instruction files: aislop is not installed."
     echo "Once installed, run: aislop hook install claude --project"
+    missing_prerequisites+=("aislop (agent files only) - see docs/installation.md")
 fi
 
 provisioner=""
@@ -98,13 +117,6 @@ if [ -n "$provisioner" ]; then
     else
         echo "$provisioner apply auto-memory failed; continuing." >&2
     fi
-fi
-
-if [ "$build_requested" -eq 1 ]; then
-    echo
-    echo "Building aislop..."
-    pnpm build
-    completed_steps+=("Build output restored")
 fi
 
 echo

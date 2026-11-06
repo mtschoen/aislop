@@ -25,6 +25,19 @@ function Test-CommandAvailable {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Test-AislopRunnable {
+    if (-not (Test-CommandAvailable 'aislop')) { return $false }
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    try {
+        & aislop --version 2>$null | Out-Null
+        return $LASTEXITCODE -eq 0
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
 Write-Host 'Checking prerequisites...'
 if (Test-CommandAvailable 'node') {
     $nodeVersion = (& node --version 2>$null)
@@ -44,13 +57,17 @@ else {
     Write-Host '  pnpm                MISSING' -ForegroundColor Red
 }
 
-$aislopAvailable = Test-CommandAvailable 'aislop'
-if ($aislopAvailable) {
-    $aislopVersion = (& aislop --version 2>$null)
-    Write-Host "  aislop              $aislopVersion"
+$aislopOnPath = Test-CommandAvailable 'aislop'
+if ($aislopOnPath) {
+    if (Test-AislopRunnable) {
+        $aislopVersion = (& aislop --version 2>$null)
+        Write-Host "  aislop              $aislopVersion"
+    }
+    else {
+        Write-Host '  aislop              on PATH, not runnable yet (agent files only)' -ForegroundColor Yellow
+    }
 }
 else {
-    $missingPrerequisites.Add('aislop (agent files only) - see docs/installation.md')
     Write-Host '  aislop              missing (agent files only)' -ForegroundColor Yellow
 }
 
@@ -68,7 +85,19 @@ Write-Host 'Restoring packages...'
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $completedSteps.Add('Packages restored')
 
-if ($aislopAvailable) {
+# Build before the agent instruction files: the documented fleet installation
+# runs `aislop` through scripts/wrappers/aislop.cmd, which needs this checkout's
+# dist/cli.js. Building last left the wrapper unusable at the hook step, so the
+# restore failed before the build that would have fixed it.
+if ($Build) {
+    Write-Host ''
+    Write-Host 'Building aislop...'
+    & pnpm build
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $completedSteps.Add('Build output restored')
+}
+
+if (Test-AislopRunnable) {
     Write-Host ''
     Write-Host 'Restoring agent instruction files...'
     & aislop hook install claude --project
@@ -89,10 +118,17 @@ if ($aislopAvailable) {
         }
     }
 }
+elseif ($aislopOnPath) {
+    Write-Host ''
+    Write-Host 'Skipping agent instruction files: aislop is on PATH but not runnable.' -ForegroundColor Yellow
+    Write-Host 'Build it (.\init.ps1 -Build), then run: aislop hook install claude --project'
+    $missingPrerequisites.Add('aislop (agent files only) - on PATH but not runnable')
+}
 else {
     Write-Host ''
     Write-Host 'Skipping agent instruction files: aislop is not installed.' -ForegroundColor Yellow
     Write-Host 'Once installed, run: aislop hook install claude --project'
+    $missingPrerequisites.Add('aislop (agent files only) - see docs/installation.md')
 }
 
 $provisioner = @('schoen-lab-onboard', 'schoen-lab') |
