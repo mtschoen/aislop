@@ -115,6 +115,12 @@ describe("Gitea Windows host Node supported-range guard", () => {
 		expect(packageManifest.engines.node).toBe("^22.18.0 || >=24.11.0");
 	});
 
+	it("documents the same runtime floor in the installation guide", () => {
+		const installation = fs.readFileSync("docs/installation.md", "utf8");
+		expect(installation).toContain(`**Node.js** ${packageManifest.engines.node}`);
+		expect(installation).not.toContain("**Node.js** >= 20");
+	});
+
 	powerShellIt.each([
 		{ version: "18.20.0", expectedStatus: 1 },
 		{ version: "20.19.0", expectedStatus: 1 },
