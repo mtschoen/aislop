@@ -52,7 +52,7 @@ name: CI
 
 on:
   push:
-    branches: [schoen/main, "feat/**", "fix/**"]
+    branches: [schoen/main, "feat/**", "fix/**", "pr-crew/merge-train/**"]
   pull_request:
     branches: [schoen/main, "feat/**", "fix/**"]
   workflow_dispatch:
