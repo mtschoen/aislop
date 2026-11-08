@@ -13,7 +13,9 @@ CHANGELOG-review.md
 docs/superpowers/
 docs/specs/
 
-.maintenance.json
+# Track the maintenance breadcrumb: it records actioned and rejected findings
+# and cannot be regenerated.
+!.maintenance.json
 
 # aislop runtime artifacts (session/history logs, caches, baselines).
 # Unanchored so nested project directories are covered too.

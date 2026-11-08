@@ -12,8 +12,12 @@
 *.css text
 *.html text
 
-# Windows batch wrappers must keep CRLF: cmd.exe mis-parses LF-terminated
-# batch files, and scripts/wrappers/aislop.cmd is invoked directly from PATH.
+# Shell scripts must use LF so their shebang works on every platform.
+*.sh text eol=lf
+
+# Batch files must use CRLF because cmd.exe can mis-parse labels, goto targets,
+# and multi-line blocks with LF endings.
+*.bat text eol=crlf
 *.cmd text eol=crlf
 
 # Declare binary files

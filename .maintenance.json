@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "tasks": {
+    "project-maintenance": {
+      "runs": [
+        {
+          "timestamp": "2026-11-06T00:23:03Z",
+          "head": "76fa13edb28dc56e0d7e383ea52688349c50c0af",
+          "automated": [
+            {
+              "kind": "hygiene_survey",
+              "action": "Inspected repository status, safe-clean outputs, branches, worktrees, stale memory, TODOs, documentation, tracked artifact sizes, and disk state without deleting files",
+              "detail": "Isolated worktree at base 36cce90af9e53edc64e064b9b710d4555792bc79; no stale project memory or empty directory husks found"
+            },
+            {
+              "kind": "verification",
+              "action": "Ran focused and full repository checks",
+              "detail": "285 test files passed; 4190 passed and 23 skipped; 85.69% line coverage; typecheck and ShellCheck clean; full scan 97/100 and changed-file scan 99/100 with only pre-existing context findings"
+            },
+            {
+              "kind": "clean_init_verification",
+              "action": "Verified the committed restore script twice in a fresh detached worktree, then removed only that verification worktree and its temporary symlinks",
+              "detail": "Package restore, Claude file generation, build, CLI version, idempotence, line endings, and clean Git status all verified; PowerShell and cmd execution remain platform-gated"
+            }
+          ],
+          "user_authorized": [
+            {
+              "kind": "branch_triage",
+              "action": "Refreshed tracking refs and classified local branches without changing them",
+              "detail": "11 merged and 81 unmerged local branches after fetch --prune; unmerged branches had substantive diffs"
+            },
+            {
+              "kind": "clean_init_maintenance_json_ignored",
+              "action": "Made the maintenance breadcrumb trackable",
+              "detail": ".gitignore now negates .maintenance.json instead of ignoring it"
+            },
+            {
+              "kind": "clean_init_scripts_missing",
+              "action": "Added idempotent post-clean restore entry points and documentation",
+              "detail": "init.sh, init.ps1, init.bat, AGENTS.md, and tests/init-scripts.test.ts"
+            },
+            {
+              "kind": "clean_init_aislop_docs_missing",
+              "action": "Generated project-local aislop Claude instructions and made them reproducible after a clean",
+              "detail": "aislop hook install claude --project; init scripts restore .claude/AISLOP.md, .claude/CLAUDE.md, and .claude/settings.json"
+            },
+            {
+              "kind": "clean_init_gitattributes_missing",
+              "action": "Pinned cross-platform script line endings",
+              "detail": ".gitattributes declares *.sh as LF and *.bat as CRLF; staged and fresh-worktree checks confirmed both"
+            },
+            {
+              "kind": "docs_content_drift",
+              "action": "Aligned the documented Node runtime floor with the package manifest",
+              "detail": "docs/installation.md now requires ^22.18.0 || >=24.11.0, with a regression assertion in tests/gitea-windows-node.test.ts"
+            },
+            {
+              "kind": "verification_report",
+              "action": "Recorded the current best-effort coverage and lint baseline",
+              "detail": "TEST-REPORT.md documents 4213 tests, coverage measurements, scan findings, and exact commands"
+            }
+          ],
+          "rejected": [
+            {
+              "kind": "branch_cleanup",
+              "action": "Kept every local and remote branch",
+              "detail": "No branch deletion or remote cleanup performed",
+              "reason": "Branch deletion is not reviewable through this pull request, unmerged diffs are substantive, and remote destructive actions are forbidden"
+            },
+            {
+              "kind": "todo_comment",
+              "action": "Kept the deferred SSR starter-set TODO",
+              "detail": "tools/jb/README.md:18",
+              "reason": "The document requires interactive Rider authoring and verification; hand-writing opaque SSR settings on Linux is not evidence-backed"
+            },
+            {
+              "kind": "clean_init_load_bearing_untracked",
+              "action": "Kept harness-local untracked files out of the commit",
+              "detail": ".agent-lock/, .llm-harness/, and .markdownlintignore",
+              "reason": "These belong to the current job harness or coordination lock, not the repository; AGENTS.md documents their regeneration"
+            },
+            {
+              "kind": "out_of_scope_tracker_locations",
+              "action": "Did not modify findings reported for other registered aislop checkouts",
+              "detail": "/home/schoen/aislop-stress/aislop and /home/schoen/toolchain-sweep-worktrees/aislop",
+              "reason": "The task is confined to the isolated pr-crew worktree"
+            },
+            {
+              "kind": "pre_existing_scan_findings",
+              "action": "Left unrelated source, dependency, and punctuation findings unchanged",
+              "detail": "Full scan baseline: 0 errors, 11 warnings, 83 info",
+              "reason": "No new script or test finding was introduced; unrelated remediation would widen the maintenance pull request"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

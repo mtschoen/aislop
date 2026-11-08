@@ -28,6 +28,29 @@ node dist/cli.js scan . # Run after building manually
 
 All changes should pass:
 `pnpm typecheck && pnpm test && pnpm test:coverage && pnpm scan`.
+`TEST-REPORT.md` records the latest test counts, coverage, and scan baseline.
+
+## Cleaning the working tree
+
+`git clean -ffxd` must always be safe to run: the checkout must be recoverable
+to match a fresh clone using tracked files and reproducible outputs. An exclude
+list defeats that comparison, and Git has no hook or alias that can protect a
+load-bearing untracked file from `clean`.
+
+| Removed | Restored by |
+| --- | --- |
+| `node_modules/` | `./init.sh`, `.\init.bat`, or `.\init.ps1` |
+| `dist/` | `./init.sh --build`, `.\init.bat -Build`, `.\init.ps1 -Build`, or `pnpm build` |
+| `.claude/AISLOP.md`, `.claude/CLAUDE.md`, `.claude/settings.json` | Any init script, or `aislop hook install claude --project` |
+| `.agent-lock/`, `.llm-harness/`, `.markdownlintignore` | The owning agent harness recreates its local runtime files |
+
+After a clean, run `./init.sh` from bash, `.\init.ps1` from PowerShell, or
+`.\init.bat` from cmd.exe. Add `--build` (bash) or `-Build` (Windows) to rebuild
+`dist/`. The scripts check for Node.js, pnpm, and aislop but do not install them.
+
+When `schoen-lab-onboard` or `schoen-lab` is available, the init scripts reapply
+only its `auto-memory` project settings. This optional step is skipped when
+neither tool is installed, and a provisioning failure does not undo the restore.
 
 ## Architecture and naming
 

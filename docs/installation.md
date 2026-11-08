@@ -137,4 +137,4 @@ Run `aislop doctor` to see what is available on your system.
 
 ## Requirements
 
-- **Node.js** >= 20
+- **Node.js** ^22.18.0 || >=24.11.0
