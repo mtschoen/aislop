@@ -56,6 +56,26 @@ const captureStatusPost = async (
 };
 
 describe("Gitea coverage status", () => {
+	it("uses the persistent pnpm volume without competing archive restores (issue 188)", () => {
+		const workflow = parseYaml(fs.readFileSync(".gitea/workflows/ci.yml", "utf8"));
+		for (const jobName of ["coverage", "test-ubuntu", "quality-gate", "dotnet-lint"]) {
+			const steps = workflow.jobs[jobName].steps;
+			const setupSteps = steps.filter((step: { uses?: string }) =>
+				step.uses?.startsWith("actions/setup-node@"),
+			);
+			expect(setupSteps, jobName).toHaveLength(1);
+			for (const step of setupSteps) {
+				expect(step.with, jobName).not.toHaveProperty("cache");
+				expect(step.with["package-manager-cache"], jobName).toBe(false);
+			}
+			expect(steps, jobName).toContainEqual({
+				name: "Install dependencies",
+				run: "pnpm install --prefer-offline --frozen-lockfile",
+			});
+		}
+		expect(workflow.jobs["test-ubuntu"].strategy.matrix["node-version"]).toEqual(["22.23.3", 24]);
+	});
+
 	it("measures source coverage and always posts the pr-crew status", async () => {
 		const workflow = parseYaml(fs.readFileSync(".gitea/workflows/ci.yml", "utf8"));
 		const coverageJob = workflow.jobs.coverage;
@@ -349,20 +369,14 @@ describe("Gitea coverage status", () => {
 			tool = "node",
 			githubPathType = "file",
 		}) => {
-			const temporaryDirectory = fs.mkdtempSync(
-				path.join(os.tmpdir(), "aislop-baked-toolchain-"),
-			);
+			const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-baked-toolchain-"));
 			const githubOutputPath = path.join(temporaryDirectory, "github-output");
 			let githubPath = path.join(temporaryDirectory, "github-path");
 			fs.writeFileSync(githubOutputPath, "");
 			if (githubPathType === "directory") {
 				fs.mkdirSync(githubPath);
 			} else if (githubPathType === "missing-parent") {
-				githubPath = path.join(
-					temporaryDirectory,
-					"missing-parent-directory",
-					"github-path",
-				);
+				githubPath = path.join(temporaryDirectory, "missing-parent-directory", "github-path");
 			} else {
 				fs.writeFileSync(githubPath, "");
 			}
@@ -412,4 +426,3 @@ describe("Gitea coverage status", () => {
 		},
 	);
 });
-

@@ -62,10 +62,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # vitest.config.ts keeps upstream's 30 s per-test timeout. This self-hosted
-# runner serializes every job on one machine, so a test that takes 5 s
+# runner runs concurrent jobs on one machine, so a test that takes 5 s
 # unloaded (tsdown builds, multi-spawn CLI tests) can pass 30 s while the
 # other legs share the box. The CLI flag overrides the config value without
 # touching upstream's file; raise or lower it here, never in vitest.config.ts.
+#
+# The fleet's persistent pnpm volume supplies dependency caching. Disable
+# Actions archive caching: restores can unlink store objects during another
+# job's dependency import.
 #
 # When the Linux runner runs with CI egress enforcement, act_runner injects
 # NODE_USE_ENV_PROXY=1 into every job container. On Node 22, Undici's
@@ -105,7 +109,7 @@ jobs:
           # only (upstream rejected single-version CI), and the fleet image
           # toolcache carries 22.23.3 so setup-node resolves it offline.
           node-version: 22.23.3
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --prefer-offline --frozen-lockfile
@@ -135,7 +139,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --prefer-offline --frozen-lockfile
@@ -254,7 +258,7 @@ jobs:
         if: steps.baked.outputs.node != 'true'
         with:
           node-version: 22.23.3
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --prefer-offline --frozen-lockfile
@@ -380,7 +384,7 @@ jobs:
         if: steps.baked.outputs.node != 'true'
         with:
           node-version: 22.23.3
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --prefer-offline --frozen-lockfile
