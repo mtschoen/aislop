@@ -12,6 +12,9 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
 	security: 1.5,
 };
 const DEFAULT_JB_SEVERITY_FLOOR = "WARNING" as const;
+const DEFAULT_JB_TIMEOUT = 600000;
+// Node timers treat a longer delay as 1 ms, so a larger limit would time out at once.
+const MAXIMUM_JB_TIMEOUT = 2147483647;
 
 const EnginesSchema = z.object({
 	format: z.boolean().default(true),
@@ -61,6 +64,11 @@ const LintConfigSchema = z.object({
 	 * disabled by default so scans do not execute code from untrusted repos.
 	 */
 	expoDoctor: z.boolean().default(false),
+	/**
+	 * Time limit in milliseconds for one jb inspectcode run, shared by the C# and
+	 * C++ passes. A solution-wide pass on a loaded runner can exceed ten minutes.
+	 */
+	jbTimeout: z.number().int().positive().max(MAXIMUM_JB_TIMEOUT).default(DEFAULT_JB_TIMEOUT),
 	csharp: CsharpLintSchema.default(() => ({
 		projectEvaluation: false,
 		jb: true,
@@ -268,6 +276,7 @@ const AislopConfigSchema = z.object({
 	lint: LintConfigSchema.default(() => ({
 		typecheck: false,
 		expoDoctor: false,
+		jbTimeout: DEFAULT_JB_TIMEOUT,
 		csharp: {
 			projectEvaluation: false,
 			jb: true,

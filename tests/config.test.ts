@@ -51,6 +51,29 @@ describe("parseConfig", () => {
 			).toBe(true);
 		},
 	);
+	it("defaults lint.jbTimeout to ten minutes and accepts a raised value", () => {
+		expect(parseConfig({}).lint.jbTimeout).toBe(600000);
+		expect(DEFAULT_CONFIG.lint.jbTimeout).toBe(600000);
+		expect(parseConfig({ lint: { jbTimeout: 1800000 } }).lint.jbTimeout).toBe(1800000);
+	});
+
+	it("accepts the largest delay Node timers support for lint.jbTimeout", () => {
+		expect(parseConfig({ lint: { jbTimeout: 2147483647 } }).lint.jbTimeout).toBe(2147483647);
+	});
+
+	it.each([0, -5, 1.5, "10m", 2147483648])(
+		"rejects lint.jbTimeout = %j and keeps the default",
+		(value) => {
+			let result = parseConfig({});
+			const stderr = withStderr(() => {
+				result = parseConfig({ lint: { jbTimeout: value, typecheck: true } });
+			});
+			expect(result.lint.jbTimeout).toBe(600000);
+			expect(result.lint.typecheck).toBe(true);
+			expect(stderr).toContain("lint.jbTimeout");
+		},
+	);
+
 	it("returns defaults when called with null", () => {
 		const result = parseConfig(null);
 		expect(result).toEqual(DEFAULT_CONFIG);

@@ -364,3 +364,46 @@ describe("runJbLint inspectcode CLI options", () => {
 		expect(args).not.toContain("--swea");
 	});
 });
+
+describe("runJbLint time limit", () => {
+	let tmpDir: string;
+
+	const withJbTimeout = (jbTimeout: number | undefined): EngineContext => {
+		const base = ctx(tmpDir);
+		return { ...base, config: { ...base.config, lint: { ...base.config.lint, jbTimeout } } };
+	};
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aislop-jb-timeout-"));
+		fs.writeFileSync(path.join(tmpDir, "App.sln"), "");
+		runSubprocessMock.mockReset();
+		runSubprocessMock.mockImplementation(async (_bin: string, args: string[]) => {
+			const outputArg = args.find((a) => a.startsWith("--output="));
+			if (outputArg) {
+				fs.writeFileSync(
+					outputArg.slice("--output=".length),
+					'<Report ToolsVersion="2026.1"><Issues><Project Name="App" /></Issues></Report>',
+				);
+			}
+			return { exitCode: 0, stdout: "", stderr: "" };
+		});
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it.each([
+		["csharp", { includeCsharp: true, includeCpp: false }],
+		["cpp", { includeCsharp: false, includeCpp: true }],
+	])("passes the configured lint.jbTimeout to the %s jb pass", async (_name, selection) => {
+		await runJbLint(withJbTimeout(1_800_000), selection);
+		expect(runSubprocessMock).toHaveBeenCalledTimes(1);
+		expect(runSubprocessMock.mock.calls[0][2]).toMatchObject({ timeout: 1_800_000 });
+	});
+
+	it("defaults the jb time limit to ten minutes when lint.jbTimeout is unset", async () => {
+		await runJbLint(withJbTimeout(undefined), { includeCsharp: true, includeCpp: false });
+		expect(runSubprocessMock.mock.calls[0][2]).toMatchObject({ timeout: 600000 });
+	});
+});

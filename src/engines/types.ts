@@ -136,6 +136,7 @@ export interface EngineConfig {
 	lint: {
 		typecheck: boolean;
 		expoDoctor: boolean;
+		jbTimeout?: number;
 		csharp?: {
 			projectEvaluation?: boolean;
 			jb: boolean;

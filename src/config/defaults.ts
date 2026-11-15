@@ -23,6 +23,7 @@ export const DEFAULT_CONFIG: AislopConfig = {
 	lint: {
 		typecheck: false,
 		expoDoctor: false,
+		jbTimeout: 600000,
 		csharp: {
 			projectEvaluation: false,
 			jb: true,

@@ -92,6 +92,7 @@
 			"default": {
 				"typecheck": false,
 				"expoDoctor": false,
+				"jbTimeout": 600000,
 				"csharp": {
 					"projectEvaluation": false,
 					"jb": true,
@@ -119,6 +120,12 @@
 				"expoDoctor": {
 					"default": false,
 					"type": "boolean"
+				},
+				"jbTimeout": {
+					"default": 600000,
+					"type": "integer",
+					"exclusiveMinimum": 0,
+					"maximum": 2147483647
 				},
 				"csharp": {
 					"default": {

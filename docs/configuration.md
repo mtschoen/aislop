@@ -60,6 +60,9 @@ telemetry:
   enabled: true          # set to false to opt out
 ```
 
+`lint.jbTimeout` (default `600000`) is the time limit in milliseconds for one jb inspectcode run; see
+[jb time limit](rules.md#jb-time-limit).
+
 When a field has an invalid value, aislop reports its path and value, drops only that field, and
 keeps the rest of the configuration in effect. Invalid YAML and non-mapping document roots cannot
 be recovered field by field, so they use the full default configuration.

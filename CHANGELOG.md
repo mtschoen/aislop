@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+### Added
+
+- **`lint.jbTimeout` raises the jb inspectcode time limit.** The limit was fixed at ten minutes, so a solution-wide pass on a loaded CI runner failed the lint engine with `Command timed out after 600000ms: jb`. The new key sets the limit in milliseconds for both the C# and C++ jb passes, defaults to `600000` (unchanged), and must be a positive integer no larger than `2147483647`.
+
 ### Fixed
 
 - **`ai-slop/hardcoded-user-path` no longer depends on the account running the scan.** The rule used to add `os.homedir()` to its banned roots, so one tree scored differently per account. It now flags the shapes `/home/<name>/`, `/Users/<name>/` and `<drive>:\Users\<name>\` (and `file:` forms) for any name that is not an existing placeholder (`example`, `someone`, `me`, `runner`, `root`, ...), with the shape matcher in `src/engines/ai-slop/home-path-shape.ts`. Use `example` in fixtures and docs. The new `aiSlop.hardcodedUserPath.allowedPlaceholders` list exempts further plain name segments. `bannedRoots` still covers non-standard roots. Expect new findings for real home paths already in a tree.
